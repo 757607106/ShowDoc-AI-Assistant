@@ -8,7 +8,7 @@
 |---|---|---|---|
 | `tiantong` | 天通资源管理中心 | 免登录 | `http://117.172.29.67:6067/knowledge` |
 | `showdoc` | ShowDoc（云辉煌知识库） | 公开项目免登录；`--login` 或 `--list-projects` 需登录 | `https://yunhelp.gmgrasp.com.cn/server/index.php` |
-| `cyb` | 管家婆云辉煌创业版 | 验证码 + 手机号自动登录 | `https://new.yuncyb.com` |
+| `cyb` | 管家婆云辉煌创业版 | 验证码 + 手机号自动登录（同一服务进程复用 token，失效后自动重登） | `https://new.yuncyb.com` |
 | `web` | 通用网页 URL | 输入 URL，Crawl4AI 自动提取正文并输出 Markdown | 运行时传入 |
 
 ## 安装
@@ -64,6 +64,7 @@ python main.py --entry web --url https://docs.example.com/guide \
 - `assets/attachments/`：附件（附件下载地址 15 分钟失效，爬取时即时下载落盘）。
 - `rag_documents.jsonl`：清洗后正文 + `metadata` 字段全量保留平台原始 16 个字段。
 - `rag_chunks.jsonl`：按段落切分并保留重叠上下文的 RAG 分块（metadata 含分类）。
+- `quality_report.json`：本次任务的文档完整性、重复内容、标题结构与质量评分报告。
 
 ShowDoc 结果保存在 `downloads/showdoc_<item_id>/`，结构同上；分类来自项目目录树（如 `根目录`、`一级目录/二级目录`）。
 
@@ -88,7 +89,7 @@ python cyb_rag_md.py   # 等价于 python main.py --entry cyb --out downloads/cy
 python app.py   # http://127.0.0.1:8000
 ```
 
-页面顶部 5 个平台标签对应注册表的三个固定入口和一个通用网页入口（ShowDoc 同一站点拆分为匿名/登录两种用法）：
+页面分为“采集工作台、任务监控、数据集输出”三个独立工作区。采集工作台提供 5 种数据源用法（ShowDoc 同一站点拆分为公开项目和账号项目）：
 
 | 标签 | 入口 | 登录 | 说明 |
 |---|---|---|---|
@@ -98,7 +99,9 @@ python app.py   # http://127.0.0.1:8000
 | 天通 | `tiantong` | 免登录 | 资源管理中心全量 1500+ 文档 |
 | 通用网页 URL | `web` | 免登录 | 单页或同域整站采集；优先 robots.txt / sitemap，无 sitemap 时深度发现站内链接与动态路由 |
 
-每个标签支持：获取页面列表（含分类标签与关键词过滤）→ 单篇预览 → 全量/选择性爬取 → 进度轮询 → ZIP 下载（分类目录 + 合并文档 + JSONL）。
+每个数据源支持：配置采集范围（含分类标签与关键词过滤）→ 文档目录选择 → 单篇预览 → 内容清洗 → 质量检查 → RAG 数据集生成 → ZIP 下载（分类目录 + 合并文档 + JSONL + 质量报告）。浏览器会记住当前任务编号，刷新后可恢复进度；同一时间只运行一个治理任务，失败或取消后可以直接重试。
+
+通用网页入口只用于公开网页。系统优先遵守 `robots.txt` 并通过 sitemap 发现页面，不跨域，也不绕过登录、验证码、付费墙或其他访问控制；采集前仍需由使用者确认目标网站的服务条款、版权、隐私与访问频率要求。
 
 后端为 registry 分发的通用接口，新增平台无需改动路由：
 
@@ -106,3 +109,7 @@ python app.py   # http://127.0.0.1:8000
 - `GET /entries/<key>/documents` — 文档列表（`auth=1` 注入 ShowDoc 会话）
 - `GET /entries/<key>/preview?doc_id=` — 单篇预览
 - `POST /entries/<key>/start` — 启动爬取任务
+- `GET /api/tasks` — 最近任务列表（不返回账号令牌等敏感参数）
+- `GET /task_status/<task_id>` — 任务阶段、进度、质量指标与日志
+- `POST /tasks/<task_id>/cancel` — 在安全检查点取消任务
+- `POST /tasks/<task_id>/retry` — 重试失败或已取消任务

@@ -66,6 +66,10 @@ class ApiError(Exception):
         self.status_code = status_code
 
 
+class TaskCancelled(RuntimeError):
+    """任务在安全检查点收到取消请求。"""
+
+
 @app.errorhandler(ApiError)
 def handle_api_error(error):
     return jsonify({'success': False, 'message': error.message}), error.status_code
@@ -125,20 +129,114 @@ def entry_crawler_params(key, payload):
 
 
 class CrawlerTask:
-    def __init__(self, task_id, entry, params=None, selected_titles=None):
+    def __init__(
+        self,
+        task_id,
+        entry,
+        params=None,
+        selected_ids=None,
+        selected_titles=None,
+        retry_of=None,
+    ):
         self.task_id = task_id
         self.entry = entry          # registry 平台键
         self.params = params or {}  # create_crawler 透传的平台参数
+        self.selected_ids = [str(item) for item in (selected_ids or [])]
         self.selected_titles = selected_titles or []
-        self.status = 'pending'  # pending, running, completed, failed
+        self.retry_of = retry_of
+        self.status = 'pending'  # pending, running, cancelling, completed, failed, cancelled
+        self.phase = 'queued'
         self.progress = 0
         self.total_pages = 0
         self.completed_pages = 0
+        self.failed_pages = 0
+        self.skipped_pages = 0
+        self.current_item = ''
         self.message = ''
         self.start_time = datetime.now()
         self.end_time = None
         self.output_dir = None
         self.zip_file = None
+        self.summary = None
+        self.logs = []
+        self.cancel_event = threading.Event()
+
+    def add_log(self, message):
+        text = str(message or '').strip()
+        if not text:
+            return
+        if self.logs and self.logs[-1]['message'] == text:
+            return
+        self.logs.append({
+            'time': datetime.now().isoformat(timespec='seconds'),
+            'message': text,
+        })
+        self.logs = self.logs[-120:]
+
+
+def task_payload(task, include_logs=True):
+    """生成前端任务契约，避免暴露账号 token 等爬虫参数。"""
+    finished_at = task.end_time or datetime.now()
+    elapsed_seconds = max(0, int((finished_at - task.start_time).total_seconds()))
+    metrics = {
+        'documents': task.summary.total_documents if task.summary else 0,
+        'empty_documents': task.summary.empty_documents if task.summary else 0,
+        'categories': task.summary.category_count if task.summary else 0,
+        'chunks': task.summary.chunk_count if task.summary else 0,
+        'quality_score': task.summary.quality_score if task.summary else None,
+        'duplicate_documents': task.summary.duplicate_count if task.summary else 0,
+        'errors': task.summary.error_count if task.summary else 0,
+        'warnings': task.summary.warning_count if task.summary else 0,
+    }
+    payload = {
+        'task_id': task.task_id,
+        'entry': task.entry,
+        'entry_name': get_entry(task.entry).display_name,
+        'status': task.status,
+        'phase': task.phase,
+        'progress': task.progress,
+        'total_pages': task.total_pages,
+        'completed_pages': task.completed_pages,
+        'successful_pages': max(0, task.completed_pages - task.failed_pages),
+        'failed_pages': task.failed_pages,
+        'skipped_pages': task.skipped_pages,
+        'current_item': task.current_item,
+        'message': task.message,
+        'start_time': task.start_time.isoformat(),
+        'end_time': task.end_time.isoformat() if task.end_time else None,
+        'elapsed_seconds': elapsed_seconds,
+        'selected_count': len(task.selected_ids or task.selected_titles),
+        'retry_of': task.retry_of,
+        'download_available': bool(task.status == 'completed' and task.zip_file),
+        'metrics': metrics,
+    }
+    if include_logs:
+        payload['logs'] = list(task.logs)
+    return payload
+
+
+def start_task(entry, params, selected_ids=None, selected_titles=None, retry_of=None):
+    task = CrawlerTask(
+        str(uuid.uuid4()),
+        entry,
+        params=params,
+        selected_ids=selected_ids,
+        selected_titles=selected_titles,
+        retry_of=retry_of,
+    )
+    task.add_log('任务已创建，等待执行')
+    tasks[task.task_id] = task
+    thread = threading.Thread(target=run_crawler_task, args=(task,), daemon=True)
+    thread.start()
+    return task
+
+
+def get_active_task():
+    """工作台按单任务串行执行，避免重复提交占用采集会话与网络资源。"""
+    return next(
+        (task for task in tasks.values() if task.status in {'pending', 'running', 'cancelling'}),
+        None,
+    )
 
 
 @app.route('/')
@@ -269,29 +367,28 @@ def entry_start(key):
     """启动指定平台的爬取任务"""
     try:
         entry = get_entry_or_404(key)
+        active = get_active_task()
+        if active:
+            raise ApiError(
+                f'已有 {get_entry(active.entry).display_name} 任务正在处理，请等待完成或先取消',
+                409,
+            )
         data = request.get_json(silent=True) or {}
         params = entry_crawler_params(entry.key, data)
         if entry.key == 'showdoc' and not params.get('item_id'):
             raise ApiError('缺少item_id参数')
 
-        task_id = str(uuid.uuid4())
-        task = CrawlerTask(
-            task_id,
+        task = start_task(
             entry.key,
             params=params,
+            selected_ids=data.get('selected_ids') or [],
             selected_titles=data.get('selected_titles') or [],
         )
-        tasks[task_id] = task
 
-        # 在后台线程中运行爬虫
-        thread = threading.Thread(target=run_crawler_task, args=(task,))
-        thread.daemon = True
-        thread.start()
-
-        download_type = "选择性下载" if task.selected_titles else "全量下载"
+        download_type = "选择性下载" if (task.selected_ids or task.selected_titles) else "全量下载"
         return jsonify({
             'success': True,
-            'task_id': task_id,
+            'task_id': task.task_id,
             'message': f'{entry.display_name}爬取任务已开始 ({download_type})'
         })
     except ApiError:
@@ -306,17 +403,54 @@ def task_status(task_id):
     if not task:
         return jsonify({'error': '任务不存在'}), 404
 
+    return jsonify(task_payload(task))
+
+
+@app.route('/api/tasks')
+def task_list():
+    """返回最近任务，用于刷新恢复、侧栏状态与数据集历史。"""
+    recent = sorted(tasks.values(), key=lambda item: item.start_time, reverse=True)[:30]
     return jsonify({
-        'task_id': task.task_id,
-        'entry': task.entry,
-        'status': task.status,
-        'progress': task.progress,
-        'total_pages': task.total_pages,
-        'completed_pages': task.completed_pages,
-        'message': task.message,
-        'start_time': task.start_time.isoformat(),
-        'end_time': task.end_time.isoformat() if task.end_time else None,
-        'selected_count': len(task.selected_titles) if task.selected_titles else 0
+        'success': True,
+        'tasks': [task_payload(task, include_logs=False) for task in recent],
+    })
+
+
+@app.route('/tasks/<task_id>/cancel', methods=['POST'])
+def cancel_task(task_id):
+    task = tasks.get(task_id)
+    if not task:
+        raise ApiError('任务不存在', 404)
+    if task.status not in {'pending', 'running', 'cancelling'}:
+        raise ApiError('当前任务已经结束，无法取消', 409)
+    task.cancel_event.set()
+    task.status = 'cancelling'
+    task.message = '正在安全停止任务...'
+    task.add_log(task.message)
+    return jsonify({'success': True, 'message': task.message})
+
+
+@app.route('/tasks/<task_id>/retry', methods=['POST'])
+def retry_task(task_id):
+    task = tasks.get(task_id)
+    if not task:
+        raise ApiError('任务不存在', 404)
+    if task.status not in {'failed', 'cancelled'}:
+        raise ApiError('只有失败或已取消的任务可以重试', 409)
+    active = get_active_task()
+    if active:
+        raise ApiError('已有任务正在处理，请等待完成或先取消', 409)
+    retried = start_task(
+        task.entry,
+        params=dict(task.params),
+        selected_ids=list(task.selected_ids),
+        selected_titles=list(task.selected_titles),
+        retry_of=task.task_id,
+    )
+    return jsonify({
+        'success': True,
+        'task_id': retried.task_id,
+        'message': '已创建重试任务',
     })
 
 
@@ -452,7 +586,8 @@ def run_crawler_task(task):
 
     try:
         task.status = 'running'
-        task.message = '正在初始化爬虫...'
+        set_task_message(task, '正在初始化采集器...', phase='connecting')
+        ensure_task_active(task)
 
         task.output_dir = os.path.join('downloads', task.task_id)
         os.makedirs(task.output_dir, exist_ok=True)
@@ -463,60 +598,130 @@ def run_crawler_task(task):
             progress_callback=lambda current, total, msg: update_task_progress(task, current, total, msg),
             **task.params,
         )
+        ensure_task_active(task)
 
-        summary = crawler.crawl(selected_titles=task.selected_titles)
+        summary = crawler.crawl(
+            selected_ids=task.selected_ids,
+            selected_titles=task.selected_titles,
+        )
+        ensure_task_active(task)
+        task.summary = summary
 
         print(f"\n📊 爬取结果: total={summary.total_documents}, "
               f"empty={summary.empty_documents}, categories={summary.category_count}")
 
         if summary.total_documents > 0:
+            set_task_message(task, '正在打包数据集...', phase='packaging')
+            ensure_task_active(task)
             print(f"📦 正在创建ZIP文件...")
             zip_filename = os.path.join('downloads', f'{task.task_id}.zip')
-            create_zip_file(task.output_dir, zip_filename)
+            create_zip_file(
+                task.output_dir,
+                zip_filename,
+                cancel_check=lambda: ensure_task_active(task),
+            )
             task.zip_file = zip_filename
+            ensure_task_active(task)
 
-            download_type = f"选择了{len(task.selected_titles)}个页面" if task.selected_titles else "全量下载"
+            selected_count = len(task.selected_ids or task.selected_titles)
+            if selected_count:
+                task.skipped_pages = max(0, selected_count - summary.total_documents)
+            download_type = f"选择了{selected_count}个页面" if selected_count else "全量下载"
             task.status = 'completed'
+            task.phase = 'completed'
+            task.progress = 100
             task.message = (
                 f'处理完成！共 {summary.total_documents} 个页面'
                 f'（{summary.empty_documents} 个无内容），'
                 f'{summary.category_count} 个分类 ({download_type})'
             )
+            task.add_log(task.message)
             print(f"\n{'='*60}")
             print(f"✅ [任务完成] status=completed")
             print(f"   ZIP文件: {zip_filename}")
             print(f"{'='*60}\n")
         else:
             task.status = 'failed'
+            task.phase = 'failed'
             task.message = '未找到任何页面内容或所选页面不存在'
+            task.failed_pages = max(1, task.failed_pages)
+            task.add_log(task.message)
             print(f"\n❌ [任务失败] 未找到页面内容")
 
+    except TaskCancelled:
+        task.status = 'cancelled'
+        task.phase = 'cancelled'
+        task.message = '任务已取消，已完成的数据不会进入最终数据集'
+        task.skipped_pages = max(0, task.total_pages - task.completed_pages)
+        task.add_log(task.message)
+        print(f"\n⏹️ [任务取消] task_id={task.task_id}")
     except Exception as e:
         task.status = 'failed'
+        task.phase = 'failed'
         task.message = f'爬取失败: {str(e)}'
+        task.failed_pages = max(1, task.failed_pages)
+        task.add_log(task.message)
         print(f"\n❌ [任务异常] {str(e)}")
     finally:
         task.end_time = datetime.now()
-        task.progress = 100
         print(f"📋 任务最终状态: status={task.status}, progress={task.progress}%")
+
+
+def ensure_task_active(task):
+    """在网络请求、清洗与打包之间提供安全取消点。"""
+    if task.cancel_event.is_set():
+        raise TaskCancelled('任务已取消')
+
+
+def set_task_message(task, message, phase=None):
+    task.message = message
+    if phase:
+        task.phase = phase
+    task.add_log(message)
 
 
 def update_task_progress(task, current, total, message):
     """更新任务进度"""
+    ensure_task_active(task)
     task.completed_pages = current
     task.total_pages = total
     task.progress = int((current / total * 100)) if total > 0 else 0
     task.message = message
+    if message.startswith('正在抓取:'):
+        task.current_item = message.split(':', 1)[1].strip()
+    elif message.startswith('已抓取:'):
+        task.current_item = message.split(':', 1)[1].strip()
+
+    if '质量' in message:
+        task.phase = 'quality_check'
+    elif '数据集' in message or '保存' in message or '打包' in message:
+        task.phase = 'packaging'
+    elif '清洗' in message:
+        task.phase = 'cleaning'
+    elif '抓取' in message:
+        task.phase = 'crawling'
+    elif '登录' in message or '初始化' in message or '目录' in message:
+        task.phase = 'connecting'
+    task.add_log(message)
 
 
-def create_zip_file(source_dir, zip_filename):
-    """创建ZIP压缩文件"""
-    with ZipFile(zip_filename, 'w', ZIP_DEFLATED) as zipf:
-        for root, dirs, files in os.walk(source_dir):
-            for file in files:
-                file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, source_dir)
-                zipf.write(file_path, arcname)
+def create_zip_file(source_dir, zip_filename, cancel_check=None):
+    """原子创建 ZIP；取消或失败时不会留下可误认成数据集的半成品。"""
+    partial_filename = f'{zip_filename}.part'
+    try:
+        with ZipFile(partial_filename, 'w', ZIP_DEFLATED) as zipf:
+            for root, dirs, files in os.walk(source_dir):
+                for file in files:
+                    if cancel_check:
+                        cancel_check()
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, source_dir)
+                    zipf.write(file_path, arcname)
+        os.replace(partial_filename, zip_filename)
+    except Exception:
+        if os.path.exists(partial_filename):
+            os.remove(partial_filename)
+        raise
 
 
 # 清理旧任务的定时任务

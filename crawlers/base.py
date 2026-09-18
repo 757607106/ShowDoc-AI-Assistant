@@ -3,6 +3,7 @@
 统一"登录 → 列目录 → 选择 → 取正文 → 清洗 → 按分类落盘"流程；
 数据保真约束见《多平台爬虫重构方案.md》第 4.3/4.4 节。
 """
+import json
 import os
 import re
 from collections import OrderedDict
@@ -17,6 +18,7 @@ from common.converter import (
     split_markdown_for_rag,
     write_jsonl,
 )
+from common.quality import assess_documents
 
 
 @dataclass
@@ -55,6 +57,12 @@ class CrawlSummary:
     rag_documents_file: str = ""
     rag_chunks_file: str = ""
     finetuning_file: str = ""
+    quality_report_file: str = ""
+    quality_score: float = 0.0
+    chunk_count: int = 0
+    duplicate_count: int = 0
+    error_count: int = 0
+    warning_count: int = 0
 
 
 class BaseCrawler:
@@ -124,7 +132,12 @@ class BaseCrawler:
 
         documents = self._fetch_all(stubs)
         self._convert_all(documents)
-        return self._save(documents)
+        self._notify(len(documents), len(documents), "正在执行质量检查...")
+        quality_report = assess_documents(documents)
+        self._notify(len(documents), len(documents), "质量检查完成，正在生成数据集...")
+        summary = self._save(documents, quality_report)
+        self._notify(len(documents), len(documents), "数据集文件生成完成")
+        return summary
 
     # ---------- 内部实现 ----------
 
@@ -155,8 +168,9 @@ class BaseCrawler:
     def _fetch_all(self, stubs):
         documents = []
         for index, stub in enumerate(stubs, 1):
-            self._notify(index, len(stubs), f"正在抓取: {stub.title}")
+            self._notify(index - 1, len(stubs), f"正在抓取: {stub.title}")
             documents.append(self.fetch_document(stub))
+            self._notify(index, len(stubs), f"已抓取: {stub.title}")
         return documents
 
     def _convert_all(self, documents):
@@ -186,9 +200,11 @@ class BaseCrawler:
             return
 
         print(f"\n🧹 开始内容清洗，处理引擎: {self._engine_name()}")
+        self._notify(0, len(records), "正在清洗内容...")
         converted = self.pipeline.convert(records)
         for doc in documents:
             doc.markdown = converted.get(doc.id, "")
+        self._notify(len(records), len(records), "内容清洗完成")
 
     def _engine_name(self):
         if self.pipeline.use_firecrawl:
@@ -237,7 +253,7 @@ class BaseCrawler:
             result.append(line)
         return "\n".join(result)
 
-    def _save(self, documents):
+    def _save(self, documents, quality_report=None):
         os.makedirs(self.save_dir, exist_ok=True)
         docs_by_category = OrderedDict()
         for doc in documents:
@@ -323,6 +339,12 @@ class BaseCrawler:
                     "metadata": chunk_metadata,
                 })
 
+        quality_report = quality_report or assess_documents(documents)
+        quality_report["summary"]["chunks"] = len(rag_chunks)
+        quality_report_file = os.path.join(self.save_dir, "quality_report.json")
+        with open(quality_report_file, "w", encoding="utf-8") as report_file:
+            json.dump(quality_report, report_file, ensure_ascii=False, indent=2)
+
         # 3. 合并汇总文档：# 合集 / ## 分类 / ### 文档
         merged_lines = [f"# {self.collection_name}"]
         for category, cat_docs in docs_by_category.items():
@@ -357,6 +379,12 @@ class BaseCrawler:
             merged_file=merged_file,
             rag_documents_file=rag_documents_file,
             rag_chunks_file=rag_chunks_file,
+            quality_report_file=quality_report_file,
+            quality_score=quality_report["summary"]["quality_score"],
+            chunk_count=len(rag_chunks),
+            duplicate_count=quality_report["summary"]["duplicate_documents"],
+            error_count=quality_report["summary"]["issue_counts"]["error"],
+            warning_count=quality_report["summary"]["issue_counts"]["warning"],
         )
 
         # 5. 问答型平台的微调数据

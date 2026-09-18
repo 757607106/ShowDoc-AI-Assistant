@@ -13,6 +13,8 @@ import json
 import os
 import re
 import ssl
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -42,6 +44,10 @@ FAQ_TYPE_MAPPING = {
     "7": "系统设置",
 }
 
+CYB_TOKEN_TTL = int(os.getenv("CYB_TOKEN_TTL", "21600"))
+_CYB_TOKEN_CACHE = {}
+_CYB_TOKEN_LOCK = threading.Lock()
+
 
 class LoginRejectedError(RuntimeError):
     """账号、密码或登录响应导致的不可重试错误。"""
@@ -59,6 +65,31 @@ class CYBAuthenticator:
         )
         self.vl_model = os.getenv("CYB_VL_MODEL", "qwen-vl-max")
         self.ctx = ctx or ssl.create_default_context()
+
+    @property
+    def cache_key(self):
+        """同一账号复用登录态，避免预览、列表和任务各自重复登录。"""
+        return self.phone or "__default_cyb_account__"
+
+    @classmethod
+    def clear_token_cache(cls):
+        """清空进程内缓存，主要用于失效重登和测试。"""
+        with _CYB_TOKEN_LOCK:
+            _CYB_TOKEN_CACHE.clear()
+
+    def _get_cached_token(self):
+        with _CYB_TOKEN_LOCK:
+            cached = _CYB_TOKEN_CACHE.get(self.cache_key)
+            if not cached:
+                return None
+            if CYB_TOKEN_TTL > 0 and time.time() - cached["created_at"] >= CYB_TOKEN_TTL:
+                _CYB_TOKEN_CACHE.pop(self.cache_key, None)
+                return None
+            return cached["token"]
+
+    def invalidate_cached_token(self):
+        with _CYB_TOKEN_LOCK:
+            _CYB_TOKEN_CACHE.pop(self.cache_key, None)
 
     def _request_json(self, url, method="GET", payload=None, headers=None, timeout=30):
         request_headers = {"Accept": "application/json", **(headers or {})}
@@ -171,7 +202,32 @@ class CYBAuthenticator:
             )[1]
         raise RuntimeError(f"VL 返回内容中没有有效验证码: {raw_text[:100]!r}")
 
-    def login(self, max_retries=3):
+    def login(self, max_retries=3, force=False):
+        """复用有效 token；只有首次访问或 token 失效时才重新登录。"""
+        if not force:
+            cached_token = self._get_cached_token()
+            if cached_token:
+                print("♻️ 复用云创业版登录态")
+                return cached_token
+
+        # 多个并发请求同时到达时只允许一个请求执行验证码登录。
+        with _CYB_TOKEN_LOCK:
+            if not force:
+                cached_token = _CYB_TOKEN_CACHE.get(self.cache_key)
+                if cached_token:
+                    if CYB_TOKEN_TTL <= 0 or time.time() - cached_token["created_at"] < CYB_TOKEN_TTL:
+                        print("♻️ 复用云创业版登录态")
+                        return cached_token["token"]
+                    _CYB_TOKEN_CACHE.pop(self.cache_key, None)
+
+            token = self._login_uncached(max_retries=max_retries)
+            _CYB_TOKEN_CACHE[self.cache_key] = {
+                "token": token,
+                "created_at": time.time(),
+            }
+            return token
+
+    def _login_uncached(self, max_retries=3):
         """自动刷新验证码并重试登录，成功时返回不带 Bearer 前缀的 token。"""
         if not self.phone or not self.password:
             raise RuntimeError("请在 .env 中配置 CYB_PHONE 和 CYB_PASSWORD")
@@ -368,6 +424,19 @@ class CYBCrawler(BaseCrawler):
             headers=self._headers,
             timeout=self.timeout,
         )
+        if response.status_code in (401, 403):
+            # token 过期时只清除缓存并重登一次，正常预览不会重复触发验证码。
+            self.authenticator.invalidate_cached_token()
+            token = self.authenticator.login(force=True)
+            self._headers = {
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}",
+            }
+            response = requests.get(
+                f"{self.api_base_url}{path}",
+                headers=self._headers,
+                timeout=self.timeout,
+            )
         response.raise_for_status()
         payload = response.json()
         if payload.get("code") != "A00000":
