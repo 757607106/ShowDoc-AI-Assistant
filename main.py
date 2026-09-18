@@ -9,8 +9,12 @@
     python main.py --entry showdoc --item 412           # 爬取指定项目（公开项目免登录）
     python main.py --entry showdoc --item 412 --login   # 先登录再爬取（受保护项目）
     python main.py --entry cyb                          # 爬取云创业版（自动验证码登录）
+    python main.py --entry web --url https://example.com  # 抓取通用网页并输出 Markdown
+    python main.py --entry web --url https://docs.example.com/guide \
+        --crawl-mode site                                # 抓取整个同域网站
 """
 import argparse
+import hashlib
 import os
 from collections import Counter
 
@@ -24,6 +28,9 @@ def default_output_dir(args):
         return args.out
     if args.entry == "showdoc" and args.item:
         return os.path.join("downloads", f"showdoc_{args.item}")
+    if args.entry == "web" and args.url:
+        suffix = hashlib.sha1(args.url.encode("utf-8")).hexdigest()[:10]
+        return os.path.join("downloads", f"web_{suffix}")
     return os.path.join("downloads", args.entry)
 
 
@@ -41,6 +48,14 @@ def build_crawler_kwargs(args):
         kwargs["phone"] = args.phone
     if args.password:
         kwargs["password"] = args.password
+    if args.url:
+        kwargs["url"] = args.url
+    if args.crawl_mode:
+        kwargs["crawl_mode"] = args.crawl_mode
+    if args.max_pages is not None:
+        kwargs["max_pages"] = args.max_pages
+    if args.max_depth is not None:
+        kwargs["max_depth"] = args.max_depth
     return kwargs
 
 
@@ -150,6 +165,27 @@ def main():
         "--password", default=None, help="（cyb）登录密码（默认读 .env 的 CYB_PASSWORD）"
     )
     parser.add_argument(
+        "--url", default=None, help="（web）要抓取的网页 URL"
+    )
+    parser.add_argument(
+        "--crawl-mode",
+        choices=("page", "site"),
+        default=None,
+        help="（web）page 抓当前页；site 抓站内 sitemap 或深度链接",
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=None,
+        help="（web site）最多抓取页面数，0 表示不限制（默认 0）",
+    )
+    parser.add_argument(
+        "--max-depth",
+        type=int,
+        default=None,
+        help="（web site 无 sitemap 时）最大遍历深度，0 表示不限制（默认 0）",
+    )
+    parser.add_argument(
         "--limit", type=int, default=0, help="试跑模式：只处理前 N 条（默认全量）"
     )
     parser.add_argument(
@@ -176,6 +212,8 @@ def main():
         if args.entry == "showdoc" and not args.item:
             parser.error("showdoc 爬取需要 --item 指定项目 ID"
                          "（可用 --list-projects 查看项目列表）")
+        if args.entry == "web" and not args.url:
+            parser.error("web 爬取需要 --url 指定网页地址")
         run_crawl(args)
 
 

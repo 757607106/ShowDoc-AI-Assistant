@@ -9,14 +9,18 @@
 | `tiantong` | 天通资源管理中心 | 免登录 | `http://117.172.29.67:6067/knowledge` |
 | `showdoc` | ShowDoc（云辉煌知识库） | 公开项目免登录；`--login` 或 `--list-projects` 需登录 | `https://yunhelp.gmgrasp.com.cn/server/index.php` |
 | `cyb` | 管家婆云辉煌创业版 | 验证码 + 手机号自动登录 | `https://new.yuncyb.com` |
+| `web` | 通用网页 URL | 输入 URL，Crawl4AI 自动提取正文并输出 Markdown | 运行时传入 |
 
 ## 安装
 
-需要 Python 3.10 或更高版本：
+需要 Python 3.10 或更高版本，项目推荐使用 `uv`：
 
 ```bash
-python -m pip install -r requirements.txt
+uv venv --python 3.12
+uv pip install --python .venv/bin/python -r requirements.txt
 cp .env.example .env
+# Crawl4AI 首次使用需要安装浏览器运行时
+uv run --python .venv/bin/python crawl4ai-setup
 ```
 
 在 `.env` 中配置云创业版手机号、密码和 DashScope API Key。需要启用完整的
@@ -39,7 +43,19 @@ python main.py --entry showdoc --list-projects               # 列出我的项�
 
 python main.py --entry cyb                       # 云创业版全量爬取（自动验证码登录）
 python main.py --entry cyb --limit 5            # 小样本试跑
+python main.py --entry web --url https://example.com/article  # 当前页正文提取
+python main.py --entry web --url https://docs.example.com/guide \
+  --crawl-mode site                                             # 同域整站采集
 ```
+
+`web` 的 `site` 模式按“同一域名下全部可发现 HTML 页面”工作，不受输入 URL
+路径限制：优先递归读取 `robots.txt` 声明及常见 sitemap；没有有效 sitemap 时，
+从输入页和站点首页遍历普通链接及前端应用公开的路由字段。默认
+`--max-pages 0 --max-depth 0`（不限制）；试跑大型网站时可显式设置非零上限。
+整站模式只能发现公开可达或被 sitemap/页面链接公开声明的 URL，不能凭空获得
+未链接、需登录或被验证码/反爬保护的内容。
+整站结果另含 `crawl_report.json`，记录发现数、实际请求数、保存数以及失败、
+拦截、空正文和重复正文 URL，便于核对采集完整性。
 
 结果保存在 `downloads/tiantong/`：
 
@@ -72,7 +88,7 @@ python cyb_rag_md.py   # 等价于 python main.py --entry cyb --out downloads/cy
 python app.py   # http://127.0.0.1:8000
 ```
 
-页面顶部 4 个平台标签对应注册表的三个入口（ShowDoc 同一站点拆分为匿名/登录两种用法）：
+页面顶部 5 个平台标签对应注册表的三个固定入口和一个通用网页入口（ShowDoc 同一站点拆分为匿名/登录两种用法）：
 
 | 标签 | 入口 | 登录 | 说明 |
 |---|---|---|---|
@@ -80,6 +96,7 @@ python app.py   # http://127.0.0.1:8000
 | ShowDoc 登录 | `showdoc` | 用户名+验证码 | 自动识别验证码登录，下拉选择账号下的项目 |
 | 云创业版 | `cyb` | 自动 | 验证码+手机号自动登录，免配置操作 |
 | 天通 | `tiantong` | 免登录 | 资源管理中心全量 1500+ 文档 |
+| 通用网页 URL | `web` | 免登录 | 单页或同域整站采集；优先 robots.txt / sitemap，无 sitemap 时深度发现站内链接与动态路由 |
 
 每个标签支持：获取页面列表（含分类标签与关键词过滤）→ 单篇预览 → 全量/选择性爬取 → 进度轮询 → ZIP 下载（分类目录 + 合并文档 + JSONL）。
 

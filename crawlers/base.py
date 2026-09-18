@@ -257,12 +257,17 @@ class BaseCrawler:
                     category, base_name, doc.id, used_filenames
                 )
                 file_path = os.path.join(category_dir, filename)
+                document_source = (
+                    doc.metadata.get("url")
+                    if isinstance(doc.metadata, dict)
+                    else None
+                ) or self.entry_url
 
                 header = [
                     f"# {doc.title}\n",
                     f"- **分类**: {doc.category}",
                     f"- **更新时间**: {doc.updated_at}",
-                    f"- **来源**: {self.entry_url}",
+                    f"- **来源**: {document_source}",
                     "---\n",
                 ]
                 body = doc.markdown
@@ -282,7 +287,7 @@ class BaseCrawler:
                     "content": doc.markdown,
                     "resources": doc.resources,
                     "source": {
-                        "entry_url": self.entry_url,
+                        "entry_url": document_source,
                         "record_id": doc.id,
                     },
                     "metadata": doc.metadata,

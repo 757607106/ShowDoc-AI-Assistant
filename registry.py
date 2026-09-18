@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from crawlers.cyb import CYBCrawler
 from crawlers.showdoc import ShowDocCrawler
 from crawlers.tiantong import TiantongCrawler
+from crawlers.web import WebCrawler
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,15 @@ ENTRIES = {
         requires_auth=True,
         description="验证码 + 手机号登录；使用教程（含视频）与常见问题 FAQ，"
         "分类为 使用教程/<模块> 与 常见问题/<业务类型>",
+    ),
+    "web": CrawlerEntry(
+        key="web",
+        crawler_class=WebCrawler,
+        display_name="通用网页",
+        entry_url="",
+        requires_auth=False,
+        description="输入任意公开网页 URL，支持单页或同域整站发现，"
+        "自动提取正文、清洗并输出 Markdown",
     ),
 }
 

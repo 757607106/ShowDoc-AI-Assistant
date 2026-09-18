@@ -45,7 +45,10 @@ showdoc_project_manager = ShowDocProjectManager()
 LISTING_SAVE_DIR = os.path.join('downloads', '_listing')
 
 # 请求中允许透传给 create_crawler 的爬取参数白名单
-CRAWLER_PARAM_KEYS = ('item_id', 'keyword', 'default_page_id', 'user_token')
+CRAWLER_PARAM_KEYS = (
+    'item_id', 'keyword', 'default_page_id', 'user_token', 'url',
+    'crawl_mode', 'max_pages', 'max_depth',
+)
 
 # 正文包含 HTML 块级标签时先转 Markdown 再预览；
 # ShowDoc 正文本身是 Markdown 源码，原样返回
@@ -90,6 +93,28 @@ def entry_crawler_params(key, payload):
         for name in CRAWLER_PARAM_KEYS
         if payload.get(name) not in (None, '')
     }
+    if key == 'web' and not params.get('url'):
+        raise ApiError('请输入要抓取的网页 URL')
+    if key == 'web':
+        try:
+            get_entry(key).crawler_class.validate_url(params['url'])
+        except ValueError as error:
+            raise ApiError(str(error)) from error
+        crawl_mode = str(params.get('crawl_mode', 'page')).lower()
+        if crawl_mode not in {'page', 'site'}:
+            raise ApiError('crawl_mode 必须是 page 或 site')
+        for name, default, minimum in (
+            ('max_pages', 0, 0),
+            ('max_depth', 0, 0),
+        ):
+            try:
+                value = int(params.get(name, default))
+            except (TypeError, ValueError) as error:
+                raise ApiError(f'{name} 必须是整数') from error
+            if value < minimum:
+                raise ApiError(f'{name} 必须大于等于 {minimum}')
+            params[name] = value
+        params['crawl_mode'] = crawl_mode
     wants_session_auth = str(payload.get('auth', '')).lower() in ('1', 'true', 'yes')
     if key == 'showdoc' and wants_session_auth and 'user_token' not in params:
         token = showdoc_auth.auto_login_if_needed()
@@ -192,6 +217,15 @@ def entry_preview(key):
                 raise ApiError('获取页面内容失败', 404)
             title = (page_data.get('page_title') or '').strip() or '页面预览'
             content = page_data.get('page_content') or ''
+        elif entry.key == 'web':
+            crawler.authenticate()
+            stubs = crawler.list_documents()
+            stub = next((s for s in stubs if s.id == doc_id), None)
+            if stub is None:
+                raise ApiError('未找到网页文档', 404)
+            doc = crawler.fetch_document(stub)
+            title = doc.title
+            content = doc.markdown
         else:
             crawler.authenticate()
             stubs = crawler.list_documents()

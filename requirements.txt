@@ -1,5 +1,8 @@
 Flask==2.3.3
 requests==2.31.0
+# requests 2.31 在 urllib3 2.x 下会产生兼容性警告
+urllib3<2
+chardet<6
 jsonpath-ng==1.6.1
 beautifulsoup4==4.12.2
 python-dotenv==1.0.0

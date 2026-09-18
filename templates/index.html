@@ -1919,13 +1919,14 @@
     <div class="container">
         <div class="header">
             <h1><span class="badge">RAG</span> AI 知识库数据一体化采集</h1>
-            <p>高效导出知识库内容，为 RAG 系统提供清洁数据源，支持云辉煌 / 云创业版 / 天通多平台选择性提取与批量下载</p>
+            <p>高效导出知识库内容，为 RAG 系统提供清洁数据源，支持固定平台与通用网页 URL 采集</p>
             <div class="header-links">
                 <div class="platform-toggle">
                     <button class="platform-btn active" id="btnYun" data-platform="yun" type="button" title="yunhelp.gmgrasp.com.cn 公开项目（免登录）">云辉煌知识库</button>
                     <button class="platform-btn" id="btnShowdoc" data-platform="showdoc" type="button" title="yunhelp.gmgrasp.com.cn 登录后提取账号下全部项目">ShowDoc 登录</button>
                     <button class="platform-btn" id="btnCyb" data-platform="cyb" type="button" title="new.yuncyb.com 使用教程与常见问题（自动登录）">云创业版</button>
                     <button class="platform-btn" id="btnTiantong" data-platform="tiantong" type="button" title="117.172.29.67:6067/knowledge 资源管理中心（免登录）">天通</button>
+                    <button class="platform-btn" id="btnWeb" data-platform="web" type="button" title="输入网页 URL，使用 Crawl4AI 自动提取正文并输出 Markdown">通用网页 URL</button>
                 </div>
             </div>
         </div>
@@ -2222,6 +2223,59 @@
                 </button>
             </div>
         </div>
+
+        <!-- 通用网页模块 -->
+        <div class="form-section" id="webSection" style="display:none;">
+            <div style="margin-bottom:16px; border:1px solid var(--border); border-radius: var(--radius-sm); padding:12px 20px; background: var(--bg-body); display:flex; align-items:center; gap:8px;">
+                <span style="font-size:1.1rem;">🌐</span>
+                <span style="color: var(--text-sub);">输入一个公开网页 URL，使用 Crawl4AI 自动访问、提取正文、清洗并生成 Markdown / RAG 文件。</span>
+            </div>
+
+            <form id="web_crawlForm">
+                <div class="form-group">
+                    <label for="web_url">网页 URL</label>
+                    <input type="url" id="web_url" name="web_url" required maxlength="2048" placeholder="https://example.com/article">
+                    <div style="margin-top:6px; color:var(--text-muted); font-size:0.85rem;">仅支持 http:// 或 https://；整站模式采集同一域名下全部可发现页面，优先读取 robots.txt / sitemap，找不到时从入口页和站点首页深度遍历。</div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="web_crawl_mode">采集范围</label>
+                        <select id="web_crawl_mode" name="web_crawl_mode">
+                            <option value="site" selected>整个网站（同域全部页面）</option>
+                            <option value="page">仅当前页面</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="web_max_pages">最多页面数（0 = 不限制）</label>
+                        <input type="number" id="web_max_pages" name="web_max_pages" value="0" min="0" max="100000">
+                    </div>
+                    <div class="form-group">
+                        <label for="web_max_depth">最大深度（0 = 不限制）</label>
+                        <input type="number" id="web_max_depth" name="web_max_depth" value="0" min="0" max="100">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn ripple" id="web_startBtn" style="margin-top:24px;">
+                    <span>抓取并生成 Markdown</span>
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                </button>
+            </form>
+
+            <div class="progress-section" id="web_progressSection" style="display:none;">
+                <div class="status-header">
+                    <h3 id="web_statusTextProgress">正在初始化...</h3>
+                    <span id="web_progressText">0%</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" id="web_progressFill"></div>
+                </div>
+                <button type="button" class="btn download-btn ripple" id="web_downloadBtn" style="display:none;">
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    下载 Markdown / RAG 结果
+                </button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -2282,6 +2336,7 @@
             // 通用平台（云创业版 / 天通）
             bindGenericEntryEvents('cyb');
             bindGenericEntryEvents('tiantong');
+            bindWebEvents();
 
             // 确保 ShowDoc 初始化时根据登录状态禁用相关控件（避免未登录时仍显示可交互样式）
             try {
@@ -2410,6 +2465,7 @@
             showdoc: 'showdocSection',
             cyb: 'cybSection',
             tiantong: 'tiantongSection',
+            web: 'webSection',
         };
 
         function switchToPlatform(platform) {
@@ -3221,6 +3277,116 @@
             btn.disabled = false;
             btn.classList.remove('loading');
             btn.innerHTML = `<span>开始数据爬取</span><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`;
+        }
+
+        // ==================== 通用网页 URL ====================
+
+        function bindWebEvents() {
+            const form = document.getElementById('web_crawlForm');
+            if (!form) return;
+            form.addEventListener('submit', startWebCrawl);
+        }
+
+        async function startWebCrawl(event) {
+            event.preventDefault();
+            const state = getEntryState('web');
+            const url = document.getElementById('web_url').value.trim();
+            const crawlMode = document.getElementById('web_crawl_mode').value;
+            const maxPages = Number(document.getElementById('web_max_pages').value || 0);
+            const maxDepth = Number(document.getElementById('web_max_depth').value || 0);
+            if (!/^https?:\/\/[^\s]+$/i.test(url)) {
+                showToast('请输入有效的 http:// 或 https:// URL', 'error');
+                return;
+            }
+            if (!Number.isInteger(maxPages) || maxPages < 0 || maxPages > 100000) {
+                showToast('最多页面数必须是 0 到 100000 之间的整数', 'error');
+                return;
+            }
+            if (!Number.isInteger(maxDepth) || maxDepth < 0 || maxDepth > 100) {
+                showToast('最大深度必须是 0 到 100 之间的整数', 'error');
+                return;
+            }
+
+            const startBtn = document.getElementById('web_startBtn');
+            startBtn.disabled = true;
+            startBtn.classList.add('loading');
+            startBtn.innerHTML = '<span>正在访问并提取正文...</span>';
+            document.getElementById('web_progressSection').style.display = 'block';
+            document.getElementById('web_downloadBtn').style.display = 'none';
+            updateStepIndicator(3);
+
+            try {
+                const res = await fetch('/entries/web/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        url,
+                        crawl_mode: crawlMode,
+                        max_pages: maxPages,
+                        max_depth: maxDepth
+                    })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    throw new Error(data.message || '启动失败');
+                }
+                state.taskId = data.task_id;
+                startWebPolling();
+                showToast(data.message, 'success');
+            } catch (err) {
+                showToast('启动失败: ' + err.message, 'error');
+                resetWebForm();
+            }
+        }
+
+        function startWebPolling() {
+            const state = getEntryState('web');
+            if (state.interval) clearInterval(state.interval);
+            state.interval = setInterval(checkWebStatus, 1500);
+            checkWebStatus();
+        }
+
+        async function checkWebStatus() {
+            const state = getEntryState('web');
+            if (!state.taskId) return;
+            try {
+                const res = await fetch(`/task_status/${state.taskId}`);
+                if (res.status === 404) {
+                    clearInterval(state.interval);
+                    state.taskId = null;
+                    showToast('任务已失效，请重新开始', 'warning');
+                    resetWebForm();
+                    return;
+                }
+                const data = await res.json();
+                document.getElementById('web_statusTextProgress').textContent = data.message;
+                document.getElementById('web_progressText').textContent = `${data.completed_pages}/${data.total_pages}`;
+                document.getElementById('web_progressFill').style.width = data.progress + '%';
+                if (data.status === 'completed') {
+                    clearInterval(state.interval);
+                    const btn = document.getElementById('web_downloadBtn');
+                    btn.style.display = 'flex';
+                    btn.onclick = () => window.location.href = `/download/${state.taskId}`;
+                    updateStepIndicator(4);
+                    showToast('网页正文已提取并生成 Markdown！', 'success');
+                    resetWebForm();
+                } else if (data.status === 'failed') {
+                    clearInterval(state.interval);
+                    showToast('任务失败: ' + data.message, 'error');
+                    resetWebForm();
+                }
+            } catch (err) {
+                clearInterval(state.interval);
+                showToast('状态查询失败: ' + err.message, 'error');
+                resetWebForm();
+            }
+        }
+
+        function resetWebForm() {
+            const btn = document.getElementById('web_startBtn');
+            btn.disabled = false;
+            btn.classList.remove('loading');
+            btn.innerHTML = `<span>抓取并生成 Markdown</span><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`;
         }
 
         // ==================== 通用平台（云创业版 / 天通） ====================
