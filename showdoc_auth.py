@@ -130,7 +130,14 @@ class ShowDocAuthenticator:
             )
             
             # 从响应中提取结果
-            if hasattr(response, 'output') and 'choices' in response.output:
+            status_code = getattr(response, 'status_code', None)
+            if status_code != 200:
+                error_code = getattr(response, 'code', '') or '未知错误码'
+                error_message = getattr(response, 'message', '') or '未知错误'
+                print(f"❌ 千问API调用失败 [{status_code} {error_code}]: {error_message}")
+                return None
+
+            if hasattr(response, 'output') and response.output and 'choices' in response.output:
                 choices = response.output['choices']
                 if choices and len(choices) > 0:
                     content = choices[0]['message']['content']
