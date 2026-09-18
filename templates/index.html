@@ -334,26 +334,8 @@
             padding: 6px;
             gap: 8px;
             transition: var(--transition);
-        }
-
-        .platform-toggle::before {
-            content: '';
-            position: absolute;
-            top: 4px;
-            left: 4px;
-            width: calc(50% - 4px);
-            height: calc(100% - 8px);
-            background: var(--gradient-accent);
-            border-radius: 24px;
-            box-shadow:
-                var(--shadow-medium),
-                0 0 20px rgba(102, 126, 234, 0.3);
-            transition: transform var(--transition);
-            z-index: 1;
-        }
-
-        .platform-toggle[data-active="showdoc"]::before {
-            transform: translateX(calc(100% + 4px));
+            flex-wrap: wrap;
+            justify-content: center;
         }
 
         .platform-btn {
@@ -379,7 +361,7 @@
             font-weight: 700;
         }
 
-        /* 分别为两个按钮设置更明显的主题色与字体 */
+        /* 分别为各平台按钮设置更明显的主题色与字体 */
         #btnYun.active {
             background: linear-gradient(90deg, #5b7cf0, #7c3aed);
             font-family: var(--font-sans);
@@ -388,6 +370,18 @@
 
         #btnShowdoc.active {
             background: linear-gradient(90deg, #10b981, #059669);
+            font-family: var(--font-sans);
+            font-weight: 700;
+        }
+
+        #btnCyb.active {
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+            font-family: var(--font-sans);
+            font-weight: 700;
+        }
+
+        #btnTiantong.active {
+            background: linear-gradient(90deg, #06b6d4, #0891b2);
             font-family: var(--font-sans);
             font-weight: 700;
         }
@@ -669,6 +663,18 @@
 
         .page-item:last-child {
             border-bottom: none;
+        }
+
+        .page-category {
+            font-size: var(--text-sm);
+            color: var(--text-muted);
+            background: var(--accent-light);
+            border-radius: 12px;
+            padding: 2px 10px;
+            white-space: nowrap;
+            max-width: 260px;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .page-item:hover {
@@ -1913,11 +1919,13 @@
     <div class="container">
         <div class="header">
             <h1><span class="badge">RAG</span> AI 知识库数据一体化采集</h1>
-            <p>高效导出知识库内容，为 RAG 系统提供清洁数据源，支持选择性提取与批量下载</p>
+            <p>高效导出知识库内容，为 RAG 系统提供清洁数据源，支持云辉煌 / 云创业版 / 天通多平台选择性提取与批量下载</p>
             <div class="header-links">
                 <div class="platform-toggle">
-                    <button class="platform-btn active" id="btnYun" type="button">云辉煌</button>
-                    <button class="platform-btn" id="btnShowdoc" type="button">提取全部数据</button>
+                    <button class="platform-btn active" id="btnYun" data-platform="yun" type="button" title="yunhelp.gmgrasp.com.cn 公开项目（免登录）">云辉煌知识库</button>
+                    <button class="platform-btn" id="btnShowdoc" data-platform="showdoc" type="button" title="yunhelp.gmgrasp.com.cn 登录后提取账号下全部项目">ShowDoc 登录</button>
+                    <button class="platform-btn" id="btnCyb" data-platform="cyb" type="button" title="new.yuncyb.com 使用教程与常见问题（自动登录）">云创业版</button>
+                    <button class="platform-btn" id="btnTiantong" data-platform="tiantong" type="button" title="117.172.29.67:6067/knowledge 资源管理中心（免登录）">天通</button>
                 </div>
             </div>
         </div>
@@ -1942,7 +1950,7 @@
                     <div class="form-group stagger-fade-in">
                         <label for="default_page_id">Default Page ID (默认页)</label>
                     <div style="display:flex; gap:8px; align-items:center;">
-                        <input type="number" id="default_page_id" name="default_page_id" value="8653" placeholder="例如: 8653" style="flex:1;">
+                        <input type="number" id="default_page_id" name="default_page_id" value="8652" placeholder="例如: 8652" style="flex:1;">
                         <button type="button" class="btn-text" id="previewDefaultPageBtn" style="white-space:nowrap;">预览默认页</button>
                     </div>
                     </div>
@@ -1990,7 +1998,6 @@
                     <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                 </button>
             </form>
-        </div>
 
         <div class="progress-section" id="progressSection">
             <div class="status-header">
@@ -2006,6 +2013,7 @@
                 <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                 下载处理结果
             </button>
+        </div>
         </div>
 
         <!-- ShowDoc 模块 -->
@@ -2071,7 +2079,6 @@
                     <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                 </button>
             </form>
-        </div>
 
         <div class="progress-section" id="sd_progressSection" style="display:none;">
             <div class="status-header">
@@ -2088,6 +2095,133 @@
                 下载处理结果
             </button>
         </div>
+        </div>
+
+        <!-- 云创业版模块 -->
+        <div class="form-section" id="cybSection" style="display:none;">
+            <div style="margin-bottom:16px; border:1px solid var(--border); border-radius: var(--radius-sm); padding:12px 20px; background: var(--bg-body); display:flex; align-items:center; gap:8px;">
+                <span style="font-size:1.1rem;">🔐</span>
+                <span style="color: var(--text-sub);">管家婆云辉煌创业版（new.yuncyb.com）：获取列表或开始爬取时自动登录，验证码识别约需数秒，请耐心等待</span>
+            </div>
+
+            <form id="cyb_crawlForm">
+                <div class="form-group">
+                    <label for="cyb_download_mode">下载模式</label>
+                    <select id="cyb_download_mode" name="cyb_download_mode">
+                        <option value="all">全量提取 (所有页面)</option>
+                        <option value="selected">选择提取 (选择特定页面)</option>
+                    </select>
+                </div>
+
+                <button type="button" class="btn btn-secondary" id="cyb_loadPagesBtn" style="display: none;">
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                    获取页面列表
+                </button>
+
+                <div class="page-selection" id="cyb_pageSelection" style="display:none;">
+                    <div class="selection-header">
+                        <h3>选择目标页面</h3>
+                        <button type="button" class="btn-text" id="cyb_selectAllBtn">全选 / 取消</button>
+                    </div>
+
+                    <div class="search-box">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <input type="text" id="cyb_pageFilter" placeholder="输入标题快速查找页面...">
+                    </div>
+
+                    <div class="page-list" id="cyb_pageList">
+                        <div class="loading">
+                            <div class="loading-spinner"></div>
+                            <span>等待加载...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn ripple" id="cyb_startBtn" style="margin-top: 24px;">
+                    <span>开始数据爬取</span>
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                </button>
+            </form>
+
+            <div class="progress-section" id="cyb_progressSection" style="display:none;">
+                <div class="status-header">
+                    <h3 id="cyb_statusTextProgress">正在初始化...</h3>
+                    <span id="cyb_progressText">0%</span>
+                </div>
+
+                <div class="progress-track">
+                    <div class="progress-fill" id="cyb_progressFill"></div>
+                </div>
+
+                <button type="button" class="btn download-btn ripple" id="cyb_downloadBtn" style="display:none;">
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    下载处理结果
+                </button>
+            </div>
+        </div>
+
+        <!-- 天通模块 -->
+        <div class="form-section" id="tiantongSection" style="display:none;">
+            <div style="margin-bottom:16px; border:1px solid var(--border); border-radius: var(--radius-sm); padding:12px 20px; background: var(--bg-body); display:flex; align-items:center; gap:8px;">
+                <span style="font-size:1.1rem;">📡</span>
+                <span style="color: var(--text-sub);">天通资源管理中心（117.172.29.67:6067/knowledge）：免登录平台，文档较多（1500+），全量爬取耗时较长</span>
+            </div>
+
+            <form id="tiantong_crawlForm">
+                <div class="form-group">
+                    <label for="tiantong_download_mode">下载模式</label>
+                    <select id="tiantong_download_mode" name="tiantong_download_mode">
+                        <option value="all">全量提取 (所有页面)</option>
+                        <option value="selected">选择提取 (选择特定页面)</option>
+                    </select>
+                </div>
+
+                <button type="button" class="btn btn-secondary" id="tiantong_loadPagesBtn" style="display: none;">
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                    获取页面列表
+                </button>
+
+                <div class="page-selection" id="tiantong_pageSelection" style="display:none;">
+                    <div class="selection-header">
+                        <h3>选择目标页面</h3>
+                        <button type="button" class="btn-text" id="tiantong_selectAllBtn">全选 / 取消</button>
+                    </div>
+
+                    <div class="search-box">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <input type="text" id="tiantong_pageFilter" placeholder="输入标题快速查找页面...">
+                    </div>
+
+                    <div class="page-list" id="tiantong_pageList">
+                        <div class="loading">
+                            <div class="loading-spinner"></div>
+                            <span>等待加载...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn ripple" id="tiantong_startBtn" style="margin-top: 24px;">
+                    <span>开始数据爬取</span>
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                </button>
+            </form>
+
+            <div class="progress-section" id="tiantong_progressSection" style="display:none;">
+                <div class="status-header">
+                    <h3 id="tiantong_statusTextProgress">正在初始化...</h3>
+                    <span id="tiantong_progressText">0%</span>
+                </div>
+
+                <div class="progress-track">
+                    <div class="progress-fill" id="tiantong_progressFill"></div>
+                </div>
+
+                <button type="button" class="btn download-btn ripple" id="tiantong_downloadBtn" style="display:none;">
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    下载处理结果
+                </button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -2102,9 +2236,22 @@
         let sdAvailableProjects = [];
         let sdAvailablePages = [];
 
+        // 通用平台（cyb / tiantong）任务状态，键为 registry 平台键
+        const entryState = {};
+
+        function getEntryState(key) {
+            if (!entryState[key]) {
+                entryState[key] = { pages: [], taskId: null, interval: null };
+            }
+            return entryState[key];
+        }
+
         window.addEventListener('beforeunload', () => {
             if (statusInterval) clearInterval(statusInterval);
             if (sdStatusInterval) clearInterval(sdStatusInterval);
+            Object.values(entryState).forEach(state => {
+                if (state.interval) clearInterval(state.interval);
+            });
         });
 
         window.addEventListener('DOMContentLoaded', () => {
@@ -2131,6 +2278,10 @@
             // 平台切换与 ShowDoc 事件
             bindPlatformSwitch();
             bindShowdocEvents();
+
+            // 通用平台（云创业版 / 天通）
+            bindGenericEntryEvents('cyb');
+            bindGenericEntryEvents('tiantong');
 
             // 确保 ShowDoc 初始化时根据登录状态禁用相关控件（避免未登录时仍显示可交互样式）
             try {
@@ -2253,41 +2404,32 @@
             localStorage.setItem('rag_download_mode', e.target.value);
         });
 
-        // 平台切换
+        // 平台切换：按注册表入口在四个平台模块间切换（进度区随所属模块一起显隐）
+        const PLATFORM_SECTIONS = {
+            yun: 'yunSection',
+            showdoc: 'showdocSection',
+            cyb: 'cybSection',
+            tiantong: 'tiantongSection',
+        };
+
+        function switchToPlatform(platform) {
+            Object.entries(PLATFORM_SECTIONS).forEach(([name, sectionId]) => {
+                document.getElementById(sectionId).style.display =
+                    name === platform ? 'block' : 'none';
+            });
+            document.querySelectorAll('.platform-btn[data-platform]').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.platform === platform);
+            });
+        }
+
         function bindPlatformSwitch() {
-            const btnYun = document.getElementById('btnYun');
-            const btnShowdoc = document.getElementById('btnShowdoc');
-            const yunSection = document.getElementById('yunSection');
-            const sdSection = document.getElementById('showdocSection');
-            const yunProgress = document.getElementById('progressSection');
-            const sdProgress = document.getElementById('sd_progressSection');
-
-            const switchTo = (target) => {
-                if (target === 'yun') {
-                    btnYun.classList.add('active');
-                    btnShowdoc.classList.remove('active');
-                    yunSection.style.display = 'block';
-                    sdSection.style.display = 'none';
-                    // 只在有任务进行时显示进度区域
-                    if (currentTaskId && yunProgress.style.display === 'block') {
-                        yunProgress.style.display = 'block';
-                        sdProgress.style.display = 'none';
-                    }
-                } else {
-                    btnShowdoc.classList.add('active');
-                    btnYun.classList.remove('active');
-                    yunSection.style.display = 'none';
-                    sdSection.style.display = 'block';
-                    // 只在有任务进行时显示进度区域
-                    if (sdCurrentTaskId && sdProgress.style.display === 'block') {
-                        yunProgress.style.display = 'none';
-                        sdProgress.style.display = 'block';
-                    }
-                }
-            };
-
-            btnYun.addEventListener('click', () => switchTo('yun'));
-            btnShowdoc.addEventListener('click', () => switchTo('showdoc'));
+            const buttons = document.querySelectorAll('.platform-btn[data-platform]');
+            if (!buttons.length) return;
+            buttons.forEach(btn => {
+                btn.addEventListener('click', () => switchToPlatform(btn.dataset.platform));
+            });
+            // 默认展示云辉煌知识库
+            switchToPlatform('yun');
         }
 
         document.getElementById('download_mode').addEventListener('change', function() {
@@ -2351,7 +2493,7 @@
                 default_page_id: defaultPageId || ''
             });
 
-            fetch(`/get_pages?${params}`)
+            fetch(`/entries/showdoc/documents?${params}`)
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
@@ -2422,7 +2564,7 @@
             startBtn.classList.add('loading');
             startBtn.innerHTML = `<span>任务运行中...</span>`;
 
-            fetch('/start_crawl', {
+            fetch('/entries/showdoc/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(formData)
@@ -2567,18 +2709,6 @@
             const content = document.getElementById('previewContent');
 
             try {
-                // 根据平台获取项目ID
-                let itemId = null;
-                if (platform === 'yunhuihuang') {
-                    itemId = document.getElementById('item_id').value;
-                } else if (platform === 'showdoc') {
-                    itemId = document.getElementById('sd_project_select').value;
-                }
-
-                if (!itemId) {
-                    throw new Error('请先选择项目');
-                }
-
                 // 防御：pageId 为空或 0 时直接提示，不调用后端
                 if (!pageId || String(pageId) === '0') {
                     content.innerHTML = `
@@ -2590,13 +2720,26 @@
                     return;
                 }
 
-                const params = new URLSearchParams({
-                    item_id: itemId,
-                    page_id: pageId,
-                    platform: platform
-                });
+                // 按平台构造预览接口：yunhuihuang 匿名、showdoc 登录（auth=1 走会话令牌）、
+                // cyb / tiantong 走通用 registry 预览接口（无需项目ID）
+                let endpoint;
+                if (platform === 'yunhuihuang') {
+                    const itemId = document.getElementById('item_id').value;
+                    if (!itemId) {
+                        throw new Error('请先填写项目ID');
+                    }
+                    endpoint = `/entries/showdoc/preview?item_id=${encodeURIComponent(itemId)}&doc_id=${encodeURIComponent(pageId)}`;
+                } else if (platform === 'showdoc') {
+                    const itemId = document.getElementById('sd_project_select').value;
+                    if (!itemId) {
+                        throw new Error('请先选择项目');
+                    }
+                    endpoint = `/entries/showdoc/preview?auth=1&item_id=${encodeURIComponent(itemId)}&doc_id=${encodeURIComponent(pageId)}`;
+                } else {
+                    endpoint = `/entries/${platform}/preview?doc_id=${encodeURIComponent(pageId)}`;
+                }
 
-                const response = await fetch(`/preview_page?${params}`);
+                const response = await fetch(endpoint);
                 const data = await response.json();
 
                 if (data.success) {
@@ -2672,6 +2815,13 @@
             // 清理空的段落
             processed = processed.replace(/<p>\s*<\/p>/g, '');
 
+            // 处理链接 Markdown：[text](url) -> <a>
+            // 必须放在段落包裹之后，否则 <p> 会插进 <a> 开标签内，
+            // 触发浏览器 adoption agency 重构出空链接
+            processed = processed.replace(/\[([^\]]+)\]\(\s*(?:'|")?([^)"'\s]+)(?:'|")?\s*\)/gim, function(_, text, url) {
+                return `<a href="${url.trim()}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+            });
+
             return processed;
         }
 
@@ -2725,32 +2875,6 @@
             }, 300);
         }
 
-
-        // 平台切换
-        function bindPlatformSwitch() {
-            const btnYun = document.getElementById('btnYun');
-            const btnShowdoc = document.getElementById('btnShowdoc');
-            const yunSection = document.getElementById('yunSection');
-            const sdSection = document.getElementById('showdocSection');
-            const yunProgress = document.getElementById('progressSection');
-            const sdProgress = document.getElementById('sd_progressSection');
-
-            if (!btnYun || !btnShowdoc) return;
-
-            const switchTo = (target) => {
-                const isYun = target === 'yun';
-                btnYun.classList.toggle('active', isYun);
-                btnShowdoc.classList.toggle('active', !isYun);
-                yunSection.style.display = isYun ? 'block' : 'none';
-                sdSection.style.display = isYun ? 'none' : 'block';
-                // 不自动显示进度区域，让任务启动后再显示
-            };
-
-            btnYun.addEventListener('click', () => switchTo('yun'));
-            btnShowdoc.addEventListener('click', () => switchTo('showdoc'));
-            // 默认展示云辉煌
-            switchTo('yun');
-        }
 
         function bindShowdocEvents() {
             const loginBtn = document.getElementById('sd_loginBtn');
@@ -2943,8 +3067,8 @@
             list.innerHTML = '<div class="loading">正在获取页面列表...</div>';
             selection.style.display = 'block';
             try {
-                const params = new URLSearchParams({ item_id: itemId, keyword: keyword || '' });
-                const res = await fetch(`/showdoc/pages?${params}`);
+                const params = new URLSearchParams({ item_id: itemId, keyword: keyword || '', auth: '1' });
+                const res = await fetch(`/entries/showdoc/documents?${params}`);
                 const data = await res.json();
                 if (data.success) {
                     sdAvailablePages = data.pages;
@@ -3009,13 +3133,14 @@
             startBtn.innerHTML = `<span>任务运行中...</span>`;
 
             try {
-                const res = await fetch('/showdoc/start_crawl', {
+                const res = await fetch('/entries/showdoc/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         item_id: itemId,
                         keyword,
-                        selected_titles: selectedTitles
+                        selected_titles: selectedTitles,
+                        auth: true
                     })
                 });
                 const data = await res.json();
@@ -3096,6 +3221,185 @@
             btn.disabled = false;
             btn.classList.remove('loading');
             btn.innerHTML = `<span>开始数据爬取</span><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`;
+        }
+
+        // ==================== 通用平台（云创业版 / 天通） ====================
+
+        async function loadEntryPages(entryKey) {
+            const state = getEntryState(entryKey);
+            const list = document.getElementById(`${entryKey}_pageList`);
+            const selection = document.getElementById(`${entryKey}_pageSelection`);
+            list.innerHTML = '<div class="loading">正在获取页面列表...</div>';
+            selection.style.display = 'block';
+            try {
+                const res = await fetch(`/entries/${entryKey}/documents`);
+                const data = await res.json();
+                if (data.success) {
+                    state.pages = data.pages;
+                    renderEntryPageList(entryKey, data.pages);
+                    updateStepIndicator(2); // 更新到步骤2：选择页面
+                    showToast(`成功加载 ${data.pages.length} 个页面`, 'success');
+                } else {
+                    list.innerHTML = '<div class="loading" style="color:var(--error)">加载失败</div>';
+                    showToast(data.message, 'error');
+                }
+            } catch (err) {
+                list.innerHTML = '<div class="loading">连接失败，请重试</div>';
+                showToast('网络请求失败: ' + err.message, 'error');
+            }
+        }
+
+        function renderEntryPageList(entryKey, pages) {
+            const list = document.getElementById(`${entryKey}_pageList`);
+            if (!pages || pages.length === 0) {
+                list.innerHTML = '<div class="loading">未找到页面</div>';
+                return;
+            }
+            const html = pages.map(p => `
+                <div class="page-item">
+                    <input type="checkbox" id="${entryKey}_page_${p.page_id}" value="${p.page_id}" checked>
+                    <label for="${entryKey}_page_${p.page_id}">${p.page_title}</label>
+                    ${p.category ? `<span class="page-category">${p.category}</span>` : ''}
+                    <button type="button" class="btn-text page-preview-btn" onclick="showPreviewModal('${p.page_id}', '${p.page_title.replace(/'/g, "\\'")}', '${entryKey}')" style="margin-left: auto; padding: 6px 12px;">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right: 4px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        预览
+                    </button>
+                </div>
+            `).join('');
+            list.innerHTML = html;
+        }
+
+        async function startEntryCrawl(entryKey, event) {
+            event.preventDefault();
+            const state = getEntryState(entryKey);
+            const mode = document.getElementById(`${entryKey}_download_mode`).value;
+            let selectedTitles = [];
+            if (mode === 'selected') {
+                const checked = document.querySelectorAll(`#${entryKey}_pageList input[type="checkbox"]:checked`);
+                if (checked.length === 0) {
+                    showToast('请至少选择一个页面进行爬取', 'error');
+                    return;
+                }
+                selectedTitles = Array.from(checked).map(cb => {
+                    const page = state.pages.find(p => String(p.page_id) === cb.value);
+                    return page ? page.page_title : '';
+                }).filter(Boolean);
+            }
+
+            const startBtn = document.getElementById(`${entryKey}_startBtn`);
+            startBtn.disabled = true;
+            startBtn.classList.add('loading');
+            startBtn.innerHTML = `<span>任务运行中...</span>`;
+
+            try {
+                const res = await fetch(`/entries/${entryKey}/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selected_titles: selectedTitles })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    state.taskId = data.task_id;
+                    document.getElementById(`${entryKey}_progressSection`).style.display = 'block';
+                    document.getElementById(`${entryKey}_downloadBtn`).style.display = 'none';
+                    updateStepIndicator(3); // 更新到步骤3：开始采集
+                    startEntryPolling(entryKey);
+                    showToast(data.message, 'success');
+                } else {
+                    showToast(data.message, 'error');
+                    resetEntryForm(entryKey);
+                }
+            } catch (err) {
+                showToast('启动失败: ' + err.message, 'error');
+                resetEntryForm(entryKey);
+            }
+        }
+
+        function startEntryPolling(entryKey) {
+            const state = getEntryState(entryKey);
+            if (state.interval) clearInterval(state.interval);
+            state.interval = setInterval(() => checkEntryStatus(entryKey), 2000);
+        }
+
+        async function checkEntryStatus(entryKey) {
+            const state = getEntryState(entryKey);
+            if (!state.taskId) return;
+            try {
+                const res = await fetch(`/task_status/${state.taskId}`);
+
+                if (res.status === 404) {
+                    // 任务不存在（可能服务重启），停止轮询
+                    clearInterval(state.interval);
+                    state.taskId = null;
+                    showToast('任务已失效，请重新开始', 'warning');
+                    resetEntryForm(entryKey);
+                    return;
+                }
+
+                const data = await res.json();
+                document.getElementById(`${entryKey}_statusTextProgress`).textContent = data.message;
+                document.getElementById(`${entryKey}_progressText`).textContent = `${data.completed_pages}/${data.total_pages}`;
+                document.getElementById(`${entryKey}_progressFill`).style.width = data.progress + '%';
+
+                if (data.status === 'completed') {
+                    clearInterval(state.interval);
+                    const btn = document.getElementById(`${entryKey}_downloadBtn`);
+                    btn.style.display = 'flex';
+                    btn.onclick = () => window.location.href = `/download/${state.taskId}`;
+                    updateStepIndicator(4); // 更新到步骤4：下载结果
+                    showToast('爬取任务完成！', 'success');
+                    resetEntryForm(entryKey);
+                } else if (data.status === 'failed') {
+                    clearInterval(state.interval);
+                    showToast('任务失败: ' + data.message, 'error');
+                    resetEntryForm(entryKey);
+                }
+            } catch (err) {
+                console.error('状态轮询错误:', err);
+                clearInterval(state.interval);
+                state.taskId = null;
+            }
+        }
+
+        function resetEntryForm(entryKey) {
+            const btn = document.getElementById(`${entryKey}_startBtn`);
+            btn.disabled = false;
+            btn.classList.remove('loading');
+            btn.innerHTML = `<span>开始数据爬取</span><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`;
+        }
+
+        function bindGenericEntryEvents(entryKey) {
+            const downloadMode = document.getElementById(`${entryKey}_download_mode`);
+            const loadBtn = document.getElementById(`${entryKey}_loadPagesBtn`);
+            const pageSelection = document.getElementById(`${entryKey}_pageSelection`);
+            const selectAllBtn = document.getElementById(`${entryKey}_selectAllBtn`);
+            const pageFilter = document.getElementById(`${entryKey}_pageFilter`);
+            const form = document.getElementById(`${entryKey}_crawlForm`);
+
+            if (!downloadMode) return;
+
+            downloadMode.addEventListener('change', function() {
+                if (this.value === 'selected') {
+                    loadBtn.style.display = 'flex';
+                } else {
+                    loadBtn.style.display = 'none';
+                    pageSelection.style.display = 'none';
+                }
+            });
+            loadBtn.addEventListener('click', () => loadEntryPages(entryKey));
+            selectAllBtn.addEventListener('click', () => {
+                const checkboxes = document.querySelectorAll(`#${entryKey}_pageList input[type="checkbox"]`);
+                const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+                checkboxes.forEach(cb => cb.checked = !allChecked);
+            });
+            pageFilter.addEventListener('input', (e) => {
+                const term = e.target.value.toLowerCase();
+                document.querySelectorAll(`#${entryKey}_pageList .page-item`).forEach(item => {
+                    const text = item.querySelector('label').textContent.toLowerCase();
+                    item.style.display = text.includes(term) ? 'flex' : 'none';
+                });
+            });
+            form.addEventListener('submit', (e) => startEntryCrawl(entryKey, e));
         }
     </script>
 </body>

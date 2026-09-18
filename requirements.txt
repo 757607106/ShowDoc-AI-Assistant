@@ -4,3 +4,5 @@ jsonpath-ng==1.6.1
 beautifulsoup4==4.12.2
 python-dotenv==1.0.0
 dashscope==1.18.1
+crawl4ai==0.9.3
+firecrawl-py==4.41.0
