@@ -57,6 +57,6 @@
 ### 6. 交付物
 - [x] `document_optimizer.py` - 文档优化核心模块
 - [x] 更新 `app.py` - 集成优化功能到爬虫流程
-- [x] 更新 `crawler.py` / `showdoc_crawler.py` - 支持优化回调
+- [x] 更新统一爬虫基类与 `crawlers/showdoc.py` - 支持优化回调
 - [x] 测试用例 - 验证优化效果
 - [x] 优化规则文档 - 记录优化规则和示例

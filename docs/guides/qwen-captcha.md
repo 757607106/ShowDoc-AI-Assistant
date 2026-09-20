@@ -292,7 +292,7 @@ content = result["output"]["choices"][0]["message"]["content"]
 ### 从PaddleOCR迁移
 
 已完成的修改:
-1. ✅ `showdoc_auth.py`: 更新`recognize_captcha`方法
+1. ✅ `integrations/showdoc/auth.py`: 更新 `recognize_captcha` 方法
 2. ✅ `app.py`: 添加API Key配置
 3. ✅ 文档更新: README和设计文档
 
@@ -304,7 +304,7 @@ content = result["output"]["choices"][0]["message"]["content"]
 ### 回退方案
 
 如需回退到PaddleOCR:
-1. 恢复 `showdoc_auth.py` 中的旧代码
+1. 恢复 `integrations/showdoc/auth.py` 中的旧代码
 2. 恢复 `app.py` 中的初始化逻辑
 3. 无需API Key配置
 

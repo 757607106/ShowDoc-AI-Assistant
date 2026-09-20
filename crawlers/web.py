@@ -15,16 +15,23 @@ import socket
 import urllib.parse
 from collections import deque
 from datetime import datetime
+from types import SimpleNamespace
+from pathlib import Path
+from importlib.metadata import version
 from xml.etree import ElementTree
 
 import requests
 
 from common.converter import (
-    clean_markdown_for_rag,
+    ensure_markdown_resources,
     extract_html_resources,
-    normalize_markdown,
+    write_jsonl,
+    validate_canonical_markdown,
 )
-from crawlers.base import BaseCrawler, CrawledDocument, DocumentStub
+from common.quality import assess_documents
+from crawlers.base import BaseCrawler, CrawledDocument, DocumentStub, CrawlCancelled
+from crawlers.web_adapters import describe_web_strategy, resolve_web_adapter
+from crawlers.web_discovery import infer_pagination_plans, paginate_plan
 
 
 class WebCrawler(BaseCrawler):
@@ -59,12 +66,24 @@ class WebCrawler(BaseCrawler):
         self._document_id = hashlib.sha1(self.url.encode("utf-8")).hexdigest()[:16]
         self.discovery_source = "single_page"
         self.discovered_url_count = 1
+        self.discovery_details = {}
+        self._api_documents = []
+        self._validated_network_origins = set()
+        self._structured_markdown_generator = None
         super().__init__(
             save_dir,
             progress_callback=progress_callback,
             pipeline_mode=pipeline_mode,
         )
         self.collection_name = "网页知识库"
+        self.adapter = resolve_web_adapter(
+            self.url,
+            max_documents=self.max_pages,
+            progress_callback=self._notify,
+        )
+
+    def strategy_info(self):
+        return describe_web_strategy(self.url)
 
     @staticmethod
     def validate_url(value):
@@ -101,39 +120,39 @@ class WebCrawler(BaseCrawler):
                 hostname, parsed.port or 443, type=socket.SOCK_STREAM
             ):
                 addresses.add(result[4][0])
-        except socket.gaierror:
-            # DNS 失败交给 Crawl4AI 返回更具体的网络错误，不在这里误报 URL 格式。
-            addresses = set()
+        except socket.gaierror as exc:
+            raise ValueError("目标域名无法解析，已阻止访问") from exc
 
         for address in addresses:
             try:
                 ip = ipaddress.ip_address(address)
             except ValueError:
                 continue
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            if not ip.is_global:
                 raise ValueError("出于安全原因，不允许访问本机或内网地址")
         return url
 
     def list_documents(self):
+        if self.crawl_mode == "site" and self.adapter:
+            return self.adapter.list_documents()
         parsed = urllib.parse.urlsplit(self.url)
         title = parsed.path.rstrip("/").split("/")[-1] or parsed.netloc
         return [DocumentStub(self._document_id, title, "网页")]
 
-    def _run_config(self, deep_crawl_strategy=None):
+    def _run_config(self, deep_crawl_strategy=None, dynamic_discovery=False):
         from crawl4ai import CacheMode, CrawlerRunConfig
         from crawl4ai.content_filter_strategy import PruningContentFilter
         from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 
-        return CrawlerRunConfig(
+        config = CrawlerRunConfig(
             cache_mode=CacheMode.BYPASS,
             word_count_threshold=1,
             verbose=False,
-            excluded_tags=["nav", "header", "footer", "aside", "form", "script", "style"],
+            check_robots_txt=True,
+            excluded_tags=["nav", "script", "style"],
             excluded_selector=(
-                "[class*='sidebar'], [id*='sidebar'], "
-                "[class*='breadcrumb'], [id*='breadcrumb'], "
-                "[class*='navigation'], [id*='navigation'], "
-                "[class*='search'], [id*='search']"
+                "[role='navigation'], [role='search'], "
+                ".sidebar, #sidebar, .breadcrumb, #breadcrumb"
             ),
             deep_crawl_strategy=deep_crawl_strategy,
             # These options are generic browser hardening. They improve compatibility
@@ -148,6 +167,45 @@ class WebCrawler(BaseCrawler):
                 )
             ),
         )
+        if dynamic_discovery:
+            config.capture_network_requests = True
+            config.delay_before_return_html = float(
+                os.getenv("WEB_CRAWLER_DISCOVERY_WAIT", "1.2")
+            )
+            click_limit = max(
+                0, int(os.getenv("WEB_CRAWLER_LOAD_MORE_CLICKS", "6"))
+            )
+            config.js_code = f"""
+                (async () => {{
+                    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+                    const labels = /^(加载更多|显示更多|继续加载|load more|show more)$/i;
+                    let clicked = 0;
+                    for (let round = 0; round < {click_limit}; round += 1) {{
+                        window.scrollTo(0, document.body.scrollHeight);
+                        await sleep(350);
+                        const candidates = Array.from(document.querySelectorAll(
+                            'button, a, [role="button"]'
+                        ));
+                        const target = candidates.find((element) => {{
+                            const text = (element.textContent || '').trim();
+                            const style = window.getComputedStyle(element);
+                            return labels.test(text) && style.display !== 'none' &&
+                                style.visibility !== 'hidden' && !element.disabled;
+                        }});
+                        if (!target) break;
+                        const before = document.body.innerText.length;
+                        target.click();
+                        clicked += 1;
+                        await sleep(700);
+                        if (document.body.innerText.length <= before && round > 0) break;
+                    }}
+                    return {{
+                        clicked,
+                        routes: Array.from(new Set(window.__crawlerRoutes || [])),
+                    }};
+                }})()
+            """
+        return config
 
     @staticmethod
     def _browser_config():
@@ -159,13 +217,87 @@ class WebCrawler(BaseCrawler):
             user_agent_mode="random",
             viewport_width=1440,
             viewport_height=900,
+            init_scripts=[
+                """
+                (() => {
+                    if (window.__crawlerRouteCaptureInstalled) return;
+                    window.__crawlerRouteCaptureInstalled = true;
+                    window.__crawlerRoutes = window.__crawlerRoutes || [];
+                    const record = (value) => {
+                        if (typeof value !== 'string' || !value.trim()) return;
+                        try {
+                            const url = new URL(value, window.location.href);
+                            if (url.origin === window.location.origin) {
+                                window.__crawlerRoutes.push(url.href);
+                            }
+                        } catch (_) {}
+                    };
+                    const originalOpen = window.open;
+                    window.open = function(url, ...args) {
+                        record(url);
+                        return originalOpen.call(this, url, ...args);
+                    };
+                    for (const method of ['pushState', 'replaceState']) {
+                        const original = history[method];
+                        history[method] = function(state, title, url) {
+                            record(url);
+                            return original.call(this, state, title, url);
+                        };
+                    }
+                    document.addEventListener('click', (event) => {
+                        const element = event.target && event.target.closest
+                            ? event.target.closest('[href], [data-href], [data-url], [data-route], [to]')
+                            : null;
+                        if (!element) return;
+                        record(
+                            element.getAttribute('href') ||
+                            element.getAttribute('data-href') ||
+                            element.getAttribute('data-url') ||
+                            element.getAttribute('data-route') ||
+                            element.getAttribute('to')
+                        );
+                    }, true);
+                })();
+                """
+            ],
             verbose=False,
         )
+
+    async def _guard_browser(self, crawler):
+        async def guard(page, context, **kwargs):
+            if getattr(context, "_knowledge_network_guard", False):
+                return page
+            async def route_request(route):
+                url = route.request.url
+                scheme = urllib.parse.urlsplit(url).scheme.lower()
+                if scheme in {"about", "blob", "data"}:
+                    await route.continue_()
+                    return
+                if scheme not in {"http", "https"}:
+                    await route.abort()
+                    return
+                parts = urllib.parse.urlsplit(url)
+                origin = (parts.scheme.lower(), (parts.hostname or "").lower(), parts.port)
+                if origin in self._validated_network_origins:
+                    await route.continue_()
+                    return
+                try:
+                    await asyncio.to_thread(self.validate_url, url)
+                except ValueError:
+                    await route.abort()
+                    return
+                self._validated_network_origins.add(origin)
+                await route.continue_()
+            await context.route("**/*", route_request)
+            context._knowledge_network_guard = True
+            return page
+        crawler.crawler_strategy.set_hook("on_page_context_created", guard)
 
     async def _crawl(self):
         from crawl4ai import AsyncWebCrawler
 
         async with AsyncWebCrawler(config=self._browser_config()) as crawler:
+            await self._guard_browser(crawler)
             return await crawler.arun(
                 url=self.url,
                 config=self._run_config(),
@@ -195,7 +327,13 @@ class WebCrawler(BaseCrawler):
             status_forcelist=(429, 500, 502, 503, 504),
             allowed_methods=("GET",),
         )
-        session = requests.Session()
+        class PublicSession(requests.Session):
+            def send(self, request, **kwargs):
+                # Session redirects pass through send again, including API replay.
+                WebCrawler.validate_url(request.url)
+                return super().send(request, **kwargs)
+
+        session = PublicSession()
         session.headers.update(
             {
                 "User-Agent": (
@@ -319,85 +457,70 @@ class WebCrawler(BaseCrawler):
     async def _crawl_site(self):
         from crawl4ai import AsyncWebCrawler
 
-        urls = self._discover_sitemap_urls()
+        sitemap_urls = await asyncio.to_thread(self._discover_sitemap_urls)
+        seeds = [self.url, self.site_base_url, *sitemap_urls]
+        queue, queued = deque(), set()
+        def enqueue(value, depth):
+            url = self._normalize_candidate_url(value)
+            if not url or url in queued or (self.max_depth and depth > self.max_depth):
+                return
+            queued.add(url)
+            queue.append((url, depth))
+        for seed in seeds:
+            enqueue(seed, 0)
+        os.makedirs(self.save_dir, exist_ok=True)
+        spool = Path(self.save_dir) / "crawl_results.jsonl"
+        count, api_seen = 0, set()
+        self._api_documents = []
+        batch_size = max(1, int(os.getenv("WEB_CRAWLER_BATCH_SIZE", "10")))
         async with AsyncWebCrawler(config=self._browser_config()) as crawler:
-            if urls:
-                self._notify(0, len(urls), f"已发现 {len(urls)} 个站内页面，开始批量抓取")
-                results = []
-                batch_size = max(1, int(os.getenv("WEB_CRAWLER_BATCH_SIZE", "10")))
-                for offset in range(0, len(urls), batch_size):
-                    batch = urls[offset : offset + batch_size]
-                    batch_results = await crawler.arun_many(
-                        urls=batch,
-                        config=self._run_config(),
+            await self._guard_browser(crawler)
+            with spool.open("w", encoding="utf-8") as output:
+                while queue and (not self.max_pages or count + len(self._api_documents) < self.max_pages):
+                    remaining = self.max_pages - count - len(self._api_documents) if self.max_pages else batch_size
+                    batch = [queue.popleft() for _ in range(min(batch_size, remaining, len(queue)))]
+                    self._notify(count, self.max_pages or count + len(queue) + len(batch), "正在抓取站内页面...")
+                    results = await crawler.arun_many(
+                        urls=[url for url, _ in batch], config=self._run_config(dynamic_discovery=True),
                     )
-                    results.extend(batch_results)
-                    self._notify(
-                        min(offset + len(batch), len(urls)),
-                        len(urls),
-                        f"已抓取 {min(offset + len(batch), len(urls))}/{len(urls)} 个站内页面",
-                    )
-                return results
-
-            # No usable sitemap: crawl from both the submitted page and site root.
-            # Besides normal anchors, inspect generic embedded route strings used by
-            # client-rendered applications. No host, product, or path is special-cased.
-            results = []
-            parsed = urllib.parse.urlsplit(self.url)
-            root_url = urllib.parse.urlunsplit(
-                (parsed.scheme, parsed.netloc, "/", "", "")
-            )
-            seeds = [self._normalize_candidate_url(self.url)]
-            normalized_root = self._normalize_candidate_url(root_url)
-            if normalized_root and normalized_root not in seeds:
-                seeds.append(normalized_root)
-
-            queue = deque((url, 0) for url in seeds if url)
-            queued = set(url for url in seeds if url)
-            batch_size = max(1, int(os.getenv("WEB_CRAWLER_BATCH_SIZE", "10")))
-            while queue and (not self.max_pages or len(results) < self.max_pages):
-                remaining = (
-                    self.max_pages - len(results) if self.max_pages else batch_size
-                )
-                take = min(batch_size, remaining, len(queue))
-                batch_items = [queue.popleft() for _ in range(take)]
-                batch_urls = [item[0] for item in batch_items]
-                depths = {item[0]: item[1] for item in batch_items}
-                batch_results = await crawler.arun_many(
-                    urls=batch_urls,
-                    config=self._run_config(),
-                )
-
-                for result in batch_results:
-                    result_url = self._normalize_candidate_url(
-                        getattr(result, "url", "")
-                    )
-                    depth = depths.get(result_url, 0)
-                    metadata = getattr(result, "metadata", None)
-                    if isinstance(metadata, dict):
+                    depths = dict(batch)
+                    for result_index, result in enumerate(results):
+                        count += 1
+                        result_url = getattr(result, "url", "")
+                        depth = depths.get(result_url, 0)
+                        metadata = getattr(result, "metadata", None) or {}
                         metadata["depth"] = depth
-                    results.append(result)
-
-                    if not getattr(result, "success", False):
-                        continue
-                    if self.max_depth and depth >= self.max_depth:
-                        continue
-                    for candidate in self._result_candidate_urls(result):
-                        if candidate in queued:
+                        raw, _ = self._markdown_from_result(result)
+                        payload = {"url": result_url, "success": bool(getattr(result, "success", False)),
+                                   "error_message": getattr(result, "error_message", ""),
+                                   "status_code": getattr(result, "status_code", None), "metadata": metadata,
+                                   "html": getattr(result, "html", "") or "",
+                                   "cleaned_html": getattr(result, "cleaned_html", "") or "", "markdown": raw}
+                        output.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                        output.flush()
+                        if not payload["success"]:
                             continue
-                        if self.max_pages and len(queued) >= self.max_pages:
-                            break
-                        queued.add(candidate)
-                        queue.append((candidate, depth + 1))
-
-                total = self.max_pages or max(len(results) + len(queue), len(results))
-                self._notify(
-                    len(results),
-                    total,
-                    f"已抓取 {len(results)} 个页面，待处理 {len(queue)} 个",
-                )
-            self.discovered_url_count = len(queued)
-            return results
+                        for candidate in self._result_candidate_urls(result):
+                            enqueue(candidate, depth + 1)
+                        remaining = self.max_pages - count - (len(results) - result_index - 1) - len(self._api_documents) if self.max_pages else 0
+                        if not self.max_pages or remaining > 0:
+                            docs = await asyncio.to_thread(self._discover_api_documents, result, remaining)
+                            for doc in docs:
+                                if doc.id not in api_seen:
+                                    api_seen.add(doc.id)
+                                    self._api_documents.append(doc)
+                                # Summary/list records can point to real detail pages.
+                                if doc.metadata.get("content_completeness") == "summary":
+                                    enqueue(doc.metadata.get("url"), depth + 1)
+                        self._notify(count, self.max_pages or count + len(queue), f"已抓取 {count} 个页面，待处理 {len(queue)} 个")
+        self.discovery_source = "sitemap_and_links" if sitemap_urls else ("dynamic_api" if self._api_documents else "dynamic_link_crawl")
+        self.discovered_url_count = len(queued) + len(self._api_documents)
+        self.discovery_details.update(rendered_pages=count, api_documents=len(self._api_documents), pending_urls=len(queue))
+        def read_results():
+            with spool.open(encoding="utf-8") as stream:
+                for line in stream:
+                    yield SimpleNamespace(**json.loads(line))
+        return read_results()
 
     @staticmethod
     def _looks_like_page_path(path):
@@ -422,12 +545,15 @@ class WebCrawler(BaseCrawler):
             return ""
         if candidate.netloc.lower() != parsed_start.netloc.lower():
             return ""
-        path = candidate.path.rstrip("/") or "/"
+        path = candidate.path or "/"
         if not self._looks_like_page_path(path):
             return ""
-        return urllib.parse.urlunsplit(
-            (candidate.scheme, candidate.netloc, path, "", "")
-        )
+        tracking_keys = {"fbclid", "gclid", "msclkid", "dclid"}
+        query = [(key, value) for key, value in urllib.parse.parse_qsl(candidate.query, keep_blank_values=True)
+                 if not key.lower().startswith("utm_") and key.lower() not in tracking_keys]
+        fragment = candidate.fragment if candidate.fragment.startswith(("/", "!/")) else ""
+        return urllib.parse.urlunsplit((candidate.scheme, candidate.netloc, path,
+                                       urllib.parse.urlencode(query), fragment))
 
     def _result_candidate_urls(self, result):
         values = []
@@ -451,10 +577,25 @@ class WebCrawler(BaseCrawler):
             )
         )
 
+        execution_result = getattr(result, "js_execution_result", None)
+
+        def append_execution_routes(value):
+            if isinstance(value, dict):
+                routes = value.get("routes")
+                if isinstance(routes, list):
+                    values.extend(routes)
+                for child in value.values():
+                    append_execution_routes(child)
+            elif isinstance(value, list):
+                for child in value:
+                    append_execution_routes(child)
+
+        append_execution_routes(execution_result)
+
         candidates = []
         seen = set()
         for value in values:
-            normalized = self._normalize_candidate_url(value)
+            normalized = self._normalize_candidate_url(urllib.parse.urljoin(getattr(result, "url", None) or self.url, value or ""))
             if not normalized or normalized in seen:
                 continue
             seen.add(normalized)
@@ -462,18 +603,164 @@ class WebCrawler(BaseCrawler):
         return candidates
 
     @staticmethod
+    def _record_value(record, names):
+        key_map = {str(key).lower(): key for key in record}
+        for name in names:
+            original = key_map.get(name.lower())
+            value = record.get(original) if original is not None else None
+            if value not in (None, "", [], {}):
+                return value
+        return None
+
+    def _api_record_document(self, record, plan, index):
+        title = self._record_value(
+            record,
+            ("title", "name", "subject", "question", "heading", "label"),
+        )
+        content_values = []
+        for names in (
+            ("content", "body", "html", "text", "description"),
+            ("summary", "abstract", "excerpt"),
+            ("answer", "solution", "detail"),
+        ):
+            value = self._record_value(record, names)
+            if value not in (None, "") and value not in content_values:
+                content_values.append(value)
+        if not title or not content_values:
+            return None
+
+        record_id = self._record_value(
+            record, ("id", "uuid", "key", "slug", "document_id", "article_id")
+        )
+        if record_id in (None, ""):
+            encoded = json.dumps(record, ensure_ascii=False, sort_keys=True, default=str)
+            record_id = hashlib.sha1(encoded.encode("utf-8")).hexdigest()[:16]
+        endpoint_parts = [
+            part
+            for part in urllib.parse.urlsplit(plan.url).path.rstrip("/").split("/")
+            if part
+        ]
+        endpoint_name = "-".join(endpoint_parts[-2:]) or "data"
+        document_id = f"api:{endpoint_name}:{record_id}"
+        html_parts = []
+        for value in content_values:
+            if isinstance(value, (dict, list)):
+                escaped = html.escape(
+                    json.dumps(value, ensure_ascii=False, indent=2, default=str)
+                )
+                html_parts.append(f"<pre>{escaped}</pre>")
+            else:
+                text = str(value)
+                html_parts.append(
+                    text if re.search(r"<\w+[\s>]", text) else f"<p>{html.escape(text)}</p>"
+                )
+        source_url = self._record_value(record, ("url", "link", "href")) or plan.url
+        source_url = urllib.parse.urljoin(self.site_base_url, str(source_url))
+        updated = self._record_value(
+            record, ("updated_at", "update_time", "updateTime", "created_at", "createTime")
+        )
+        return CrawledDocument(
+            id=document_id,
+            title=str(title).strip(),
+            category=f"接口内容/{endpoint_name or '数据'}",
+            content="".join(html_parts),
+            updated_at=str(updated or datetime.now().isoformat(timespec="seconds")),
+            metadata={
+                **record,
+                "url": source_url,
+                "discovery": "captured_api",
+                "content_completeness": "unknown" if self._record_value(record, ("content", "body", "html", "text", "answer", "solution", "detail")) else "summary",
+                "api_endpoint": plan.url,
+                "api_record_index": index,
+            },
+            source_format="html",
+        )
+
+    def _convert_html_document(self, document):
+        return self.convert_document(document)
+
+    def _discover_api_documents(self, result, remaining_limit=0):
+        events = getattr(result, "network_requests", None) or []
+        plans = infer_pagination_plans(events, self.url)
+        documents = []
+        reports = []
+        session = self._http_session()
+        if not hasattr(self, "_visited_api_plans"):
+            self._visited_api_plans = set()
+        try:
+            for plan in plans:
+                parts = urllib.parse.urlsplit(plan.url)
+                query = [(k, v) for k, v in urllib.parse.parse_qsl(parts.query) if k != plan.page_key]
+                key = (plan.method, parts.netloc, parts.path, tuple(query),
+                       json.dumps({k: v for k, v in plan.body.items() if k != plan.page_key}, sort_keys=True))
+                if key in self._visited_api_plans:
+                    continue
+                self._visited_api_plans.add(key)
+                remaining = remaining_limit - len(documents) if remaining_limit else 0
+                if remaining_limit and remaining <= 0:
+                    break
+                try:
+                    pagination = paginate_plan(
+                        session,
+                        plan,
+                        max_records=remaining,
+                        max_api_pages=max(
+                            1, int(os.getenv("WEB_CRAWLER_MAX_API_PAGES", "200"))
+                        ),
+                    )
+                except (requests.RequestException, ValueError, TypeError) as error:
+                    reports.append(
+                        {
+                            "endpoint": plan.url,
+                            "reported_total": plan.total,
+                            "records_fetched": 0,
+                            "documents_created": 0,
+                            "requests_made": 0,
+                            "complete": False,
+                            "stop_reason": f"request_failed: {error}",
+                        }
+                    )
+                    continue
+                saved = 0
+                for index, record in enumerate(pagination.records, 1):
+                    document = self._api_record_document(record, plan, index)
+                    if not document:
+                        continue
+                    self._journal_source(document)
+                    try:
+                        documents.append(self._convert_html_document(document))
+                        saved += 1
+                    except CrawlCancelled:
+                        raise
+                    except Exception as exc:
+                        reports.append({"endpoint": plan.url, "document_id": document.id,
+                                        "complete": False, "stop_reason": f"conversion_failed: {exc}"})
+                reports.append(
+                    {
+                        "endpoint": plan.url,
+                        "reported_total": plan.total,
+                        "records_fetched": len(pagination.records),
+                        "documents_created": saved,
+                        "requests_made": pagination.requests_made,
+                        "complete": pagination.complete,
+                        "stop_reason": pagination.stop_reason,
+                    }
+                )
+        finally:
+            session.close()
+        existing_reports = self.discovery_details.setdefault("api_endpoints", [])
+        existing_reports.extend(reports)
+        return documents
+
+    @staticmethod
     def _markdown_from_result(result):
         markdown_result = getattr(result, "markdown", None)
         if isinstance(markdown_result, str):
-            return markdown_result
+            return markdown_result, markdown_result
         if markdown_result is None:
-            return ""
-        # fit_markdown 是去噪后的正文；为空时回退到 raw_markdown，避免页面内容丢失。
-        return (
-            getattr(markdown_result, "fit_markdown", "")
-            or getattr(markdown_result, "raw_markdown", "")
-            or ""
-        )
+            return "", ""
+        raw_markdown = getattr(markdown_result, "raw_markdown", "") or ""
+        return raw_markdown, raw_markdown
 
     def _document_from_result(self, result, fallback_url, fallback_title=None):
         result_url = getattr(result, "url", None) or fallback_url
@@ -482,34 +769,28 @@ class WebCrawler(BaseCrawler):
         path_title = parsed.path.rstrip("/").split("/")[-1] or parsed.netloc
         stub = DocumentStub(result_id, fallback_title or path_title, "网页")
 
-        markdown = normalize_markdown(
-            self._markdown_from_result(result),
-            heading_offset=0,
-            site_base_url=self.site_base_url,
-        )
-        markdown = clean_markdown_for_rag(markdown)
-        cleaned_html = getattr(result, "cleaned_html", "") or ""
-        resources = extract_html_resources(
-            cleaned_html, site_base_url=self.site_base_url
-        )
         metadata = getattr(result, "metadata", None) or {}
         title = metadata.get("title") or stub.title
-        depth = metadata.get("depth")
-        return CrawledDocument(
-            id=stub.id,
-            title=title,
-            category=stub.category,
-            html=cleaned_html,
-            updated_at=datetime.now().isoformat(timespec="seconds"),
-            metadata={
-                "url": result_url,
-                "title": title,
-                "depth": depth,
-                "status_code": getattr(result, "status_code", None),
-            },
-            markdown=markdown,
-            resources=resources,
+        original_html = getattr(result, "html", "") or getattr(result, "cleaned_html", "") or ""
+        document = CrawledDocument(
+            id=stub.id, title=title, category=stub.category, content=original_html,
+            updated_at=str(metadata.get("article:modified_time") or metadata.get("dateModified") or "未知"),
+            metadata={"url": result_url, "title": title, "depth": metadata.get("depth"),
+                      "status_code": getattr(result, "status_code", None),
+                      "crawled_at": datetime.now().isoformat(timespec="seconds")},
+            source_format="html",
         )
+        self._journal_source(document)
+        # Use the engine's unpruned Markdown; preserve raw HTML separately.
+        raw, _ = self._markdown_from_result(result)
+        from common.converter import preserve_html_paragraph_markers
+        document.resources = extract_html_resources(getattr(result, "cleaned_html", "") or "", site_base_url=result_url)
+        document.raw_markdown = raw
+        document.markdown = ensure_markdown_resources(preserve_html_paragraph_markers(raw), document.resources,
+                                                      site_base_url=result_url, title=title)
+        validate_canonical_markdown(document.markdown, document.resources, title=title)
+        document.metadata["conversion"] = {"engine": "crawl4ai", "version": version("crawl4ai")}
+        return document
 
     @staticmethod
     def _blocked_page_reason(document):
@@ -549,6 +830,10 @@ class WebCrawler(BaseCrawler):
 
     def fetch_document(self, stub):
         """抓取单页并返回已清洗 Markdown，供预览接口复用。"""
+        if self.crawl_mode == "site" and self.adapter:
+            self.adapter.list_documents()
+            if stub.id in self.adapter.record_by_id:
+                return self._convert_html_document(self.adapter.fetch_document(stub))
         result = asyncio.run(self._crawl())
         if not getattr(result, "success", False):
             message = getattr(result, "error_message", "未知错误")
@@ -559,9 +844,93 @@ class WebCrawler(BaseCrawler):
             raise RuntimeError(f"未提取到有效正文: {failure_reason}")
         return document
 
+    def _write_crawl_report(self, payload):
+        report_path = os.path.join(self.save_dir, "crawl_report.json")
+        with open(report_path, "w", encoding="utf-8") as report_file:
+            json.dump(payload, report_file, ensure_ascii=False, indent=2)
+        print(f"📋 抓取报告: {report_path}")
+        return report_path
+
+    @staticmethod
+    def _extend_failure_manifest(summary, records):
+        existing = []
+        if os.path.exists(summary.failed_documents_file):
+            with open(summary.failed_documents_file, encoding="utf-8") as stream:
+                existing.extend(json.loads(line) for line in stream if line.strip())
+        write_jsonl(summary.failed_documents_file, [*existing, *records])
+
+    def _crawl_with_adapter(self, selected_ids=None, selected_titles=None, limit=0):
+        info = self.strategy_info()
+        self.discovery_source = "adapter"
+        self._notify(0, 0, info["message"])
+        documents = self.adapter.crawl_documents(selected_ids, selected_titles)
+        if limit and limit > 0:
+            documents = documents[:limit]
+        converted = documents
+        for document in documents:
+            self._journal_source(document)
+        self._convert_all(converted)
+        if not converted:
+            raise RuntimeError("站点适配器未提取到有效正文")
+
+        reported_total = sum(
+            int(stats["reported_total"])
+            for stats in self.adapter.stats.values()
+            if stats.get("reported_total") is not None
+        )
+        selected_count = len(selected_ids or selected_titles or [])
+        requested_total = (
+            selected_count
+            or (min(reported_total, self.max_pages) if self.max_pages else reported_total)
+        )
+        site_coverage = (
+            round(min(100.0, sum(bool(doc.markdown) for doc in converted) / reported_total * 100), 2)
+            if reported_total
+            else None
+        )
+        scope_completion = (
+            round(min(100.0, sum(bool(doc.markdown) for doc in converted) / requested_total * 100), 2)
+            if requested_total
+            else None
+        )
+        report = {
+            "entry_url": self.entry_url,
+            "scope": "same_host_public_content",
+            "discovery_source": "adapter",
+            "adapter": self.adapter.key,
+            "adapter_name": self.adapter.display_name,
+            "reported_documents": reported_total,
+            "requested_documents": requested_total,
+            "saved_documents": sum(bool(doc.markdown) for doc in converted),
+            "coverage_percent": site_coverage,
+            "requested_scope_completion_percent": scope_completion,
+            "max_pages": self.max_pages,
+            "categories": self.adapter.stats,
+            "notes": [
+                "仅采集无需登录即可访问的公开内容",
+                "问答正文包含公开回答分页",
+            ],
+        }
+        summary = self._save(converted, assess_documents(converted))
+        report_path = self._write_crawl_report(report)
+        summary.discovery_strategy = f"adapter:{self.adapter.key}"
+        summary.coverage_score = site_coverage
+        summary.coverage_report_file = report_path
+        return summary
+
     def crawl(self, selected_ids=None, selected_titles=None, limit=0):
         """按单页或整站模式抓取，统一落盘为 Markdown 和 RAG 文件。"""
+        if limit and limit > 0:
+            self.max_pages = min(self.max_pages, limit) if self.max_pages else limit
+            if self.adapter:
+                self.adapter.max_documents = self.max_pages
         if self.crawl_mode == "site":
+            if self.adapter:
+                return self._crawl_with_adapter(
+                    selected_ids=selected_ids,
+                    selected_titles=selected_titles,
+                    limit=limit,
+                )
             results = asyncio.run(self._crawl_site())
             documents = []
             seen_content = set()
@@ -578,7 +947,17 @@ class WebCrawler(BaseCrawler):
                         }
                     )
                     continue
-                document = self._document_from_result(result, self.url)
+                try:
+                    document = self._document_from_result(result, self.url)
+                except CrawlCancelled:
+                    raise
+                except Exception as exc:
+                    failed_pages.append({"url": getattr(result, "url", ""), "error": str(exc)})
+                    continue
+                if selected_ids and document.id not in {str(item) for item in selected_ids}:
+                    continue
+                if selected_titles and document.title not in set(selected_titles):
+                    continue
                 failure_reason = self._result_failure_reason(result, document)
                 if failure_reason:
                     print(f"⚠️ 跳过 {document.metadata['url']}: {failure_reason}")
@@ -598,33 +977,93 @@ class WebCrawler(BaseCrawler):
                     documents.append(document)
                 else:
                     empty_pages.append(document.metadata["url"])
-                self._notify(index, len(results), f"已处理网页: {document.title}")
+                self._notify(index, self.discovery_details.get("rendered_pages", index), f"已处理网页: {document.title}")
+
+            for document in self._api_documents:
+                if selected_ids and document.id not in {str(item) for item in selected_ids}:
+                    continue
+                if selected_titles and document.title not in set(selected_titles):
+                    continue
+                content_fingerprint = hashlib.sha1(
+                    document.markdown.strip().encode("utf-8")
+                ).hexdigest()
+                if content_fingerprint in seen_content:
+                    duplicate_pages.append(document.metadata.get("url") or document.id)
+                    continue
+                seen_content.add(content_fingerprint)
+                documents.append(document)
             if not documents:
                 raise RuntimeError("整站抓取未提取到有效正文")
             self.collection_name = "网页知识库"
             summary = self._save(documents)
-            report_path = os.path.join(self.save_dir, "crawl_report.json")
-            with open(report_path, "w", encoding="utf-8") as report_file:
-                json.dump(
-                    {
-                        "entry_url": self.entry_url,
-                        "scope": "same_host",
-                        "discovery_source": self.discovery_source,
-                        "discovered_urls": self.discovered_url_count,
-                        "attempted_urls": len(results),
-                        "saved_documents": len(documents),
-                        "max_pages": self.max_pages,
-                        "max_depth": self.max_depth,
-                        "failed_pages": failed_pages,
-                        "blocked_pages": blocked_pages,
-                        "empty_pages": empty_pages,
-                        "duplicate_pages": duplicate_pages,
-                    },
-                    report_file,
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            print(f"📋 抓取报告: {report_path}")
+            api_reports = self.discovery_details.get("api_endpoints") or []
+            api_expected = sum(
+                int(item["reported_total"])
+                for item in api_reports
+                if item.get("reported_total") is not None
+            )
+            api_saved = sum(int(item.get("documents_created") or 0) for item in api_reports)
+            api_saved = sum(doc.id.startswith("api:") for doc in documents)
+            coverage = (
+                round(min(100.0, api_saved / api_expected * 100), 2)
+                if api_expected
+                else None
+            )
+            report_path = self._write_crawl_report(
+                {
+                    "entry_url": self.entry_url,
+                    "scope": "same_host",
+                    "discovery_source": self.discovery_source,
+                    "discovered_urls": self.discovered_url_count,
+                    "attempted_urls": self.discovery_details.get("rendered_pages", 0),
+                    "saved_documents": len(documents),
+                    "coverage_percent": coverage,
+                    "max_pages": self.max_pages,
+                    "max_depth": self.max_depth,
+                    "discovery_details": self.discovery_details,
+                    "failed_pages": failed_pages,
+                    "blocked_pages": blocked_pages,
+                    "empty_pages": empty_pages,
+                    "duplicate_pages": duplicate_pages,
+                }
+            )
+            failure_records = []
+            for item in failed_pages:
+                failure_records.append({
+                    "id": hashlib.sha1(item.get("url", "").encode()).hexdigest()[:16],
+                    "title": item.get("url") or "未知网页",
+                    "category": "网页",
+                    "source_format": "html",
+                    "phase": "fetch_or_conversion",
+                    "error": item.get("error") or "访问失败",
+                    "metadata": {"url": item.get("url")},
+                })
+            for item in blocked_pages:
+                failure_records.append({
+                    "id": hashlib.sha1(item["url"].encode()).hexdigest()[:16],
+                    "title": item["url"],
+                    "category": "网页",
+                    "source_format": "html",
+                    "phase": "blocked",
+                    "error": item["reason"],
+                    "metadata": {"url": item["url"]},
+                })
+            for url in empty_pages:
+                failure_records.append({
+                    "id": hashlib.sha1(url.encode()).hexdigest()[:16],
+                    "title": url,
+                    "category": "网页",
+                    "source_format": "html",
+                    "phase": "conversion",
+                    "error": "正文为空",
+                    "metadata": {"url": url},
+                })
+            self._extend_failure_manifest(summary, failure_records)
+            summary.failed_documents += len(failed_pages) + len(blocked_pages) + len(empty_pages)
+            summary.error_count += sum(not item.get("complete", False) for item in api_reports)
+            summary.discovery_strategy = self.discovery_source
+            summary.coverage_score = coverage
+            summary.coverage_report_file = report_path
             return summary
 
         stubs = self.list_documents()

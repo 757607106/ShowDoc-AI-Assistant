@@ -12,7 +12,7 @@ import urllib.parse
 
 import requests
 
-from showdoc_auth import ShowDocAuthenticator
+from integrations.showdoc import ShowDocAuthenticator
 
 from .base import BaseCrawler, CrawledDocument, DocumentStub
 
@@ -192,13 +192,14 @@ class ShowDocCrawler(BaseCrawler):
                 id=stub.id,
                 title=stub.title,
                 category=stub.category,
-                html="",
+                content="",
                 updated_at="未知",
                 metadata={
                     "page_id": stub.id,
                     "page_title": stub.title,
                     "fetch_error": message,
                 },
+                source_format="markdown",
             )
 
         page = result.get("data") or {}
@@ -206,11 +207,12 @@ class ShowDocCrawler(BaseCrawler):
             id=str(page.get("page_id") or stub.id),
             title=(page.get("page_title") or stub.title).strip(),
             category=stub.category,
-            html=page.get("page_content") or "",
+            content=page.get("page_content") or "",
             updated_at=self._format_time(
                 page.get("page_addtime") or page.get("addtime")
             ),
             metadata=dict(page),
+            source_format="markdown",
         )
 
     def fetch_page_data(self, page_id):

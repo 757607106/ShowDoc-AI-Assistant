@@ -63,6 +63,7 @@ h1, h2, h3, p { margin: 0; }
 .task-dot { width: 7px; height: 7px; margin-top: 5px; background: var(--tertiary); border-radius: 50%; }
 .task-dot.running, .task-dot.pending, .task-dot.cancelling { background: var(--blue); box-shadow: 0 0 0 3px rgba(0, 113, 227, .1); }
 .task-dot.completed { background: var(--green); }
+.task-dot.partial { background: var(--amber); }
 .task-dot.failed, .task-dot.cancelled { background: var(--red); }
 .sidebar-task strong, .sidebar-task small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-task strong { font-size: 11px; font-weight: 620; }
@@ -131,10 +132,17 @@ h2 { font-size: 19px; font-weight: 670; letter-spacing: -.025em; line-height: 1.
 .status-tag { flex: 0 0 auto; padding: 5px 8px; color: var(--tertiary); background: var(--surface-subtle); border: 1px solid var(--line); border-radius: 6px; font: 10px var(--mono); }
 .status-running { color: var(--blue); background: var(--blue-soft); border-color: #cfe3ff; }
 .status-success { color: var(--green); background: var(--green-soft); border-color: #c8e7d4; }
+.status-partial { color: var(--amber); background: var(--amber-soft); border-color: #edd7ad; }
 .status-failed { color: var(--red); background: var(--red-soft); border-color: #efc8c5; }
 .status-cancelled { color: var(--muted); background: var(--surface-subtle); }
 .notice { margin: -2px 0 18px; padding: 10px 12px; color: var(--muted); background: var(--surface-subtle); border-left: 3px solid var(--line); font-size: 11px; line-height: 1.65; }
 .notice:empty { display: none; }
+.web-strategy-hint { display: flex; align-items: flex-start; gap: 10px; margin: -4px 0 14px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-subtle); }
+.web-strategy-hint .strategy-indicator { width: 8px; height: 8px; flex: 0 0 auto; margin-top: 5px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 4px color-mix(in srgb, var(--muted) 12%, transparent); }
+.web-strategy-hint strong { display: block; margin-bottom: 2px; font-size: 12px; }
+.web-strategy-hint p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.web-strategy-hint.adapter { border-color: color-mix(in srgb, var(--blue) 28%, var(--line)); background: color-mix(in srgb, var(--blue) 5%, var(--surface)); }
+.web-strategy-hint.adapter .strategy-indicator { background: var(--blue); box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 12%, transparent); }
 .config-fields { display: grid; gap: 15px; margin-bottom: 18px; }
 .field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .field-row.three-columns { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -235,7 +243,7 @@ input::placeholder { color: #a1a1a6; }
 .task-history, .dataset-list { display: grid; gap: 8px; }
 .history-row, .dataset-row { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(150px, .7fr) minmax(130px, .6fr) auto; gap: 16px; align-items: center; padding: 13px 15px; background: var(--surface); border: 1px solid var(--line-light); border-radius: 12px; }
 .history-main, .dataset-main { min-width: 0; }.history-main strong, .dataset-main strong { display: block; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }.history-main small, .dataset-main small, .history-stat, .dataset-stat { color: var(--tertiary); font-size: 9px; }
-.history-status { width: fit-content; padding: 4px 7px; border-radius: 999px; font-size: 9px; }.history-status.running { color: var(--blue); background: var(--blue-soft); }.history-status.completed { color: var(--green); background: var(--green-soft); }.history-status.failed { color: var(--red); background: var(--red-soft); }.history-status.cancelled { color: var(--muted); background: var(--surface-subtle); }
+.history-status { width: fit-content; padding: 4px 7px; border-radius: 999px; font-size: 9px; }.history-status.running { color: var(--blue); background: var(--blue-soft); }.history-status.completed { color: var(--green); background: var(--green-soft); }.history-status.partial { color: #9a6700; background: #fff4ce; }.history-status.failed { color: var(--red); background: var(--red-soft); }.history-status.cancelled { color: var(--muted); background: var(--surface-subtle); }
 .row-actions { display: flex; justify-content: flex-end; gap: 5px; }
 .empty-row { padding: 30px; color: var(--tertiary); background: var(--surface); border: 1px dashed var(--line); border-radius: 12px; text-align: center; font-size: 11px; }
 

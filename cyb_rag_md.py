@@ -6,7 +6,7 @@
     python main.py --entry cyb --out downloads/cyb
 
 输出布局随之统一为框架约定：downloads/cyb/<分类>/<标题>.md 等，
-详见《多平台爬虫重构方案.md》。
+详见 `docs/architecture/multi-platform-crawler-refactor.md`。
 """
 import os
 import sys
@@ -30,6 +30,7 @@ def crawl_and_process():
     print(f"   分类: {summary.category_count} 个")
     print(f"   输出目录: {summary.output_dir}")
     print(f"   合并文档: {summary.merged_file}")
+    print(f"   原始文档: {summary.raw_documents_file}")
     print(f"   RAG 文档: {summary.rag_documents_file}")
     print(f"   RAG 分块: {summary.rag_chunks_file}")
     if summary.finetuning_file:

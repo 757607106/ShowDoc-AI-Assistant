@@ -49,6 +49,7 @@ class TiantongCrawler(BaseCrawler):
         api_url = f"{self.site_base_url}/api/knowledge"
         stubs = []
         page = 1
+        seen = set()
         while True:
             response = requests.get(
                 api_url,
@@ -64,11 +65,21 @@ class TiantongCrawler(BaseCrawler):
 
             data = payload.get("data") or {}
             items = data.get("list") or []
+            reported = data.get("total")
+            total = int(reported) if reported is not None else None
             if not items:
+                if total is not None and len(stubs) < total:
+                    raise RuntimeError(f"文档目录不完整：预期 {total} 条，仅获取 {len(stubs)} 条")
                 break
-
+            added = 0
             for item in items:
-                item_id = str(item.get("id"))
+                if item.get("id") is None:
+                    raise RuntimeError("文档目录记录缺少 ID")
+                item_id = str(item["id"])
+                if item_id in seen:
+                    continue
+                seen.add(item_id)
+                added += 1
                 self._items[item_id] = item
                 stubs.append(DocumentStub(
                     id=item_id,
@@ -76,13 +87,14 @@ class TiantongCrawler(BaseCrawler):
                     category=(item.get("categoryName") or "未分类").strip(),
                 ))
 
-            total = int(data.get("total") or 0)
+            if not added:
+                raise RuntimeError("文档目录分页重复，已停止以避免无限请求")
             self._notify(
-                min(page * self.page_size, total),
-                total,
+                len(stubs),
+                total or len(stubs),
                 f"正在获取文档列表: 第 {page} 页，已收录 {len(stubs)} 条",
             )
-            if page * self.page_size >= total or len(items) < self.page_size:
+            if total is not None and len(stubs) >= total:
                 break
             page += 1
 
@@ -100,17 +112,22 @@ class TiantongCrawler(BaseCrawler):
             id=stub.id,
             title=stub.title,
             category=stub.category,
-            html=item.get("content") or "",
+            content=item.get("content") or "",
             updated_at=(
                 item.get("updatedAt") or item.get("createdAt") or "未知"
             ),
             metadata=dict(item),
+            source_format="html",
         )
 
     def supplement_resources(self, doc, resources):
         links = list(resources.get("links", []))
         for attachment in self._parse_attachments(doc.metadata.get("attachments")):
             local_path = self._download_attachment(attachment)
+            if not local_path:
+                doc.metadata.setdefault("resource_errors", []).append({
+                    "file_id": attachment.get("fileId"), "name": attachment.get("name"), "error": "附件下载失败"
+                })
             if local_path:
                 links.append({
                     "text": attachment.get("name") or "附件",
@@ -165,7 +182,7 @@ class TiantongCrawler(BaseCrawler):
 
             attachments_dir = os.path.join(self.asset_dir, "attachments")
             os.makedirs(attachments_dir, exist_ok=True)
-            filename = f"{clean_filename(str(file_id))[:8]}_{name}"
+            filename = f"{clean_filename(str(file_id))}_{name}"
             file_path = os.path.join(attachments_dir, filename)
             with open(file_path, "wb") as output_file:
                 output_file.write(file_response.content)

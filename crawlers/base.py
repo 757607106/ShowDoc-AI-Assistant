@@ -1,11 +1,12 @@
 """多平台爬虫抽象基类与规范数据结构。
 
 统一"登录 → 列目录 → 选择 → 取正文 → 清洗 → 按分类落盘"流程；
-数据保真约束见《多平台爬虫重构方案.md》第 4.3/4.4 节。
+数据保真约束见 `docs/architecture/multi-platform-crawler-refactor.md` 第 4.3/4.4 节。
 """
 import json
 import os
-import re
+import hashlib
+from datetime import datetime, timezone
 from collections import OrderedDict
 from dataclasses import dataclass, field
 
@@ -14,11 +15,20 @@ from common.converter import (
     clean_filename,
     clean_markdown_for_rag,
     extract_html_resources,
+    extract_markdown_resources,
+    normalize_document_markdown,
+    normalize_resource_url,
     prepare_html_content,
-    split_markdown_for_rag,
+    prepare_markdown_content,
+    split_markdown_sections_for_rag,
+    validate_canonical_markdown,
     write_jsonl,
 )
 from common.quality import assess_documents
+
+
+class CrawlCancelled(RuntimeError):
+    """Cancellation must never be downgraded to a document error."""
 
 
 @dataclass
@@ -32,15 +42,17 @@ class DocumentStub:
 
 @dataclass
 class CrawledDocument:
-    """抓取完成的规范结构；metadata 全量保留平台原始字段，不清洗、不删减。"""
+    """抓取完成的规范结构；source_format 明确源正文语法，禁止猜测。"""
 
     id: str
     title: str
     category: str
-    html: str
+    content: str
     updated_at: str
     metadata: dict
+    source_format: str
     markdown: str = ""
+    raw_markdown: str = ""
     resources: dict = field(
         default_factory=lambda: {"images": [], "links": []}
     )
@@ -54,15 +66,22 @@ class CrawlSummary:
     category_count: int
     output_dir: str
     merged_file: str = ""
+    raw_documents_file: str = ""
     rag_documents_file: str = ""
     rag_chunks_file: str = ""
     finetuning_file: str = ""
     quality_report_file: str = ""
+    failed_documents_file: str = ""
     quality_score: float = 0.0
     chunk_count: int = 0
     duplicate_count: int = 0
     error_count: int = 0
     warning_count: int = 0
+    discovery_strategy: str = ""
+    coverage_score: float | None = None
+    coverage_report_file: str = ""
+    failed_documents: int = 0
+    source_documents_file: str = ""
 
 
 class BaseCrawler:
@@ -96,7 +115,7 @@ class BaseCrawler:
         raise NotImplementedError
 
     def fetch_document(self, stub):
-        """返回 stub 对应的 CrawledDocument（原始 HTML + 全量 metadata）。"""
+        """返回 stub 对应的 CrawledDocument（原文 + 明确格式 + 全量 metadata）。"""
         raise NotImplementedError
 
     def supplement_resources(self, doc, resources):
@@ -125,10 +144,10 @@ class BaseCrawler:
         self.authenticate()
 
         stubs = self.list_documents()
+        stubs = self._filter_selection(stubs, selected_ids, selected_titles)
         if limit and limit > 0:
             stubs = stubs[:limit]
             print(f"🔢 试跑模式：仅处理前 {limit} 条")
-        stubs = self._filter_selection(stubs, selected_ids, selected_titles)
 
         documents = self._fetch_all(stubs)
         self._convert_all(documents)
@@ -169,53 +188,90 @@ class BaseCrawler:
         documents = []
         for index, stub in enumerate(stubs, 1):
             self._notify(index - 1, len(stubs), f"正在抓取: {stub.title}")
-            documents.append(self.fetch_document(stub))
+            try:
+                document = self.fetch_document(stub)
+            except CrawlCancelled:
+                raise
+            except Exception as exc:
+                document = CrawledDocument(
+                    stub.id, stub.title, stub.category, "", "", {"fetch_error": str(exc)}, "html"
+                )
+            documents.append(document)
+            self._journal_source(document)
             self._notify(index, len(stubs), f"已抓取: {stub.title}")
         return documents
 
-    def _convert_all(self, documents):
-        records = []
-        for doc in documents:
-            prepared = prepare_html_content(
-                doc.html,
-                doc.title,
-                asset_dir=self.asset_dir,
-                document_id=doc.id,
-            )
+    def _source_record(self, doc):
+        return {
+            "id": doc.id, "title": doc.title, "category": doc.category,
+            "content": doc.content, "source_format": doc.source_format,
+            "updated_at": doc.updated_at, "metadata": doc.metadata,
+            "source_sha256": hashlib.sha256(doc.content.encode("utf-8")).hexdigest(),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def _journal_source(self, doc):
+        # Durable raw evidence survives conversion errors and task cancellation.
+        os.makedirs(self.save_dir, exist_ok=True)
+        with open(os.path.join(self.save_dir, "source_documents.jsonl"), "a", encoding="utf-8") as out:
+            out.write(json.dumps(self._source_record(doc), ensure_ascii=False) + "\n")
+
+    def _prepare_record(self, doc, include_attachments=True):
+        base_url = doc.metadata.get("resource_base_url") or doc.metadata.get("url") or self.site_base_url
+        if doc.source_format == "markdown":
+            prepared = prepare_markdown_content(doc.content, doc.title)
+            resources = extract_markdown_resources(prepared, site_base_url=base_url)
+        elif doc.source_format == "html":
+            prepared = prepare_html_content(doc.content, doc.title, asset_dir=self.asset_dir, document_id=doc.id)
             prepared = self.assemble_html(doc, prepared)
-            resources = extract_html_resources(
-                prepared, site_base_url=self.site_base_url
-            )
-            doc.resources = self.supplement_resources(doc, resources)
-            if prepared:
-                records.append({
-                    "id": doc.id,
-                    "title": doc.title,
-                    "html": prepared,
-                    "resources": doc.resources,
-                })
+            resources = extract_html_resources(prepared, site_base_url=base_url)
+        else:
+            raise ValueError(f"文档 {doc.id} 的 source_format 无效: {doc.source_format}")
+        resources = self.supplement_resources(doc, resources) if include_attachments else resources
+        doc.resources = {kind: [{**item, "url": normalize_resource_url(item["url"], base_url)} for item in items]
+                         for kind, items in resources.items()}
+        return {"id": doc.id, "title": doc.title, "content": prepared,
+                "source_format": doc.source_format, "resources": doc.resources, "base_url": base_url}
 
-        if not records:
-            print("⚠️ 没有可清洗的正文内容")
-            return
+    def convert_document(self, doc, include_attachments=True):
+        conversion = self.pipeline.convert([self._prepare_record(doc, include_attachments)])[doc.id]
+        self._apply_conversion(doc, conversion)
+        return doc
 
-        print(f"\n🧹 开始内容清洗，处理引擎: {self._engine_name()}")
-        self._notify(0, len(records), "正在清洗内容...")
-        converted = self.pipeline.convert(records)
+    @staticmethod
+    def _apply_conversion(doc, conversion):
+        doc.raw_markdown, doc.markdown = conversion.raw_markdown, conversion.markdown
+        doc.metadata["conversion"] = {
+            "engine": conversion.engine, "version": conversion.engine_version,
+            "fallback_reason": conversion.fallback_reason,
+        }
+
+    def _convert_all(self, documents):
+        records, errors = [], {}
         for doc in documents:
-            doc.markdown = converted.get(doc.id, "")
+            self._notify(0, len(documents), f"正在准备清洗: {doc.title}")
+            try:
+                records.append(self._prepare_record(doc))
+            except CrawlCancelled:
+                raise
+            except Exception as exc:
+                errors[doc.id] = str(exc)
+        converted = self.pipeline.convert(records, errors=errors, progress_callback=self._notify)
+        for doc in documents:
+            if doc.id in converted:
+                self._apply_conversion(doc, converted[doc.id])
+            else:
+                doc.metadata["conversion_error"] = errors.get(doc.id, "正文为空")
         self._notify(len(records), len(records), "内容清洗完成")
 
     def _engine_name(self):
-        if self.pipeline.use_firecrawl:
-            return "Crawl4AI + Firecrawl"
         if self.pipeline.mode == "builtin":
             return "内置 HTML 转换器"
         return "Crawl4AI"
 
     def _unique_filename(self, category, filename, document_id, used):
         """同分类同名文档追加 id 前缀，避免静默覆盖丢数据。"""
-        key = (category, filename)
+        key = (clean_filename(category).casefold(), filename.casefold())
         if key not in used:
             used[key] = True
             return filename
@@ -224,43 +280,60 @@ class BaseCrawler:
         suffix = clean_filename(str(document_id))[:8]
         candidate = f"{stem}_{suffix}{ext}"
         counter = 2
-        while (category, candidate) in used:
+        while (key[0], candidate.casefold()) in used:
             candidate = f"{stem}_{suffix}_{counter}{ext}"
             counter += 1
-        used[(category, candidate)] = True
+        used[(key[0], candidate.casefold())] = True
         print(f"⚠️ 同名文档重命名: {filename} -> {candidate}")
         return candidate
 
-    @staticmethod
-    def _demote_headings(markdown, offset=3):
-        """下调正文标题层级，保证合并文档中正文位于文档标题（###）之下。"""
-        if not markdown:
-            return markdown
-        result = []
-        in_code_block = False
-        for line in markdown.split("\n"):
-            stripped = line.lstrip()
-            if stripped.startswith(("```", "~~~")):
-                in_code_block = not in_code_block
-                result.append(line)
-                continue
-            if not in_code_block:
-                heading = re.match(r'^(#{1,6})(\s+.*)$', line)
-                if heading:
-                    level = min(6, len(heading.group(1)) + offset)
-                    result.append("#" * level + heading.group(2))
-                    continue
-            result.append(line)
-        return "\n".join(result)
-
     def _save(self, documents, quality_report=None):
         os.makedirs(self.save_dir, exist_ok=True)
+        all_documents = list(documents)
+        source_documents_file = os.path.join(self.save_dir, "source_documents.jsonl")
+        sources = {}
+        if os.path.exists(source_documents_file):
+            with open(source_documents_file, encoding="utf-8") as stream:
+                for line in stream:
+                    try:
+                        record = json.loads(line)
+                    except ValueError:
+                        continue  # An interrupted final journal write is recoverable.
+                    sources[record["id"]] = record
+        for doc in all_documents:
+            sources[doc.id] = self._source_record(doc)
+        write_jsonl(source_documents_file, sources.values())
+        valid = []
+        for doc in all_documents:
+            try:
+                validate_canonical_markdown(doc.markdown, doc.resources, title=doc.title)
+                valid.append(doc)
+            except ValueError as exc:
+                doc.metadata["conversion_error"] = str(exc)
+        quality_report = assess_documents(all_documents)
+        failed_documents = len(all_documents) - len(valid)
+        valid_ids = {id(doc) for doc in valid}
+        failed_documents_file = os.path.join(self.save_dir, "failed_documents.jsonl")
+        write_jsonl(
+            failed_documents_file,
+            (
+                {
+                    **self._source_record(doc),
+                    "phase": "conversion",
+                    "error": doc.metadata.get("conversion_error"),
+                }
+                for doc in all_documents
+                if id(doc) not in valid_ids
+            ),
+        )
+        documents = valid
         docs_by_category = OrderedDict()
         for doc in documents:
             docs_by_category.setdefault(doc.category, []).append(doc)
 
         used_filenames = {}
         empty_count = 0
+        raw_documents = []
         rag_documents = []
 
         # 1. 按分类落盘单文件
@@ -290,7 +363,7 @@ class BaseCrawler:
                 if not body:
                     empty_count += 1
                     body = "*暂无内容*\n"
-                body = body.replace("](assets/", "](../assets/")
+                body = body.replace("](assets/", "](../assets/").replace("](<assets/", "](<../assets/")
                 with open(file_path, "w", encoding="utf-8") as output_file:
                     output_file.write("\n".join(header) + "\n" + body)
 
@@ -307,6 +380,20 @@ class BaseCrawler:
                         "record_id": doc.id,
                     },
                     "metadata": doc.metadata,
+                    "content_format": "markdown",
+                })
+                raw_documents.append({
+                    "id": doc.id,
+                    "type": self.platform,
+                    "title": doc.title,
+                    "category": doc.category,
+                    "content": doc.raw_markdown or doc.markdown,
+                    "source_format": doc.source_format,
+                    "conversion": doc.metadata.get("conversion", {}),
+                    "source": {
+                        "entry_url": document_source,
+                        "record_id": doc.id,
+                    },
                 })
 
         # 2. RAG 分块
@@ -325,18 +412,24 @@ class BaseCrawler:
                 "resources": record["resources"],
             }
             for index, chunk in enumerate(
-                split_markdown_for_rag(
+                split_markdown_sections_for_rag(
                     record["content"],
-                    max_chars=chunk_size,
-                    overlap=chunk_overlap,
+                    max_chars=max(32, chunk_size - len(record["title"]) - 4),
+                    overlap=min(chunk_overlap, max(0, chunk_size - len(record["title"]) - 5)),
                 ),
                 1,
             ):
                 rag_chunks.append({
                     "id": f"{record['id']}-chunk-{index:04d}",
                     "document_id": record["id"],
-                    "content": f"# {record['title']}\n\n{chunk}",
-                    "metadata": chunk_metadata,
+                    "content": f"# {record['title']}\n\n{chunk.content}",
+                    "metadata": {
+                        **chunk_metadata,
+                        "oversized": len(f"# {record['title']}\n\n{chunk.content}") > chunk_size,
+                        "size_unit": "characters",
+                        "section_path": list(chunk.section_path),
+                        "chunk_index": index,
+                    },
                 })
 
         quality_report = quality_report or assess_documents(documents)
@@ -353,7 +446,11 @@ class BaseCrawler:
                 merged_lines.append(f"### {doc.title}")
                 merged_lines.append(f"**更新时间：** {doc.updated_at}")
                 merged_lines.append(
-                    self._demote_headings(doc.markdown)
+                    normalize_document_markdown(
+                        doc.markdown,
+                        title=doc.title,
+                        base_heading_level=4,
+                    )
                     if doc.markdown else "*暂无内容*"
                 )
         merged_file = os.path.join(
@@ -365,8 +462,10 @@ class BaseCrawler:
             )
 
         # 4. 结构化输出
+        raw_documents_file = os.path.join(self.save_dir, "raw_documents.jsonl")
         rag_documents_file = os.path.join(self.save_dir, "rag_documents.jsonl")
         rag_chunks_file = os.path.join(self.save_dir, "rag_chunks.jsonl")
+        write_jsonl(raw_documents_file, raw_documents)
         write_jsonl(rag_documents_file, rag_documents)
         write_jsonl(rag_chunks_file, rag_chunks)
 
@@ -377,14 +476,18 @@ class BaseCrawler:
             category_count=len(docs_by_category),
             output_dir=self.save_dir,
             merged_file=merged_file,
+            raw_documents_file=raw_documents_file,
             rag_documents_file=rag_documents_file,
             rag_chunks_file=rag_chunks_file,
             quality_report_file=quality_report_file,
+            failed_documents_file=failed_documents_file,
             quality_score=quality_report["summary"]["quality_score"],
             chunk_count=len(rag_chunks),
             duplicate_count=quality_report["summary"]["duplicate_documents"],
             error_count=quality_report["summary"]["issue_counts"]["error"],
             warning_count=quality_report["summary"]["issue_counts"]["warning"],
+            failed_documents=failed_documents,
+            source_documents_file=source_documents_file,
         )
 
         # 5. 问答型平台的微调数据

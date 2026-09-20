@@ -1,6 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_file, redirect
 import os
-import re
 import threading
 import time
 import uuid
@@ -8,14 +7,9 @@ from datetime import datetime
 from zipfile import ZIP_DEFLATED, ZipFile
 import shutil
 
-from common.converter import (
-    convert_html_to_markdown,
-    normalize_markdown,
-    prepare_html_content,
-)
+from crawlers.base import CrawlCancelled
 from registry import ENTRIES, create_crawler, get_entry
-from showdoc_auth import ShowDocAuthenticator
-from showdoc_project import ShowDocProjectManager
+from integrations.showdoc import ShowDocAuthenticator, ShowDocProjectManager
 
 # 尝试加载 .env 文件
 try:
@@ -50,13 +44,6 @@ CRAWLER_PARAM_KEYS = (
     'crawl_mode', 'max_pages', 'max_depth',
 )
 
-# 正文包含 HTML 块级标签时先转 Markdown 再预览；
-# ShowDoc 正文本身是 Markdown 源码，原样返回
-HTML_TAG_PATTERN = re.compile(
-    r'<(?:p|div|h[1-6]|img|table|ul|ol|li|br|strong|a)\b', re.IGNORECASE
-)
-
-
 class ApiError(Exception):
     """带 HTTP 状态码的业务异常，由全局 errorhandler 统一返回。"""
 
@@ -66,7 +53,7 @@ class ApiError(Exception):
         self.status_code = status_code
 
 
-class TaskCancelled(RuntimeError):
+class TaskCancelled(CrawlCancelled):
     """任务在安全检查点收到取消请求。"""
 
 
@@ -187,6 +174,8 @@ def task_payload(task, include_logs=True):
         'duplicate_documents': task.summary.duplicate_count if task.summary else 0,
         'errors': task.summary.error_count if task.summary else 0,
         'warnings': task.summary.warning_count if task.summary else 0,
+        'discovery_strategy': getattr(task.summary, 'discovery_strategy', '') if task.summary else '',
+        'coverage_score': getattr(task.summary, 'coverage_score', None) if task.summary else None,
     }
     payload = {
         'task_id': task.task_id,
@@ -207,7 +196,7 @@ def task_payload(task, include_logs=True):
         'elapsed_seconds': elapsed_seconds,
         'selected_count': len(task.selected_ids or task.selected_titles),
         'retry_of': task.retry_of,
-        'download_available': bool(task.status == 'completed' and task.zip_file),
+        'download_available': bool(task.status in {'completed', 'partial'} and task.zip_file),
         'metrics': metrics,
     }
     if include_logs:
@@ -268,6 +257,22 @@ def api_entries():
             for entry in ENTRIES.values()
         ],
     })
+
+
+@app.route('/entries/web/inspect')
+def inspect_web_entry():
+    """只校验网址并返回采集策略，不发起目标站网络请求。"""
+    try:
+        params = entry_crawler_params('web', request.args)
+        crawler = create_crawler('web', save_dir=LISTING_SAVE_DIR, **params)
+        return jsonify({'success': True, **crawler.strategy_info()})
+    except ApiError:
+        raise
+    except Exception as error:
+        return jsonify({
+            'success': False,
+            'message': f'识别采集策略失败: {str(error)}',
+        }), 500
 
 
 @app.route('/entries/<key>/documents')
@@ -332,21 +337,7 @@ def entry_preview(key):
                 raise ApiError(f'未找到文档: {doc_id}', 404)
             doc = crawler.fetch_document(stub)
             title = doc.title
-            # 标题去重后走内容拼接钩子；视频教程的封面/视频链接在钩子里补齐，
-            # 因此正文为空的文档仍可能拼出可预览内容
-            assembled = crawler.assemble_html(
-                doc,
-                prepare_html_content(doc.html or '', doc.title, document_id=doc.id),
-            )
-            if assembled and HTML_TAG_PATTERN.search(assembled):
-                # 相对图片地址绝对化到站点根，保证预览模态框内可加载
-                content = normalize_markdown(
-                    convert_html_to_markdown(assembled, doc.title),
-                    heading_offset=0,
-                    site_base_url=crawler.site_base_url,
-                )
-            else:
-                content = assembled
+            content = crawler.convert_document(doc, include_attachments=False).markdown
 
         if not content.strip():
             raise ApiError('获取页面内容失败', 404)
@@ -435,7 +426,7 @@ def retry_task(task_id):
     task = tasks.get(task_id)
     if not task:
         raise ApiError('任务不存在', 404)
-    if task.status not in {'failed', 'cancelled'}:
+    if task.status not in {'failed', 'cancelled', 'partial'}:
         raise ApiError('只有失败或已取消的任务可以重试', 409)
     active = get_active_task()
     if active:
@@ -457,7 +448,7 @@ def retry_task(task_id):
 @app.route('/download/<task_id>')
 def download_result(task_id):
     task = tasks.get(task_id)
-    if not task or task.status != 'completed' or not task.zip_file:
+    if not task or task.status not in {'completed', 'partial'} or not task.zip_file:
         return jsonify({'error': '文件不可用'}), 404
 
     try:
@@ -610,10 +601,10 @@ def run_crawler_task(task):
         print(f"\n📊 爬取结果: total={summary.total_documents}, "
               f"empty={summary.empty_documents}, categories={summary.category_count}")
 
-        if summary.total_documents > 0:
+        if summary.total_documents > 0 or summary.failed_documents > 0:
             set_task_message(task, '正在打包数据集...', phase='packaging')
             ensure_task_active(task)
-            print(f"📦 正在创建ZIP文件...")
+            print("📦 正在创建ZIP文件...")
             zip_filename = os.path.join('downloads', f'{task.task_id}.zip')
             create_zip_file(
                 task.output_dir,
@@ -627,7 +618,10 @@ def run_crawler_task(task):
             if selected_count:
                 task.skipped_pages = max(0, selected_count - summary.total_documents)
             download_type = f"选择了{selected_count}个页面" if selected_count else "全量下载"
-            task.status = 'completed'
+            task.failed_pages = getattr(summary, 'failed_documents', 0)
+            task.completed_pages = summary.total_documents + task.failed_pages
+            task.total_pages = task.completed_pages
+            task.status = 'partial' if task.failed_pages or summary.error_count else 'completed'
             task.phase = 'completed'
             task.progress = 100
             task.message = (
@@ -635,9 +629,15 @@ def run_crawler_task(task):
                 f'（{summary.empty_documents} 个无内容），'
                 f'{summary.category_count} 个分类 ({download_type})'
             )
+            if task.status == 'partial':
+                task.message = (
+                    f'部分完成：{summary.total_documents} 篇有效文档，'
+                    f'{task.failed_pages} 篇采集或转换失败，'
+                    f'{summary.error_count} 项质量错误；详情见失败清单和质量报告。'
+                )
             task.add_log(task.message)
             print(f"\n{'='*60}")
-            print(f"✅ [任务完成] status=completed")
+            print(f"✅ [任务完成] status={task.status}")
             print(f"   ZIP文件: {zip_filename}")
             print(f"{'='*60}\n")
         else:
@@ -646,7 +646,7 @@ def run_crawler_task(task):
             task.message = '未找到任何页面内容或所选页面不存在'
             task.failed_pages = max(1, task.failed_pages)
             task.add_log(task.message)
-            print(f"\n❌ [任务失败] 未找到页面内容")
+            print("\n❌ [任务失败] 未找到页面内容")
 
     except TaskCancelled:
         task.status = 'cancelled'

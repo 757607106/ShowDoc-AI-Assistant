@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="知识库数据采集、清洗、质量检查与数据集生成工作台">
     <title>知识库数据治理工作台</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
@@ -51,9 +52,9 @@
                 <div class="stage active" id="configureStage" data-stage="configure">
                     <div class="section-heading"><div><p class="eyebrow">第一步</p><h2>选择数据源</h2></div><span class="section-note">系统会为每个数据源保留本次填写内容</span></div>
                     <div class="source-grid" id="sourceGrid">
-                        <button class="source-card active" type="button" data-source="showdoc_public"><span class="source-symbol source-showdoc" aria-hidden="true">S</span><span class="source-name">ShowDoc 公开项目</span><span class="source-desc">项目编号 · 无需登录</span><span class="source-check">✓</span></button>
-                        <button class="source-card" type="button" data-source="showdoc_account"><span class="source-symbol source-account" aria-hidden="true">S</span><span class="source-name">ShowDoc 账号项目</span><span class="source-desc">登录一次 · 复用会话</span><span class="source-check">✓</span></button>
-                        <button class="source-card" type="button" data-source="cyb"><span class="source-symbol source-cyb" aria-hidden="true">云</span><span class="source-name">云创业版知识库</span><span class="source-desc">首次登录 · 后续复用</span><span class="source-check">✓</span></button>
+                        <button class="source-card active" type="button" data-source="showdoc_public"><span class="source-symbol source-showdoc" aria-hidden="true">S</span><span class="source-name">ShowDoc 通用公开项目</span><span class="source-desc">项目编号 · 无需登录</span><span class="source-check">✓</span></button>
+                        <button class="source-card" type="button" data-source="showdoc_account"><span class="source-symbol source-account" aria-hidden="true">S</span><span class="source-name">ShowDoc 非公开项目</span><span class="source-desc">登录一次 · 复用会话</span><span class="source-check">✓</span></button>
+                        <button class="source-card" type="button" data-source="cyb"><span class="source-symbol source-cyb" aria-hidden="true">云</span><span class="source-name">管家婆云创业版知识库</span><span class="source-desc">首次登录 · 后续复用</span><span class="source-check">✓</span></button>
                         <button class="source-card" type="button" data-source="tiantong"><span class="source-symbol source-tiantong" aria-hidden="true">天</span><span class="source-name">天通资源中心</span><span class="source-desc">公开目录 · 免登录</span><span class="source-check">✓</span></button>
                         <button class="source-card" type="button" data-source="web"><span class="source-symbol source-web" aria-hidden="true">网</span><span class="source-name">通用网页采集</span><span class="source-desc">单页或同站公开页面</span><span class="source-check">✓</span></button>
                     </div>
@@ -75,6 +76,7 @@
                                 </div>
                                 <div id="webFields" class="config-fields hidden">
                                     <label>目标网页地址<input id="webUrl" type="url" maxlength="2048" placeholder="https://example.com/article" aria-describedby="webUrlError"><span class="field-error" id="webUrlError"></span></label>
+                                    <div id="webStrategyHint" class="web-strategy-hint hidden" role="status" aria-live="polite"><span class="strategy-indicator" aria-hidden="true"></span><div><strong id="webStrategyTitle">正在识别采集方式</strong><p id="webStrategyMessage">系统将根据网址自动选择采集策略。</p></div></div>
                                     <div class="field-row three-columns"><label>采集范围<select id="webCrawlMode"><option value="page" selected>仅当前页面（推荐）</option><option value="site">同站公开页面</option></select></label><label>页面上限<input id="webMaxPages" type="number" value="0" min="0" max="100000"><span class="field-help">0 表示不限</span></label><label>链接深度<input id="webMaxDepth" type="number" value="0" min="0" max="100"><span class="field-help">0 表示不限</span></label></div>
                                     <details class="crawl-disclosure"><summary>网页采集与合规说明</summary><p>请仅采集你有权访问、处理和使用的公开网页。系统会优先读取 robots.txt 和 sitemap.xml，不跨域，也不会主动绕过登录、验证码、付费墙或其他访问控制。使用前请确认目标站点的服务条款、版权、隐私要求和访问频率限制。</p></details>
                                 </div>
@@ -88,7 +90,7 @@
 
                         <details class="panel strategy-panel" id="strategyDetails">
                             <summary><span><small>治理策略</small><strong>本次任务如何处理数据</strong></span><em>查看</em></summary>
-                            <div class="strategy-list"><div class="strategy-item"><span>1</span><div><strong>保持原文</strong><p>保存原始元数据和资源，不修改数据源。</p></div></div><div class="strategy-item"><span>2</span><div><strong>清洗与检查</strong><p>规范正文结构，检查空内容、重复内容和标题层级。</p></div></div><div class="strategy-item"><span>3</span><div><strong>生成数据集</strong><p>输出 Markdown、知识库文档、知识分块和质量报告。</p></div></div></div>
+                            <div class="strategy-list"><div class="strategy-item"><span>1</span><div><strong>保持原文</strong><p>单独保存原始 Markdown、元数据和资源，便于审计。</p></div></div><div class="strategy-item"><span>2</span><div><strong>清洗与检查</strong><p>统一标题结构，检查空内容、重复内容和标题层级。</p></div></div><div class="strategy-item"><span>3</span><div><strong>生成数据集</strong><p>按章节和段落生成知识分块，并保留章节路径。</p></div></div></div>
                         </details>
                     </div>
                 </div>
@@ -130,7 +132,7 @@
 
             <section class="app-view" id="datasetsView" data-view-panel="datasets">
                 <div class="empty-state" id="datasetEmpty"><span class="empty-icon">▱</span><h2>还没有生成数据集</h2><p>完成清洗和质量检查后，可在这里下载完整数据集。</p><button class="button button-primary" type="button" data-view="collect">新建治理任务</button></div>
-                <section class="panel result-panel hidden" id="resultPanel"><div class="panel-header"><div><p class="eyebrow">最新产物</p><h2 id="resultTitle">数据集输出</h2><p class="panel-subtitle" id="resultTaskMeta">—</p></div><span class="status-tag status-success" id="resultStatus">可下载</span></div><div class="result-grid"><div class="result-copy"><p id="resultDescription">数据集已生成。</p><div class="result-files"><span>Markdown 文档</span><span>知识库文档</span><span>知识分块</span><span>质量报告</span></div></div><button class="button button-primary download-button" id="downloadButton">下载完整数据集 <span>↓</span></button></div></section>
+                <section class="panel result-panel hidden" id="resultPanel"><div class="panel-header"><div><p class="eyebrow">最新产物</p><h2 id="resultTitle">数据集输出</h2><p class="panel-subtitle" id="resultTaskMeta">—</p></div><span class="status-tag status-success" id="resultStatus">可下载</span></div><div class="result-grid"><div class="result-copy"><p id="resultDescription">数据集已生成。</p><div class="result-files"><span>原始 Markdown</span><span>规范文档</span><span>章节分块</span><span>质量报告</span></div></div><button class="button button-primary download-button" id="downloadButton">下载完整数据集 <span>↓</span></button></div></section>
                 <section class="history-section"><div class="section-heading"><div><p class="eyebrow">历史产物</p><h2>已生成的数据集</h2></div><span class="section-note">服务重启后，内存中的任务记录会清空</span></div><div class="dataset-list" id="datasetList"><div class="empty-row">暂无可下载数据集</div></div></section>
             </section>
         </div>

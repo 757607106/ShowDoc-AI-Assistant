@@ -199,7 +199,7 @@ class ShowDocProjectManager:
 
 # 测试代码
 if __name__ == '__main__':
-    from showdoc_auth import ShowDocAuthenticator
+    from .auth import ShowDocAuthenticator
     
     print("=" * 60)
     print("ShowDoc项目管理模块测试")

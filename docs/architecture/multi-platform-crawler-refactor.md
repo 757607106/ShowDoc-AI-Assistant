@@ -1,7 +1,7 @@
-# 多平台爬虫重构方案
+# 多平台爬虫架构与重构记录
 
-> 状态：第 1、2、3、4 阶段全部实施完成（registry + BaseCrawler + 天通/ShowDoc/CYB 爬虫 + CLI + app.py 收敛为 registry 分发 + 前端四标签平台选择器）。
-> 日期：2026-09-18
+> 状态：第 1、2、3、4 阶段全部实施完成，并已完成工程目录与命名规范整理。
+> 日期：2026-09-19
 
 ## 1. 背景与目标
 
@@ -56,16 +56,16 @@
 - 数据：`/tutorials`（含 category、coverImage、videoUrl）与 `/faqs`（faqTypeId → 中文分类映射），平铺列表。
 - 产出：合并 MD、rag_documents.jsonl、rag_chunks.jsonl、finetuning_faq.jsonl。
 
-### 2.3 ShowDoc（现有 `crawler.py` / `showdoc_*.py`）
+### 2.3 ShowDoc（现有 `crawlers/showdoc.py` 与 `integrations/showdoc/`）
 
-- 登录：`/api/common/createCaptcha` → 图片 → 千问 VL 识别 → `/api/user/loginByVerify`。
+- 登录：`/api/common/createCaptcha` → 图片 → 千问 VL 识别 → `/api/user/loginByVerify`，认证实现位于 `integrations/showdoc/auth.py`。
 - 数据：`/api/item/myList` → `/api/item/info`（目录树 catalogs + 根 pages）→ `/api/page/info`（逐页正文）。
 
 ## 3. 现有代码问题分析
 
-1. **同一平台两套实现**：`crawler.py` 的 `YunHuiHuangCrawler` 与 `showdoc_crawler.py` 的 `ShowDocCrawler` 调用同一批 `yunhelp.gmgrasp.com.cn` 接口，`crawl()` 整段复制（crawler.py:673 与 showdoc_crawler.py:105），`app.py` 也有对应的重复任务函数（run_crawler:446 / run_showdoc_crawler:503）。
-2. **两套验证码识别**：ShowDoc 走 dashscope SDK（showdoc_auth.py:114），CYB 用 urllib 裸调（cyb_rag_md.py:718），本质相同。
-3. **最强清洗管道被锁死**：`cyb_rag_md.py` 的 `RAGContentPipeline`（Crawl4AI → Firecrawl → 内置回退，含资源完整性回补）只服务 CYB；且内部硬编码 `new.yuncyb.com`（`normalize_resource_url` 与 `CrawlerRunConfig.base_url`），其他站点无法复用。
+1. **同一平台两套实现（历史问题）**：早期 `crawler.py` 的 `YunHuiHuangCrawler` 与 `showdoc_crawler.py` 的 `ShowDocCrawler` 调用同一批接口并重复实现 `crawl()`；当前已合并为 `crawlers/showdoc.py`。
+2. **两套验证码识别**：ShowDoc 走 dashscope SDK（`integrations/showdoc/auth.py`），CYB 用 urllib 裸调，能力边界相近。
+3. **清洗管道曾被锁死**：早期 `cyb_rag_md.py` 的 `RAGContentPipeline` 只服务 CYB，且内部硬编码 `new.yuncyb.com`。当前已统一为 Crawl4AI → Markdown 结构规范化 → 标题感知 RAG 分块，并由内置转换器提供离线回退。
 4. **入口无法选择**：`app.py` 按路由硬编码平台，`cyb_rag_md.py` 只能跑 CYB，没有统一的"分类 → 入口"选择机制。
 
 ## 4. 目标架构设计
@@ -82,10 +82,17 @@ crawlers/
   tiantong.py     天通爬虫（第 1 阶段）
   showdoc.py      ShowDoc 爬虫（第 2 阶段，合并现有两套实现）
   cyb.py          云创业版爬虫（第 3 阶段，从 cyb_rag_md.py 拆出）
+  web.py          通用网页爬虫
+  web_adapters.py 已验证站点适配器
+  web_discovery.py 通用动态链接与只读分页发现
+integrations/
+  showdoc/
+    auth.py       ShowDoc 验证码和登录
+    project.py    ShowDoc 项目列表与缓存
 registry.py       入口注册表：分类键 → 爬虫类（新增平台只改这里）
 main.py           CLI 入口：--entry 选择平台
 app.py            Web 端（第 4 阶段改走 registry）
-cyb_rag_md.py     兼容入口（薄委托，等价 python main.py --entry cyb）
+cyb_rag_md.py     历史启动入口（薄委托，等价 python main.py --entry cyb）
 ```
 
 ### 4.2 核心抽象（crawlers/base.py）
@@ -102,9 +109,11 @@ class CrawledDocument:       # 抓取完成的规范结构
     id: str
     title: str
     category: str
-    html: str                # 原始正文 HTML（转换前）
+    content: str             # 原始正文，语法由 source_format 明确声明
     updated_at: str
     metadata: dict           # 平台原始字段全量保留（数据不丢失的关键）
+    source_format: str       # html / markdown；禁止按正文内容猜测
+    raw_markdown: str = ""   # 转换后的审计原文
     markdown: str = ""       # 清洗后的正文
     resources: dict = ...    # {images: [...], links: [...]}
 
@@ -123,14 +132,17 @@ class BaseCrawler:
     # 模板方法（子类不覆写）
     def crawl(self, selected_ids=None, selected_titles=None) -> CrawlSummary:
         authenticate → list_documents → 选择过滤 → 逐条 fetch →
-        prepare_html_content → extract_html_resources → RAGContentPipeline.convert →
+        按 source_format 分流 → 提取对应语法资源 → RAGContentPipeline.convert →
         按分类落盘（单文件 + 合并文档 + JSONL）
 ```
 
 ### 4.3 数据保真设计（约束 1）
 
 - **原始字段全量入 JSONL**：`rag_documents.jsonl` 每行的 `metadata` 字段保存该条记录 API 返回的**全部原始字段**（天通 16 个字段一个不少），`content` 为清洗后的 Markdown，`html` 不入库但 `metadata` 中的原始结构与 ID 均在。
-- **清洗只做无损操作**：沿用 CYB 管道的保真原则——`prepare_html_content` 去重标题/外置内嵌图片/补图片 alt；`ensure_markdown_resources` 检测转换器漏掉的图片与链接并追加"相关资源"区块回补；失败时回退内置转换器而不是丢弃。
+- **源格式是数据契约**：`CrawledDocument.source_format` 必须由采集器明确给出。HTML 进入 HTML 转换通道；ShowDoc 等 Markdown 原文直接进入 Markdown 规范化通道，禁止再包装成 HTML 后二次转换。
+- **资源按源语法提取**：HTML 使用标签解析器，Markdown 使用 `markdown-it-py` AST；图片和链接在规范化后逐 URL 核对，缺失资源会被回补并再次校验。
+- **落盘前强校验**：所有入口在 `_save` 前统一验证非空正文，包括正文 H1、标题跳级、未闭合代码围栏、解析器标题数不一致、单行结构压平、图片/链接遗漏。校验失败直接终止任务，不生成伪合格 RAG 语料。
+- **HTML 离线转换不降级结构**：内置转换器原生处理标题、段落、链接、图片、嵌套列表、围栏代码块和 GFM 表格；代码块内部空白原样保留。
 - **附件落盘**：天通附件在抓取时通过 token 接口下载到 `assets/attachments/`，Markdown 中以相对路径引用；下载失败仅告警，metadata 仍保留原始 `attachments` 字符串。
 - **同名不覆盖**：同分类同标题的文档在生成文件名时追加 id 前 8 位，杜绝静默覆盖丢数据。
 
@@ -149,9 +161,11 @@ class BaseCrawler:
 `cyb_rag_md.py` 增加可选参数 `site_base_url`（默认 None → 沿用 `CYB_API_BASE_URL`，行为完全不变）：
 
 - `normalize_resource_url(url, site_base_url=None)`
-- `normalize_markdown(markdown, heading_offset=4, site_base_url=None)`
+- `normalize_markdown(markdown, heading_offset=0, site_base_url=None)`
+- `normalize_document_markdown(markdown, title, base_heading_level=2)`
 - `extract_html_resources(html_content, site_base_url=None)`
-- `ensure_markdown_resources(markdown, resources, heading_offset=4, site_base_url=None)`
+- `ensure_markdown_resources(markdown, resources, heading_offset=0, site_base_url=None)`
+- `split_markdown_sections_for_rag(markdown, max_chars, overlap)`
 - `RAGContentPipeline(mode, asset_dir, site_base_url)`，其中 `CrawlerRunConfig.base_url` 与回补逻辑均使用注入值
 
 天通注入 `http://117.172.29.67:6067` 后，正文相对路径图片/链接自动绝对化，Crawl4AI 也能正确解析相对资源。
@@ -199,9 +213,21 @@ python main.py --entry tiantong --page-size 100 --pipeline builtin
 
 两个修复均通过 CYB 默认行为回归测试（`new.yuncyb.com` 路径不受影响）。
 
+### Markdown 原生管道根治验证（2026-09-19，ShowDoc 真实存量回放）
+
+历史 ShowDoc 管道把 `page_content`（Markdown）误放进 HTML 字段，再包装为 HTML 交给转换器，导致章节换行被压平；资源提取器同时只识别 `<img>/<a>`，因此质量报告会错误地给出高分。
+
+本次改造删除了这个错误的数据模型：正文统一使用 `content + source_format`，ShowDoc 明确声明 `markdown` 并直接规范化。对项目 412 的 19 条真实 API 原文回放结果：
+
+- [x] 19/19 正文非空，行首标题 1087 个，`markdown-it-py` 识别标题同为 1087 个
+- [x] 图片资源 896 个、链接资源 96 个，正文缺失资源 0 个
+- [x] 单行结构压平 0 篇，残留 `<center>/<video>` 展示标签 0 篇
+- [x] 标题感知 RAG 分块 1051 个，质量错误 0、警告 0
+- [x] 全量单元测试 37 项通过，覆盖源格式强制声明、Markdown 原生分流、HTML 表格/代码块、空转换拒绝、资源对应和标题层级修复
+
 ### 第 2 阶段验证（2026-09-18，项目 412 全量 + Web UI 浏览器实测）
 
-**实现内容：** `crawlers/showdoc.py` 合并原 `crawler.py`（YunHuiHuangCrawler）与 `showdoc_crawler.py`（ShowDocCrawler）两套实现；旧文件已删除。app.py 迁移到统一爬虫：`/get_pages`、`/preview_page`、`/start_crawl`（与 `/showdoc/start_crawl` 合并为单一 `run_crawler_task`）、`/showdoc/pages`、`/showdoc/login`、`/showdoc/projects` 全部走 `crawlers.showdoc.ShowDocCrawler`。
+**实现内容：** `crawlers/showdoc.py` 已合并早期两套 ShowDoc 爬虫实现，认证与项目管理分别归档到 `integrations/showdoc/auth.py` 和 `integrations/showdoc/project.py`。`app.py` 通过 `registry.py` 统一分发文档列表、预览和任务执行接口。
 
 **单元测试：**
 - [x] 目录树路径：根目录页面 / 一级目录 / 一级/二级嵌套目录生成的 `category` 路径全部正确

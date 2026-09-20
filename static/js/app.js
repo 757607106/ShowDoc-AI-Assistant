@@ -19,7 +19,7 @@
             fieldsHint: "登录并选择账号下的项目。服务重启或会话失效时才需要重新登录。",
         },
         cyb: {
-            backend: "cyb", name: "云创业版知识库", title: "云创业版配置", tag: "自动登录",
+            backend: "cyb", name: "管家婆云创业版知识库", title: "云创业版配置", tag: "自动登录",
             notice: "首次访问时自动登录并缓存会话，后续目录、预览和采集任务会复用登录状态。",
             fieldsHint: "无需填写连接参数。目录较大时，建议先选择少量文档验证结果。",
         },
@@ -49,7 +49,7 @@
     };
     const statusLabels = {
         pending: "等待执行", running: "处理中", cancelling: "正在取消", completed: "已完成",
-        failed: "失败", cancelled: "已取消",
+        failed: "失败", partial: "部分完成", cancelled: "已取消",
     };
 
     const state = {
@@ -65,6 +65,8 @@
         task: null,
         tasks: [],
         pollTimer: null,
+        webInspectTimer: null,
+        webInspectController: null,
         modalTrigger: null,
         finishedNotices: new Set(),
     };
@@ -223,6 +225,7 @@
         renderRecords();
         showStage(state.pages.length && $("#downloadMode").value === "selected" && options.keepStep ? "select" : "configure");
         if (source === "showdoc_account" && !state.loggedIn) loadShowdocProjects({ silent: true });
+        if (source === "web") inspectWebStrategy();
     }
 
     function updateLoadButton() {
@@ -261,6 +264,53 @@
         return !firstInvalid;
     }
 
+    async function inspectWebStrategy() {
+        if (state.source !== "web") return;
+        const value = $("#webUrl").value.trim();
+        const hint = $("#webStrategyHint");
+        if (!value) {
+            setVisible(hint, false);
+            return;
+        }
+        try {
+            const url = new URL(value);
+            if (!["http:", "https:"].includes(url.protocol)) throw new Error();
+        } catch (_) {
+            setVisible(hint, false);
+            return;
+        }
+
+        state.webInspectController?.abort();
+        state.webInspectController = new AbortController();
+        setVisible(hint, true);
+        hint.className = "web-strategy-hint";
+        $("#webStrategyTitle").textContent = "正在识别采集方式";
+        $("#webStrategyMessage").textContent = "正在根据网址匹配站点能力。";
+        try {
+            const response = await fetch(`/entries/web/inspect?url=${encodeURIComponent(value)}`, {
+                signal: state.webInspectController.signal,
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.success === false) throw new Error(data.message || "识别失败");
+            hint.classList.toggle("adapter", data.strategy === "adapter");
+            $("#webStrategyTitle").textContent = data.name;
+            const modeNote = $("#webCrawlMode").value === "site"
+                ? ""
+                : "切换为“同站公开页面”后，将启用完整发现能力。";
+            $("#webStrategyMessage").textContent = `${data.message}${modeNote}`;
+        } catch (error) {
+            if (error.name === "AbortError") return;
+            hint.className = "web-strategy-hint";
+            $("#webStrategyTitle").textContent = "使用增强型通用网页采集";
+            $("#webStrategyMessage").textContent = "暂时无法识别专用策略，任务仍可按通用规则执行。";
+        }
+    }
+
+    function scheduleWebStrategyInspection() {
+        if (state.webInspectTimer) window.clearTimeout(state.webInspectTimer);
+        state.webInspectTimer = window.setTimeout(inspectWebStrategy, 450);
+    }
+
     function buildDocumentsUrl() {
         const key = sourceMeta[state.source].backend;
         const params = new URLSearchParams();
@@ -269,6 +319,11 @@
             if ($("#keyword").value.trim()) params.set("keyword", $("#keyword").value.trim());
             if (state.source === "showdoc_public" && $("#defaultPageId").value.trim()) params.set("default_page_id", $("#defaultPageId").value.trim());
             if (state.source === "showdoc_account") params.set("auth", "1");
+        } else if (state.source === "web") {
+            params.set("url", $("#webUrl").value.trim());
+            params.set("crawl_mode", $("#webCrawlMode").value);
+            params.set("max_pages", $("#webMaxPages").value || "0");
+            params.set("max_depth", $("#webMaxDepth").value || "0");
         } else if (state.source !== "web" && $("#keyword").value.trim()) {
             params.set("keyword", $("#keyword").value.trim());
         }
@@ -360,6 +415,11 @@
         if (key === "showdoc") {
             params.set("item_id", currentItemId());
             if (state.source === "showdoc_account") params.set("auth", "1");
+        } else if (key === "web") {
+            params.set("url", $("#webUrl").value.trim());
+            params.set("crawl_mode", $("#webCrawlMode").value);
+            params.set("max_pages", $("#webMaxPages").value || "0");
+            params.set("max_depth", $("#webMaxDepth").value || "0");
         }
         return `/entries/${key}/preview?${params}`;
     }
@@ -525,6 +585,10 @@
                     state.finishedNotices.add(task.task_id);
                     notify("治理任务完成，数据集已生成", "success");
                 }
+                if (task.status === "partial" && !state.finishedNotices.has(task.task_id)) {
+                    state.finishedNotices.add(task.task_id);
+                    notify(task.message, "warning", { retry: retryCurrentTask });
+                }
                 if (task.status === "failed" && !state.finishedNotices.has(task.task_id)) {
                     state.finishedNotices.add(task.task_id);
                     notify(task.message || "任务执行失败", "error", { retry: retryCurrentTask });
@@ -579,7 +643,7 @@
         const sidebarTasks = state.tasks.slice(0, 6);
         $("#sidebarTasks").innerHTML = sidebarTasks.length ? sidebarTasks.map((task) => `<button class="sidebar-task ${task.task_id === state.taskId ? "active" : ""}" type="button" data-task-id="${escapeAttr(task.task_id)}"><span class="task-dot ${escapeAttr(task.status)}"></span><span><strong>${escapeHtml(task.entry_name || task.entry)}</strong><small>${escapeHtml(statusLabels[task.status] || task.status)} · ${formatDate(task.start_time)}</small></span></button>`).join("") : '<p class="sidebar-empty">暂无任务</p>';
 
-        $("#taskHistory").innerHTML = state.tasks.length ? state.tasks.map((task) => `<article class="history-row"><div class="history-main"><strong>${escapeHtml(task.entry_name || task.entry)} · ${shortTaskId(task.task_id)}</strong><small>${formatDateTime(task.start_time)}${task.retry_of ? " · 重试任务" : ""}</small></div><span class="history-status ${statusClass(task.status)}">${escapeHtml(statusLabels[task.status] || task.status)}</span><span class="history-stat">${Number(task.completed_pages || 0)} / ${Number(task.total_pages || 0)} 文档 · ${formatDuration(task.elapsed_seconds)}</span><div class="row-actions"><button class="text-button" type="button" data-open-task="${escapeAttr(task.task_id)}">查看</button>${["failed", "cancelled"].includes(task.status) ? `<button class="text-button" type="button" data-retry-task="${escapeAttr(task.task_id)}">重试</button>` : ""}</div></article>`).join("") : '<div class="empty-row">暂无历史任务</div>';
+        $("#taskHistory").innerHTML = state.tasks.length ? state.tasks.map((task) => `<article class="history-row"><div class="history-main"><strong>${escapeHtml(task.entry_name || task.entry)} · ${shortTaskId(task.task_id)}</strong><small>${formatDateTime(task.start_time)}${task.retry_of ? " · 重试任务" : ""}</small></div><span class="history-status ${statusClass(task.status)}">${escapeHtml(statusLabels[task.status] || task.status)}</span><span class="history-stat">${Number(task.completed_pages || 0)} / ${Number(task.total_pages || 0)} 文档 · ${formatDuration(task.elapsed_seconds)}</span><div class="row-actions"><button class="text-button" type="button" data-open-task="${escapeAttr(task.task_id)}">查看</button>${["failed", "cancelled", "partial"].includes(task.status) ? `<button class="text-button" type="button" data-retry-task="${escapeAttr(task.task_id)}">重试</button>` : ""}</div></article>`).join("") : '<div class="empty-row">暂无历史任务</div>';
         renderDatasets();
         updateActionAvailability();
     }
@@ -593,7 +657,8 @@
             $("#resultTitle").textContent = `${latest.entry_name}数据集`;
             $("#resultTaskMeta").textContent = `${formatDateTime(latest.end_time)} · 任务 ${shortTaskId(latest.task_id)}`;
             const metrics = latest.metrics || {};
-            $("#resultDescription").textContent = `共 ${metrics.documents || latest.completed_pages || 0} 个文档、${metrics.chunks || 0} 个知识分块，质量得分 ${metrics.quality_score ?? "—"}。完整包包含文档、结构化数据和质量报告。`;
+            const coverage = metrics.coverage_score == null ? "" : `，采集覆盖率 ${metrics.coverage_score}%`;
+            $("#resultDescription").textContent = `共 ${metrics.documents || latest.completed_pages || 0} 个文档、${metrics.chunks || 0} 个章节分块，质量得分 ${metrics.quality_score ?? "—"}${coverage}。完整包包含原始 Markdown、规范文档、结构化分块、质量报告和抓取报告。`;
             $("#downloadButton").dataset.taskId = latest.task_id;
         }
         $("#datasetList").innerHTML = completed.length ? completed.map((task) => `<article class="dataset-row"><div class="dataset-main"><strong>${escapeHtml(task.entry_name)}数据集</strong><small>任务 ${shortTaskId(task.task_id)} · ${formatDateTime(task.end_time)}</small></div><span class="history-status completed">可下载</span><span class="dataset-stat">${task.metrics?.documents || task.completed_pages || 0} 个文档 · ${task.metrics?.chunks || 0} 个分块</span><div class="row-actions"><button class="text-button" type="button" data-open-task="${escapeAttr(task.task_id)}">详情</button><button class="text-button" type="button" data-download-task="${escapeAttr(task.task_id)}">下载</button></div></article>`).join("") : '<div class="empty-row">暂无可下载数据集</div>';
@@ -604,15 +669,15 @@
         const status = task.status || "pending";
         const phase = task.phase || "queued";
         const percent = Math.max(0, Math.min(100, Number(task.progress || 0)));
-        const finished = ["completed", "failed", "cancelled"].includes(status);
+        const finished = ["completed", "partial", "failed", "cancelled"].includes(status);
         setVisible($("#metricStrip"), true);
         setVisible($("#topTaskStatus"), true);
         $("#topTaskStatus strong").textContent = `${task.entry_name || task.entry} · ${statusLabels[status] || status}`;
-        $("#topTaskStatus").classList.toggle("is-complete", status === "completed");
+        $("#topTaskStatus").classList.toggle("is-complete", ["completed", "partial"].includes(status));
         $("#runTitle").textContent = task.entry_name || "任务运行状态";
         $("#runTaskMeta").textContent = `任务 ${shortTaskId(task.task_id)} · ${formatDateTime(task.start_time)}`;
         $("#runStatus").textContent = statusLabels[status] || status;
-        $("#runStatus").className = `status-tag ${status === "completed" ? "status-success" : ["failed"].includes(status) ? "status-failed" : status === "cancelled" ? "status-cancelled" : "status-running"}`;
+        $("#runStatus").className = `status-tag ${status === "completed" ? "status-success" : status === "partial" ? "status-partial" : status === "failed" ? "status-failed" : status === "cancelled" ? "status-cancelled" : "status-running"}`;
         $("#runMessage").textContent = task.message || "任务处理中…";
         $("#runPercent").textContent = `${percent}%`;
         $("#runProgress").style.width = `${percent}%`;
@@ -626,8 +691,8 @@
         updateMetrics(task);
         setVisible($("#cancelTaskButton"), ACTIVE_STATUSES.has(status));
         $("#cancelTaskButton").disabled = status === "cancelling";
-        setVisible($("#retryTaskButton"), ["failed", "cancelled"].includes(status));
-        setVisible($("#monitorDownloadButton"), status === "completed" && task.download_available);
+        setVisible($("#retryTaskButton"), ["failed", "cancelled", "partial"].includes(status));
+        setVisible($("#monitorDownloadButton"), ["completed", "partial"].includes(status) && task.download_available);
         $("#monitorDownloadButton").dataset.taskId = task.task_id;
         renderMonitorVisibility();
         updateActionAvailability();
@@ -638,7 +703,7 @@
         const phaseIndex = phaseOrder.indexOf(task.phase);
         $$(".pipeline-row").forEach((row) => {
             const rowIndex = phaseOrder.indexOf(row.dataset.runPhase);
-            const completed = task.status === "completed" || (phaseIndex >= 0 && rowIndex < phaseIndex);
+            const completed = ["completed", "partial"].includes(task.status) || (phaseIndex >= 0 && rowIndex < phaseIndex);
             const active = ACTIVE_STATUSES.has(task.status) && row.dataset.runPhase === task.phase;
             const failed = task.status === "failed" && row.dataset.runPhase === task.phase;
             row.classList.toggle("done", completed);
@@ -826,7 +891,7 @@
     }
 
     function shortTaskId(taskId) { return String(taskId || "").slice(0, 8); }
-    function statusClass(status) { return status === "completed" ? "completed" : status === "failed" ? "failed" : status === "cancelled" ? "cancelled" : "running"; }
+    function statusClass(status) { return status === "completed" ? "completed" : status === "partial" ? "partial" : status === "failed" ? "failed" : status === "cancelled" ? "cancelled" : "running"; }
     function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]); }
     function escapeAttr(value) { return escapeHtml(value).replace(/`/g, "&#96;"); }
 
@@ -894,6 +959,9 @@
         $("#refreshTasks").addEventListener("click", () => loadTasks({ preserveCurrent: true }));
         $("#historyRefresh").addEventListener("click", () => loadTasks({ preserveCurrent: true }));
         ["itemId", "projectSelect", "webUrl"].forEach((id) => $("#" + id).addEventListener("input", () => { $("#" + id).removeAttribute("aria-invalid"); clearValidation(); }));
+        $("#webUrl").addEventListener("input", scheduleWebStrategyInspection);
+        $("#webUrl").addEventListener("blur", inspectWebStrategy);
+        $("#webCrawlMode").addEventListener("change", inspectWebStrategy);
         window.setInterval(() => {
             updateClock();
             if (state.task && ACTIVE_STATUSES.has(state.task.status)) {

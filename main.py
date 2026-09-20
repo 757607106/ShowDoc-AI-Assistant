@@ -20,7 +20,7 @@ from collections import Counter
 
 from registry import ENTRIES, create_crawler, get_entry
 
-VALID_PIPELINES = ["auto", "builtin", "crawl4ai", "crawl4ai_firecrawl"]
+VALID_PIPELINES = ["auto", "builtin", "crawl4ai"]
 
 
 def default_output_dir(args):
@@ -116,6 +116,10 @@ def run_crawl(args):
     print(f"   分类: {summary.category_count} 个")
     print(f"   输出目录: {summary.output_dir}")
     print(f"   合并文档: {summary.merged_file}")
+    print(f"   原始文档: {summary.raw_documents_file}")
+    print(f"   源数据: {summary.source_documents_file}")
+    if summary.failed_documents:
+        print(f"   失败文档: {summary.failed_documents} 条 ({summary.failed_documents_file})")
     print(f"   RAG 文档: {summary.rag_documents_file}")
     print(f"   RAG 分块: {summary.rag_chunks_file}")
     if summary.finetuning_file:

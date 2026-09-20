@@ -79,6 +79,17 @@ class TaskApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn("已有", response.get_json()["message"])
 
+    def test_web_inspect_returns_adapter_without_visiting_target(self):
+        with patch("crawlers.web.socket.getaddrinfo", return_value=[]):
+            response = self.client.get(
+                "/entries/web/inspect?url=http://club.cmgrasp.com/"
+            )
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["strategy"], "adapter")
+        self.assertEqual(payload["adapter"], "club_cmgrasp")
+
 
 if __name__ == "__main__":
     unittest.main()

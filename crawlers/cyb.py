@@ -373,9 +373,10 @@ class CYBCrawler(BaseCrawler):
             id=stub.id,
             title=stub.title,
             category=stub.category,
-            html=html,
+            content=html,
             updated_at=str(item.get("updateTime") or "未知"),
             metadata=dict(item),
+            source_format="html",
         )
 
     def assemble_html(self, doc, prepared_html):

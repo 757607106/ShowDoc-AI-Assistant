@@ -1,4 +1,8 @@
-# ShowDoc API文档爬取系统使用指南
+# ShowDoc API文档爬取系统使用指南（历史归档）
+
+> 本文保留早期版本的使用记录。当前实现请以根目录 `README.md` 和
+> `docs/engineering/project-structure.md` 为准；旧版模块已整理到
+> `integrations/showdoc/` 与 `crawlers/showdoc.py`。
 
 ## 项目简介
 
@@ -26,9 +30,9 @@
 
 | 模块 | 文件 | 功能描述 |
 |------|------|---------|
-| 认证模块 | `showdoc_auth.py` | 验证码获取、OCR识别、用户登录 |
-| 项目管理模块 | `showdoc_project.py` | 项目列表获取、缓存、搜索 |
-| 爬虫模块 | `showdoc_crawler.py` | 文档爬取、Markdown转换 |
+| 认证模块 | `integrations/showdoc/auth.py` | 验证码获取、模型识别、用户登录 |
+| 项目管理模块 | `integrations/showdoc/project.py` | 项目列表获取、缓存、搜索 |
+| 爬虫模块 | `crawlers/showdoc.py` | 文档爬取、Markdown转换 |
 | Flask路由 | `app.py` | API端点、任务管理 |
 
 ### 前端页面
@@ -221,7 +225,7 @@ set QWEN_API_KEY=your-qwen-api-key-here
 ### 运行集成测试
 
 ```bash
-python test_showdoc_integration.py
+python -m pytest -q
 ```
 
 测试流程:
@@ -236,14 +240,8 @@ python test_showdoc_integration.py
 各模块独立测试:
 
 ```bash
-# 测试认证模块
-python showdoc_auth.py
-
-# 测试项目管理模块
-python showdoc_project.py
-
-# 测试爬虫模块
-python showdoc_crawler.py
+# 测试 ShowDoc 相关模块
+python -m pytest tests/test_cyb_auth.py tests/test_task_api.py tests/test_web_crawler.py -q
 ```
 
 ## 输出格式
