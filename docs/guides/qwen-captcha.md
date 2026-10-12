@@ -222,6 +222,8 @@ python app.py
 
 ### API请求示例
 
+当前使用 OpenAI 兼容模式端点(可通过 `DASHSCOPE_API_URL` 环境变量切换):
+
 ```python
 import requests
 import base64
@@ -235,47 +237,51 @@ image_base64 = base64.b64encode(image_data).decode('utf-8')
 
 # 构造请求
 headers = {
-    "Authorization": f"Bearer {QWEN_API_KEY}",
+    "Authorization": f"Bearer {DASHSCOPE_API_KEY}",
     "Content-Type": "application/json"
 }
 
 payload = {
-    "model": "qwen-vl-max",
-    "input": {
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"image": f"data:image/png;base64,{image_base64}"},
-                    {"text": "这是一个验证码图片,请识别图片中的数字并直接返回数字,不要有任何其他文字。"}
-                ]
-            }
-        ]
-    },
-    "parameters": {
-        "result_format": "message"
-    }
+    "model": "qwen3-vl-plus",
+    "messages": [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{image_base64}"}
+                },
+                {
+                    "type": "text",
+                    "text": "这是一个验证码图片,请识别图片中的字符并直接返回,不要有任何其他文字。"
+                }
+            ]
+        }
+    ]
 }
 
 # 发送请求
 response = requests.post(
-    "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+    "https://llm-rtc5v8cnt0umugh9.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
     json=payload,
-    headers=headers
+    headers=headers,
+    timeout=60
 )
 
 # 解析响应
 result = response.json()
-content = result["output"]["choices"][0]["message"]["content"]
+content = result["choices"][0]["message"]["content"]
 ```
 
 ### 模型选择
 
-当前使用 `qwen-vl-max` 模型:
-- 视觉理解能力最强
-- 识别准确率最高
+当前默认使用 `qwen3-vl-plus` 模型(可通过 `QWEN_VL_MODEL` 或 `SHOWDOC_VL_MODEL` 环境变量切换):
+- 专属 MaaS 端点支持的视觉模型,能力对标旧版 qwen-vl-max
+- 识别准确率高
 - 支持中英文混合识别
 - 适合验证码等复杂场景
+
+> 注意: 专属 MaaS 端点下没有 `qwen-vl-max` 模型,调用会报 `Model not exist`。可通过端点的 `/compatible-mode/v1/models` 接口查询可用模型列表(如 `qwen3-vl-plus`、`qwen-vl-ocr` 等)。
 
 ### Prompt优化
 

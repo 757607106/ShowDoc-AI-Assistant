@@ -27,10 +27,11 @@ from common.converter import CYB_API_BASE_URL
 
 from .base import BaseCrawler, CrawledDocument, DocumentStub
 
+# 千问VL识别接口（OpenAI兼容模式），可通过 DASHSCOPE_API_URL 切换端点
 DASHSCOPE_API_URL = os.getenv(
     "DASHSCOPE_API_URL",
-    "https://dashscope.aliyuncs.com/api/v1/services/aigc/"
-    "multimodal-generation/generation",
+    "https://llm-rtc5v8cnt0umugh9.cn-beijing.maas.aliyuncs.com/"
+    "compatible-mode/v1/chat/completions",
 )
 
 # FAQ 类型映射表（将 ID 转换为清晰的 ERP 模块分类）
@@ -63,7 +64,11 @@ class CYBAuthenticator:
             os.getenv("DASHSCOPE_API_KEY", "")
             or os.getenv("QWEN_API_KEY", "")
         )
-        self.vl_model = os.getenv("CYB_VL_MODEL", "qwen-vl-max")
+        self.vl_model = (
+            os.getenv("CYB_VL_MODEL", "")
+            or os.getenv("QWEN_VL_MODEL", "")
+            or "qwen3-vl-plus"
+        )
         self.ctx = ctx or ssl.create_default_context()
 
     @property
@@ -129,9 +134,12 @@ class CYBAuthenticator:
     @staticmethod
     def _extract_vl_text(result):
         try:
-            content = result["output"]["choices"][0]["message"]["content"]
+            content = result["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            message = result.get("message") or "响应结构不符合预期"
+            message = (
+                (result.get("error") or {}).get("message")
+                or "响应结构不符合预期"
+            )
             raise RuntimeError(f"VL 模型调用失败: {message}") from exc
 
         if isinstance(content, list):
@@ -158,24 +166,25 @@ class CYBAuthenticator:
 
         payload = {
             "model": self.vl_model,
-            "input": {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"image": captcha_image},
-                            {
-                                "text": (
-                                    "识别图片中的验证码主字符，忽略彩色干扰线。"
-                                    "验证码由4到6个英文字母或数字组成。"
-                                    "只返回验证码本身，不要解释、空格、标点或代码块。"
-                                )
-                            },
-                        ],
-                    }
-                ]
-            },
-            "parameters": {"result_format": "message"},
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": captcha_image},
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "识别图片中的验证码主字符，忽略彩色干扰线。"
+                                "验证码由4到6个英文字母或数字组成。"
+                                "只返回验证码本身，不要解释、空格、标点或代码块。"
+                            )
+                        },
+                    ],
+                }
+            ],
         }
         result = self._request_json(
             DASHSCOPE_API_URL,

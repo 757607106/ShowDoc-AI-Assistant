@@ -5,8 +5,13 @@ import re
 from jsonpath_ng import parse
 import tempfile
 import os
-import dashscope
-from dashscope import MultiModalConversation
+
+# 千问VL默认端点与模型(OpenAI兼容格式)
+DEFAULT_QWEN_API_URL = (
+    'https://llm-rtc5v8cnt0umugh9.cn-beijing.maas.aliyuncs.com'
+    '/compatible-mode/v1/chat/completions'
+)
+DEFAULT_QWEN_VL_MODEL = 'qwen3-vl-plus'
 
 
 class ShowDocAuthenticator:
@@ -23,7 +28,14 @@ class ShowDocAuthenticator:
         
         # 千问大模型配置 - 优先使用DASHSCOPE_API_KEY环境变量
         self.qwen_api_key = qwen_api_key or os.getenv('DASHSCOPE_API_KEY', '') or os.getenv('QWEN_API_KEY', '')
-        self.qwen_api_url = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+        # OpenAI兼容端点(默认为专属MaaS端点),可通过DASHSCOPE_API_URL环境变量切换
+        self.qwen_api_url = os.getenv('DASHSCOPE_API_URL', '') or DEFAULT_QWEN_API_URL
+        # 视觉模型名称,可通过SHOWDOC_VL_MODEL或QWEN_VL_MODEL环境变量切换
+        self.qwen_vl_model = (
+            os.getenv('SHOWDOC_VL_MODEL', '')
+            or os.getenv('QWEN_VL_MODEL', '')
+            or DEFAULT_QWEN_VL_MODEL
+        )
         
         # 登录凭证只能通过环境变量配置，避免将账号密码提交到仓库
         self.username = os.getenv('SHOWDOC_USERNAME', '')
@@ -100,7 +112,6 @@ class ShowDocAuthenticator:
             # 将图片数据转换为base64
             image_base64 = base64.b64encode(image_data).decode('utf-8')
             
-            # 使用DashScope SDK调用千问视觉模型
             # 从环境变量获取API密钥
             api_key = os.getenv('DASHSCOPE_API_KEY') or self.qwen_api_key
             
@@ -110,62 +121,74 @@ class ShowDocAuthenticator:
             
             print("🔍 正在调用千问大模型识别验证码...")
             
-            # 使用MultiModalConversation进行图片识别
-            response = MultiModalConversation.call(
-                model='qwen-vl-max',
-                api_key=api_key,
-                messages=[
-                    {
-                        'role': 'user',
-                        'content': [
-                            {
-                                'image': f'data:image/png;base64,{image_base64}'
-                            },
-                            {
-                                'text': '这是一个验证码图片,验证码由字母和数字混合组成(可能含大小写字母)。请识别图片中的所有字符,按从左到右的顺序直接返回完整的验证码字符串,不要有任何解释、空格或标点符号。'
-                            }
-                        ]
-                    }
-                ]
+            # 通过OpenAI兼容端点调用千问视觉模型
+            response = requests.post(
+                self.qwen_api_url,
+                json={
+                    'model': self.qwen_vl_model,
+                    'messages': [
+                        {
+                            'role': 'user',
+                            'content': [
+                                {
+                                    'type': 'image_url',
+                                    'image_url': {
+                                        'url': f'data:image/png;base64,{image_base64}'
+                                    }
+                                },
+                                {
+                                    'type': 'text',
+                                    'text': '这是一个验证码图片,验证码由字母和数字混合组成(可能含大小写字母)。请识别图片中的所有字符,按从左到右的顺序直接返回完整的验证码字符串,不要有任何解释、空格或标点符号。'
+                                }
+                            ]
+                        }
+                    ]
+                },
+                headers={'Authorization': f'Bearer {api_key}'},
+                timeout=60
             )
             
-            # 从响应中提取结果
-            status_code = getattr(response, 'status_code', None)
-            if status_code != 200:
-                error_code = getattr(response, 'code', '') or '未知错误码'
-                error_message = getattr(response, 'message', '') or '未知错误'
-                print(f"❌ 千问API调用失败 [{status_code} {error_code}]: {error_message}")
-                return None
-
-            if hasattr(response, 'output') and response.output and 'choices' in response.output:
-                choices = response.output['choices']
-                if choices and len(choices) > 0:
-                    content = choices[0]['message']['content']
-                    
-                    # 提取纯数字
-                    if isinstance(content, list):
-                        text_content = ""
-                        for item in content:
-                            if isinstance(item, dict) and "text" in item:
-                                text_content += item["text"]
-                        content = text_content
-                    
-                    # 验证码为字母+数字混合,提取字母与数字组成的完整序列
-                    # 去除空白、标点等干扰字符,保留字母和数字
-                    tokens = re.findall(r'[A-Za-z0-9]+', str(content))
-                    
-                    if tokens:
-                        # 取最长的连续字母数字序列作为验证码
-                        captcha = max(tokens, key=len)
-                        print(f"✅ 千问识别成功,验证码: {captcha}")
-                        print(f"   原始响应: {content}")
-                        return captcha
-                    else:
-                        print(f"⚠️ 千问响应中未找到有效字符,原始内容: {content}")
-                        return None
+            # 从响应中提取结果(OpenAI兼容格式)
+            result = {}
+            try:
+                result = response.json()
+            except ValueError:
+                pass
             
-            print(f"❌ 千问API响应格式异常: {response}")
-            return None
+            if response.status_code != 200:
+                error = result.get('error') or {}
+                error_code = error.get('code') or '未知错误码'
+                error_message = error.get('message') or '未知错误'
+                print(f"❌ 千问API调用失败 [{response.status_code} {error_code}]: {error_message}")
+                return None
+            
+            try:
+                content = result['choices'][0]['message']['content']
+            except (KeyError, IndexError, TypeError):
+                print(f"❌ 千问API响应格式异常: {result}")
+                return None
+            
+            # 兼容content为分段列表的返回格式
+            if isinstance(content, list):
+                text_content = ""
+                for item in content:
+                    if isinstance(item, dict) and "text" in item:
+                        text_content += item["text"]
+                content = text_content
+            
+            # 验证码为字母+数字混合,提取字母与数字组成的完整序列
+            # 去除空白、标点等干扰字符,保留字母和数字
+            tokens = re.findall(r'[A-Za-z0-9]+', str(content))
+            
+            if tokens:
+                # 取最长的连续字母数字序列作为验证码
+                captcha = max(tokens, key=len)
+                print(f"✅ 千问识别成功,验证码: {captcha}")
+                print(f"   原始响应: {content}")
+                return captcha
+            else:
+                print(f"⚠️ 千问响应中未找到有效字符,原始内容: {content}")
+                return None
             
         except Exception as e:
             print(f"❌ 千问识别失败: {str(e)}")
