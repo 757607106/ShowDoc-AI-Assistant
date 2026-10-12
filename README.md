@@ -73,6 +73,8 @@ python main.py --entry web --url https://docs.example.com/guide \
 - `rag_documents.jsonl`：清洗后正文 + `metadata` 字段全量保留平台原始 16 个字段。
 - `rag_chunks.jsonl`：按标题和段落切分的 RAG 分块，metadata 含分类、章节路径和分块序号。
 - `quality_report.json`：本次任务的文档完整性、重复内容、标题结构与质量评分报告。
+  `summary.issue_counts` 统计问题实例，`summary.issue_document_counts` 统计受影响文档；
+  `source_empty_documents`、`empty_documents`、`exported_documents` 用于区分源数据为空、转换为空和最终成功导出的数量。
 
 ShowDoc 结果保存在 `downloads/showdoc_<item_id>/`，结构同上；分类来自项目目录树（如 `根目录`、`一级目录/二级目录`）。
 

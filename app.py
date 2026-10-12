@@ -167,6 +167,11 @@ def task_payload(task, include_logs=True):
     elapsed_seconds = max(0, int((finished_at - task.start_time).total_seconds()))
     metrics = {
         'documents': task.summary.total_documents if task.summary else 0,
+        'exported_documents': task.summary.total_documents if task.summary else 0,
+        'captured_documents': (
+            task.summary.total_documents + task.summary.failed_documents
+            if task.summary else 0
+        ),
         'empty_documents': task.summary.empty_documents if task.summary else 0,
         'categories': task.summary.category_count if task.summary else 0,
         'chunks': task.summary.chunk_count if task.summary else 0,

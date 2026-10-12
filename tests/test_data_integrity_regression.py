@@ -21,6 +21,7 @@ from common.converter import (
 )
 from common.quality import assess_documents
 from crawlers.base import BaseCrawler, CrawlCancelled, CrawledDocument, DocumentStub
+from crawlers.showdoc import ShowDocCrawler
 from crawlers.tiantong import TiantongCrawler
 from crawlers.web import WebCrawler
 from crawlers.web_discovery import PaginationPlan, paginate_plan, pair_network_exchanges
@@ -247,6 +248,25 @@ def test_partial_tasks_are_downloadable_and_retryable(tmp_path):
         app_module.tasks.clear()
 
 
+def test_showdoc_detail_field_fallback_is_recorded(tmp_path):
+    crawler = ShowDocCrawler(str(tmp_path), item_id="412")
+    crawler._post = lambda path, extra: {
+        "error_code": 0,
+        "data": {
+            "page_id": "p1",
+            "page_title": "字段回退",
+            "content": "## 正文\n\n字段回退正文。",
+        },
+    }
+
+    document = crawler.fetch_document(DocumentStub("p1", "字段回退", "目录"))
+
+    assert document.content == "## 正文\n\n字段回退正文。"
+    assert document.source_format == "markdown"
+    assert document.metadata["content_source_field"] == "content"
+    assert document.metadata["content_fetch_status"] == "ok"
+
+
 def test_full_task_packages_valid_documents_and_reports_partial(tmp_path, monkeypatch):
     import zipfile
     monkeypatch.chdir(tmp_path)
@@ -259,7 +279,10 @@ def test_full_task_packages_valid_documents_and_reports_partial(tmp_path, monkey
     with patch.object(app_module, 'create_crawler', factory):
         app_module.run_crawler_task(task)
     assert task.status == 'partial' and task.failed_pages == 1
+    assert task.summary.empty_documents == 1
+    assert task.summary.error_count == 1
     assert app_module.task_payload(task)['successful_pages'] == 1
+    assert app_module.task_payload(task)['metrics']['captured_documents'] == 2
     with zipfile.ZipFile(task.zip_file) as archive:
         assert archive.testzip() is None
         assert len(archive.read('rag_documents.jsonl').splitlines()) == 1
@@ -276,6 +299,33 @@ def test_tiantong_short_pages_continue_until_reported_total(tmp_path):
     with patch('crawlers.tiantong.requests.get',side_effect=[SimpleNamespace(raise_for_status=lambda:None,json=lambda p=p:p) for p in responses]) as get:
         assert len(c.list_documents()) == 2
         assert get.call_count == 2
+
+
+def test_tiantong_empty_list_row_fetches_detail_content(tmp_path):
+    c = TiantongCrawler(str(tmp_path))
+    c._items["empty-row"] = {
+        "id": "empty-row",
+        "title": "详情正文",
+        "categoryName": "教程",
+        "content": "",
+    }
+    response = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {
+            "code": 200,
+            "data": {
+                "id": "empty-row",
+                "content": "<p>详情接口返回的正文。</p>",
+            },
+        },
+    )
+    with patch("crawlers.tiantong.requests.get", return_value=response) as get:
+        document = c.fetch_document(DocumentStub("empty-row", "详情正文", "教程"))
+
+    assert get.call_count == 1
+    assert document.content == "<p>详情接口返回的正文。</p>"
+    assert document.metadata["content_source"] == "detail"
+    assert document.metadata["content_fetch_status"] == "ok"
 
 
 def test_tiantong_duplicate_page_stops_with_explicit_failure(tmp_path):

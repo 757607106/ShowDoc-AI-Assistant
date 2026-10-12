@@ -7,6 +7,7 @@
 """
 import json
 import os
+import urllib.parse
 
 import requests
 
@@ -108,17 +109,63 @@ class TiantongCrawler(BaseCrawler):
         item = self._items.get(stub.id)
         if item is None:
             raise RuntimeError(f"文档 {stub.id} 不在已抓取的列表缓存中")
+        item = dict(item)
+        fetch_error = None
+        content_source = "list"
+
+        # The list endpoint normally includes the full HTML, but some records
+        # are returned as metadata-only rows.  Fetch the detail resource before
+        # classifying such a row as an empty document.
+        if not self._content_value(item):
+            try:
+                detail_url = (
+                    f"{self.site_base_url}/api/knowledge/"
+                    f"{urllib.parse.quote(str(stub.id), safe='')}"
+                )
+                response = requests.get(detail_url, timeout=self.timeout)
+                response.raise_for_status()
+                payload = response.json()
+                if payload.get("code") != 200:
+                    raise RuntimeError(payload.get("message") or "详情接口返回错误")
+                detail = payload.get("data") or {}
+                if isinstance(detail, dict):
+                    item.update(detail)
+                    content_source = "detail"
+            except Exception as exc:
+                fetch_error = f"详情获取失败: {exc}"
+
+        content, source_format = self._content_value(item, with_format=True)
+        metadata = dict(item)
+        metadata["content_source"] = content_source
+        metadata["content_fetch_status"] = "ok" if content else "empty"
+        if fetch_error:
+            metadata["fetch_error"] = fetch_error
         return CrawledDocument(
             id=stub.id,
             title=stub.title,
             category=stub.category,
-            content=item.get("content") or "",
+            content=content,
             updated_at=(
                 item.get("updatedAt") or item.get("createdAt") or "未知"
             ),
-            metadata=dict(item),
-            source_format="html",
+            metadata=metadata,
+            source_format=source_format,
         )
+
+    @staticmethod
+    def _content_value(item, with_format=False):
+        for field, source_format in (
+            ("content", "html"),
+            ("html", "html"),
+            ("body", "html"),
+            ("markdown", "markdown"),
+            ("page_content", "markdown"),
+        ):
+            value = item.get(field)
+            if value not in (None, ""):
+                result = (str(value), source_format)
+                return result if with_format else result[0]
+        return ("", "html") if with_format else ""
 
     def supplement_resources(self, doc, resources):
         links = list(resources.get("links", []))

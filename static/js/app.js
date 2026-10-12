@@ -658,7 +658,10 @@
             $("#resultTaskMeta").textContent = `${formatDateTime(latest.end_time)} · 任务 ${shortTaskId(latest.task_id)}`;
             const metrics = latest.metrics || {};
             const coverage = metrics.coverage_score == null ? "" : `，采集覆盖率 ${metrics.coverage_score}%`;
-            $("#resultDescription").textContent = `共 ${metrics.documents || latest.completed_pages || 0} 个文档、${metrics.chunks || 0} 个章节分块，质量得分 ${metrics.quality_score ?? "—"}${coverage}。完整包包含原始 Markdown、规范文档、结构化分块、质量报告和抓取报告。`;
+            const captured = metrics.captured_documents || metrics.documents || latest.completed_pages || 0;
+            const exported = metrics.exported_documents || metrics.documents || 0;
+            const documentText = captured === exported ? `${exported} 个文档` : `${exported}/${captured} 个文档已导出`;
+            $("#resultDescription").textContent = `${documentText}、${metrics.chunks || 0} 个章节分块，质量得分 ${metrics.quality_score ?? "—"}${coverage}。完整包包含原始 Markdown、规范文档、结构化分块、质量报告和抓取报告。`;
             $("#downloadButton").dataset.taskId = latest.task_id;
         }
         $("#datasetList").innerHTML = completed.length ? completed.map((task) => `<article class="dataset-row"><div class="dataset-main"><strong>${escapeHtml(task.entry_name)}数据集</strong><small>任务 ${shortTaskId(task.task_id)} · ${formatDateTime(task.end_time)}</small></div><span class="history-status completed">可下载</span><span class="dataset-stat">${task.metrics?.documents || task.completed_pages || 0} 个文档 · ${task.metrics?.chunks || 0} 个分块</span><div class="row-actions"><button class="text-button" type="button" data-open-task="${escapeAttr(task.task_id)}">详情</button><button class="text-button" type="button" data-download-task="${escapeAttr(task.task_id)}">下载</button></div></article>`).join("") : '<div class="empty-row">暂无可下载数据集</div>';

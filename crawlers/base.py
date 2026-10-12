@@ -332,7 +332,11 @@ class BaseCrawler:
             docs_by_category.setdefault(doc.category, []).append(doc)
 
         used_filenames = {}
-        empty_count = 0
+        # The report is based on all captured documents, including failed
+        # ones.  Previously this counter was incremented only while writing
+        # valid documents, so it was always zero for the exact records that
+        # had been rejected as empty.
+        empty_count = quality_report["summary"].get("empty_documents", 0)
         raw_documents = []
         rag_documents = []
 
@@ -361,7 +365,6 @@ class BaseCrawler:
                 ]
                 body = doc.markdown
                 if not body:
-                    empty_count += 1
                     body = "*暂无内容*\n"
                 body = body.replace("](assets/", "](../assets/").replace("](<assets/", "](<../assets/")
                 with open(file_path, "w", encoding="utf-8") as output_file:
@@ -484,8 +487,11 @@ class BaseCrawler:
             quality_score=quality_report["summary"]["quality_score"],
             chunk_count=len(rag_chunks),
             duplicate_count=quality_report["summary"]["duplicate_documents"],
-            error_count=quality_report["summary"]["issue_counts"]["error"],
-            warning_count=quality_report["summary"]["issue_counts"]["warning"],
+            # UI counters represent affected documents.  The report also
+            # keeps issue_counts for occurrence-level diagnostics and exposes
+            # issue_document_counts when the two need to be compared.
+            error_count=quality_report["summary"]["error_documents"],
+            warning_count=quality_report["summary"]["warning_documents"],
             failed_documents=failed_documents,
             source_documents_file=source_documents_file,
         )

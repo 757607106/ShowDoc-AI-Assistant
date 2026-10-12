@@ -203,16 +203,39 @@ class ShowDocCrawler(BaseCrawler):
             )
 
         page = result.get("data") or {}
+        # ShowDoc deployments in the wild have used more than one detail
+        # field name.  Prefer the documented Markdown field, but retain a
+        # safe fallback so a field rename does not silently turn every page
+        # into an empty conversion failure.
+        content_field = ""
+        content = ""
+        source_format = "markdown"
+        for candidate, candidate_format in (
+            ("page_content", "markdown"),
+            ("markdown", "markdown"),
+            ("content", "markdown"),
+            ("body", "html"),
+            ("html", "html"),
+        ):
+            value = page.get(candidate)
+            if value not in (None, ""):
+                content_field = candidate
+                content = str(value)
+                source_format = candidate_format
+                break
+        metadata = dict(page)
+        metadata["content_source_field"] = content_field or None
+        metadata["content_fetch_status"] = "ok" if content else "empty"
         return CrawledDocument(
             id=str(page.get("page_id") or stub.id),
             title=(page.get("page_title") or stub.title).strip(),
             category=stub.category,
-            content=page.get("page_content") or "",
+            content=content,
             updated_at=self._format_time(
                 page.get("page_addtime") or page.get("addtime")
             ),
-            metadata=dict(page),
-            source_format="markdown",
+            metadata=metadata,
+            source_format=source_format,
         )
 
     def fetch_page_data(self, page_id):
