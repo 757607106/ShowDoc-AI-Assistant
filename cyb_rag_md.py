@@ -24,13 +24,13 @@ def crawl_and_process():
     summary = crawler.crawl()
 
     print("\n" + "=" * 60)
-    print(f"✅ [{crawler.display_name}] 爬取完成")
+    print(f"✅ [{crawler.display_name}] 采集与 Docling 转换完成（审计导出，尚未治理发布）")
     print(f"   文档: {summary.total_documents} 条"
           f"（空正文 {summary.empty_documents} 条）")
     print(f"   分类: {summary.category_count} 个")
     print(f"   输出目录: {summary.output_dir}")
     print(f"   合并文档: {summary.merged_file}")
-    print(f"   原始文档: {summary.raw_documents_file}")
+    print(f"   源数据: {summary.source_documents_file}")
     print(f"   RAG 文档: {summary.rag_documents_file}")
     print(f"   RAG 分块: {summary.rag_chunks_file}")
     if summary.finetuning_file:

@@ -1,0 +1,57 @@
+{
+  "checked_at": "2026-11-14T00:23:07.612018+08:00",
+  "scope": "default",
+  "knowledge_base_id": "7fb19f59-c856-4797-911f-712a91a4b3da",
+  "graph_enabled": true,
+  "before": {
+    "documents": 124,
+    "graph_status": {
+      "skipped": 123,
+      "succeeded": 1
+    }
+  },
+  "extract": {
+    "submitted": 123,
+    "events_found": 123,
+    "statuses": {
+      "SUCCEEDED": 122,
+      "RUNNING": 1
+    }
+  },
+  "consolidation": {
+    "id": "4c3335d3-203a-4617-9cdc-f8a091643a67",
+    "status": "RUNNING",
+    "created_at": "2026-11-13T16:16:17Z",
+    "started_at": "2026-11-13T16:16:25Z",
+    "completed_at": null
+  },
+  "documents": {
+    "total": 124,
+    "ingest_statuses": {
+      "succeeded": 124
+    },
+    "graph_statuses": {
+      "processing": 123,
+      "succeeded": 1
+    }
+  },
+  "whole_graph": {
+    "entity_total": 9,
+    "relation_total": 8,
+    "nodes_returned": 9,
+    "edges_returned": 8,
+    "truncated": false
+  },
+  "browser_checks": [
+    "entity lookup",
+    "entity detail and source chunks",
+    "source original preview",
+    "relation direction and detail",
+    "one and two hop neighbors",
+    "document pagination and scope",
+    "readable graph labels",
+    "no console errors in verification tab"
+  ],
+  "screenshot": "output/playwright/contextdb-graph-20261114.jpg",
+  "upstream_commit": "cbdcebabf48c5ee2d6868b370326aa8341703f62"
+}

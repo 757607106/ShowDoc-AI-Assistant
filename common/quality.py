@@ -5,126 +5,15 @@
 """
 
 import hashlib
-import re
-
-from bs4 import BeautifulSoup
-
-from common.converter import clean_markdown_for_rag
-
 
 def _issue(rule, severity, message):
     return {"rule": rule, "severity": severity, "message": message}
 
 
-def _normalized_text(markdown):
-    return re.sub(r"\s+", " ", clean_markdown_for_rag(markdown)).strip().casefold()
-
-
-def _markdown_body_lines(markdown):
-    """迭代非围栏代码行，避免把代码示例误判成正文结构。"""
-    in_code_block = False
-    fence_character = ""
-    fence_length = 0
-    for line in (markdown or "").splitlines():
-        fence = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
-        if fence:
-            marker = fence.group(1)
-            if not in_code_block:
-                in_code_block = True
-                fence_character = marker[0]
-                fence_length = len(marker)
-            elif marker[0] == fence_character and len(marker) >= fence_length:
-                in_code_block = False
-                fence_character = ""
-                fence_length = 0
-            continue
-        if not in_code_block:
-            yield line
-
-
 def _source_has_content(document):
-    """Return whether the captured source contains meaningful content.
-
-    ``None`` means that the caller only supplied normalized Markdown (as many
-    unit-test callers do), so the source cannot be assessed.  This distinction
-    is important: an empty source is a collection problem, while an empty
-    normalized body with a non-empty source is a conversion problem.
-    """
-    if not hasattr(document, "content"):
-        return None
-    source = getattr(document, "content", None)
-    if source is None:
-        return None
-    if getattr(document, "source_format", "") == "html":
-        soup = BeautifulSoup(str(source), "html.parser")
-        return bool(
-            soup.get_text(" ", strip=True)
-            or soup.find(["img", "a", "table", "pre", "video", "audio", "iframe"])
-        )
-    return bool(clean_markdown_for_rag(str(source)))
-
-
-def _heading_issues(markdown):
-    issues = []
-    previous_level = 0
-    for line in _markdown_body_lines(markdown):
-        match = re.match(r"^(#{1,6})\s+\S", line.strip())
-        if not match:
-            continue
-        level = len(match.group(1))
-        if previous_level and level > previous_level + 1:
-            issues.append(
-                _issue(
-                    "heading_level",
-                    "warning",
-                    f"标题层级从 H{previous_level} 跳到了 H{level}",
-                )
-            )
-        previous_level = level
-    return issues
-
-
-def _structure_issues(markdown, resources=None):
-    issues = []
-    content = markdown or ""
-    collapsed = False
-    body_lines = list(_markdown_body_lines(content))
-    for line in body_lines:
-        if (
-            len(line) > 500
-            and re.match(r"^#{1,6}\s+\S", line)
-            and re.search(r"\S[ \t]+#{1,6}\s+\S", line)
-        ):
-            collapsed = True
-            break
-    if collapsed:
-        issues.append(
-            _issue(
-                "collapsed_markdown_structure",
-                "error",
-                "正文疑似被压缩成单行，章节标题未被 Markdown 解析器识别",
-            )
-        )
-    if any(re.match(r"^#\s+\S", line) for line in body_lines):
-        issues.append(
-            _issue(
-                "body_h1",
-                "warning",
-                "正文包含 H1；单篇文档的 H1 应仅用于文档标题",
-            )
-        )
-    for kind, items in (resources or {}).items():
-        for item in items:
-            url = item.get("url") or ""
-            if url and url not in content:
-                issues.append(
-                    _issue(
-                        "missing_resource",
-                        "error",
-                        f"{kind} 资源未出现在 Markdown 正文中: {url}",
-                    )
-                )
-    return issues
+    if getattr(document, "source_path", ""):
+        return True
+    return bool(getattr(document, "content", "").strip()) if hasattr(document, "content") else None
 
 
 def assess_documents(documents):
@@ -137,7 +26,7 @@ def assess_documents(documents):
     empty_documents = 0
 
     for document in documents:
-        content = clean_markdown_for_rag(document.markdown or "")
+        content = document.markdown or ""
         issues = []
         if not str(document.id).strip():
             issues.append(_issue("document_id", "error", "缺少文档 ID"))
@@ -148,10 +37,12 @@ def assess_documents(documents):
             source_empty_documents += 1
 
         metadata = getattr(document, "metadata", {}) or {}
+        if metadata.get("fetch_error"):
+            issues.append(_issue("fetch_error", "error", str(metadata["fetch_error"])))
         if not content:
             empty_documents += 1
             if metadata.get("fetch_error"):
-                issues.append(_issue("fetch_error", "error", str(metadata["fetch_error"])))
+                pass
             elif source_has_content is False:
                 issues.append(
                     _issue("source_empty", "error", "采集到的源正文为空，无法生成 Markdown")
@@ -174,13 +65,12 @@ def assess_documents(documents):
             issues.append(_issue("content_completeness", "warning", "尚未验证为详情全文"))
         if metadata.get("resource_errors"):
             issues.append(_issue("resource_download", "warning", "部分资源下载失败，请检查 metadata.resource_errors"))
-        issues.extend(_heading_issues(content))
-        issues.extend(
-            _structure_issues(content, getattr(document, "resources", None))
-        )
+        conversion = metadata.get("conversion", {})
+        confidence = conversion.get("confidence", {})
+        if str(confidence.get("low_grade", "")).lower() in {"poor", "fair"}:
+            issues.append(_issue("parse_confidence", "warning", "部分页面的解析置信等级较低，请核对原文"))
 
-        normalized = _normalized_text(content)
-        content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest() if normalized else ""
+        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest() if content.strip() else ""
         if content_hash:
             normalized_by_hash.setdefault(content_hash, []).append(str(document.id))
 

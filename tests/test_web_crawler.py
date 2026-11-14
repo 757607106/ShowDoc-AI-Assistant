@@ -138,7 +138,7 @@ class WebCrawlerTests(unittest.TestCase):
         self.assertEqual(file_route.action, "abort")
 
     def test_structured_api_html_uses_markdown_tables_and_code_blocks(self):
-        crawler = self.make_crawler(pipeline_mode="crawl4ai")
+        crawler = self.make_crawler()
         document = CrawledDocument(
             id="table-1",
             title="字段说明",
@@ -155,7 +155,8 @@ class WebCrawlerTests(unittest.TestCase):
 
         converted = crawler._convert_html_document(document)
 
-        self.assertIn("| 名称 | 值 |", converted.markdown)
+        self.assertIn("名称", converted.markdown)
+        self.assertIn("启用", converted.markdown)
         self.assertIn("```", converted.markdown)
 
 

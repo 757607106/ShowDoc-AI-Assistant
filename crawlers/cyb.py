@@ -303,7 +303,6 @@ class CYBCrawler(BaseCrawler):
         self,
         save_dir,
         progress_callback=None,
-        pipeline_mode=None,
         phone=None,
         password=None,
         base_url=None,
@@ -322,7 +321,6 @@ class CYBCrawler(BaseCrawler):
         super().__init__(
             save_dir,
             progress_callback=progress_callback,
-            pipeline_mode=pipeline_mode,
         )
 
     def authenticate(self):
@@ -392,9 +390,24 @@ class CYBCrawler(BaseCrawler):
         if not doc.id.startswith("tutorial-"):
             return prepared_html
 
-        # 视频教程无正文时，封面与视频链接构成其全部内容；正文教程则补挂封面。
         item = doc.metadata
+        video_url = item.get("videoUrl") or ""
+        try:
+            video = urllib.parse.urlsplit(video_url) if isinstance(video_url, str) else None
+        except ValueError:
+            video = None
+        if video is None or video.scheme not in ('http', 'https') or not video.netloc:
+            video_url = ""
+        if not prepared_html.strip():
+            if not video_url:
+                return prepared_html
+            doc.metadata['source_kind'] = 'video_reference'
+            doc.metadata['media_content_captured'] = False
+            prepared_html = '<p>此资料仅保存视频来源链接，尚未采集或解析视频内容。</p>'
+
+        # Keep media references with the source; a cover alone is not a document body.
         cover_image = item.get("coverImage") or ""
+        cover_image = urllib.parse.urljoin(self.site_base_url + '/', cover_image) if cover_image else ""
         if cover_image and cover_image not in prepared_html:
             cover_html = (
                 f'<p><img src="{escape(cover_image, quote=True)}" '
@@ -402,7 +415,6 @@ class CYBCrawler(BaseCrawler):
             )
             prepared_html = cover_html + prepared_html
 
-        video_url = item.get("videoUrl") or ""
         if video_url and video_url not in prepared_html:
             prepared_html += (
                 f'\n<p><a href="{escape(video_url, quote=True)}">'

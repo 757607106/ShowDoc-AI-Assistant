@@ -22,17 +22,21 @@
 │   ├── showdoc.py
 │   ├── cyb.py
 │   ├── tiantong.py
+│   ├── file.py
 │   ├── web.py
 │   ├── web_adapters.py
 │   └── web_discovery.py
+├── governance/                    # ContextDB 治理存储、任务 worker、发布与知识库同步
+│   ├── store.py
+│   ├── worker.py
+│   └── contextdb_sync.py
 ├── integrations/                  # 外部平台认证、项目管理等集成
 │   └── showdoc/
 │       ├── auth.py
 │       └── project.py
-├── templates/                     # Jinja 页面模板
-├── static/                        # 前端静态资源
-│   ├── css/
-│   └── js/
+├── frontend/                       # Vue 3 + TDesign 前端源码，构建产物 dist 由 Flask 托管
+│   ├── src/
+│   └── dist/                       # npm run build 生成，git 忽略
 ├── tests/                         # unittest / pytest 均可执行的自动化测试
 └── docs/                          # 工程、架构、操作和需求文档
     ├── architecture/
@@ -56,7 +60,7 @@
 | 测试文件 | `test_<module>.py` | `test_web_discovery.py` |
 | 文档目录 | 小写英文目录名，按用途分类 | `docs/architecture/` |
 | Markdown 文档 | 小写英文 `kebab-case` | `multi-platform-crawler-refactor.md` |
-| 前端资源 | 小写英文，按类型进入 `static/css` 或 `static/js` | `app.css`、`app.js` |
+| 前端文件 | 小写英文，Vue 组件 `PascalCase.vue`，按视图/组件分目录 | `KnowledgeView.vue`、`backend.ts` |
 | 运行输出 | 固定输出目录，不与源码混放 | `downloads/<task_id>/` |
 
 ## 入口约定

@@ -1,0 +1,105 @@
+{
+  "source": "ContextDB official DATA API and MCP",
+  "features": {
+    "wiki_read": {
+      "available": true,
+      "method": "GET",
+      "path": "/v1/knowledge/wiki/pages/detail"
+    },
+    "wiki_revisions": {
+      "available": true,
+      "method": "GET",
+      "path": "/v1/knowledge/wiki/revisions",
+      "response_keys": [
+        "items",
+        "next_cursor",
+        "limit"
+      ],
+      "page_id_required": true,
+      "response_content": "revision_metadata",
+      "history_full_content": false
+    },
+    "wiki_page_revisions": {
+      "available": false,
+      "status": "not_declared",
+      "http_status": 403,
+      "error_code": 4007,
+      "request_id": "e2d7904c-952e-4585-9271-0c96ac98bef6",
+      "server_reason": "AUTH_ACCESS_DENIED: route is not declared in the DATA API contract (errorCode=4007)",
+      "reason": "此调用未通过验证；HTTP 403 本身不能证明服务不支持该能力",
+      "api_contract_status": "not_declared"
+    },
+    "wiki_pending_revisions": {
+      "available": false,
+      "status": "not_declared",
+      "http_status": 403,
+      "error_code": 4007,
+      "request_id": "8b94a4ee-8470-4ca0-9b2f-1d07240662d4",
+      "server_reason": "AUTH_ACCESS_DENIED: route is not declared in the DATA API contract (errorCode=4007)",
+      "reason": "此调用未通过验证；HTTP 403 本身不能证明服务不支持该能力",
+      "api_contract_status": "not_declared"
+    },
+    "wiki_issues": {
+      "available": true,
+      "method": "GET",
+      "path": "/v1/knowledge/wiki/issues",
+      "response_keys": [
+        "items",
+        "total",
+        "next_cursor",
+        "limit"
+      ]
+    },
+    "wiki_revision_approval": {
+      "available": false,
+      "status": "unconfirmed",
+      "product_console_supported": true,
+      "api_contract_status": "not_exposed",
+      "reason": "Wiki 产品指南明确支持待发布候选的接受/拒绝，但当前公开 API 未给出审批写入契约；禁止自行替代"
+    },
+    "strict_manual_publish": {
+      "available": false,
+      "status": "unconfirmed",
+      "api_contract_status": "not_exposed",
+      "documented_threshold_range": [
+        0,
+        1
+      ],
+      "reason": "官方阈值范围为0～1，达到阈值仍可自动入库；关闭重写自动入库只约束实际重写的文档，不保证全量人工，亦无已确认的 Wiki 全库强制人工发布契约"
+    },
+    "wiki_edit": {
+      "available": true,
+      "method": "PUT",
+      "path": "/v1/knowledge/wiki/pages",
+      "expected_version_required": true,
+      "returned_version": 2,
+      "verification_scope": "previous_disposable_write_probe"
+    },
+    "wiki_stale_rejected": {
+      "available": true,
+      "verification_scope": "previous_disposable_write_probe"
+    },
+    "agent_wiki_revision": {
+      "available": false,
+      "status": "unconfirmed",
+      "api_contract_status": "tool_not_exposed",
+      "reason": "已发现的官方 MCP 工具未包含 Wiki 修订；禁止添加 REST 知识工具替代"
+    },
+    "wiki_history_rollback": {
+      "available": false,
+      "status": "unconfirmed",
+      "history_view_compare_product_supported": true,
+      "api_contract_status": "not_exposed",
+      "reason": "产品支持历史查看与版本比较，但未公开原生历史回滚契约；不回写旧正文模拟回滚"
+    }
+  },
+  "cleanup": {
+    "deleted_probe_kb": "84a7a8d0-71a2-4127-ba8f-8a330e15c61a"
+  },
+  "last_read_only_audit": {
+    "date": "2026-11-13",
+    "report": "contextdb-wiki-audit.json",
+    "conclusions": "contextdb-wiki-support.md",
+    "cloud_writes_performed": false
+  }
+}

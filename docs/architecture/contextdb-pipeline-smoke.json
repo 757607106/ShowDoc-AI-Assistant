@@ -1,0 +1,42 @@
+{
+  "scope": "smoke-cec72e857ca6",
+  "targets": {
+    "graph": {
+      "knowledge_base_id": "089c834d-7de1-48ad-9ce1-2f75322a9af5",
+      "ingest_states": [
+        "succeeded"
+      ],
+      "graph_states": [
+        "succeeded"
+      ],
+      "entities": 9,
+      "relations": 9
+    },
+    "wiki": {
+      "knowledge_base_id": "03bfc680-c68f-4ae6-8226-fce9e21f6a63",
+      "ingest_states": [
+        "succeeded"
+      ],
+      "pages_returned": 4
+    }
+  },
+  "cleanup": {
+    "wiki": true,
+    "graph": true
+  },
+  "errors": [],
+  "delivery": {
+    "targets": {
+      "wiki": "03bfc680-c68f-4ae6-8226-fce9e21f6a63",
+      "graph": "089c834d-7de1-48ad-9ce1-2f75322a9af5"
+    },
+    "uploaded": 2,
+    "skipped": 0,
+    "total": 2,
+    "errors": []
+  },
+  "first_attempt_errors": [
+    "graph 官方入库未成功：None"
+  ],
+  "verified_after_async_completion": true
+}

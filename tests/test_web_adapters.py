@@ -66,6 +66,11 @@ class ClubAdapterTests(unittest.TestCase):
             set(adapter.stats), {"question", "knowledge", "course", "activity", "news"}
         )
 
+    def test_selected_scope_cannot_silently_drop_missing_ids(self):
+        adapter = self.make_adapter()
+        with self.assertRaisesRegex(ValueError, '采集范围不完整'):
+            adapter.crawl_documents(selected_ids=['question:10', 'question:missing'])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,52 @@
+{
+  "date": "2026-11-13",
+  "scope": "CYB source capture and PostgreSQL provenance; no remote HTTP or cloud writes",
+  "replay": {
+    "documents": 123,
+    "before": {
+      "source_count": 123,
+      "accepted_sources": 108,
+      "failed_sources": 15,
+      "capture_seconds": 8.5489,
+      "provenance_seconds": 3.6988,
+      "total_seconds": 12.2477,
+      "progress_callbacks": 250,
+      "network_calls": 0
+    },
+    "after": {
+      "source_count": 123,
+      "accepted_sources": 123,
+      "failed_sources": 0,
+      "capture_seconds": 1.5017,
+      "provenance_seconds": 0.744,
+      "total_seconds": 2.2456,
+      "progress_callbacks": 250,
+      "network_calls": 0
+    },
+    "local_time_reduction_percent": 81.7
+  },
+  "runtime_recovery": {
+    "original_task_id": "1d8c49ec-b0d4-415c-bd0c-0a06cf661e0e",
+    "recovery_task_id": "fb0bf6fd-84af-49b8-b4ca-8080a65e43e4",
+    "status": "completed",
+    "sources": 123,
+    "failed": 0,
+    "video_references": 15,
+    "video_content_captured": false,
+    "processing_seconds": 1.782,
+    "input": "saved source snapshot; source website was not crawled again",
+    "old_task_retained": true,
+    "cloud_submission_sent": false
+  },
+  "checks": {
+    "backend_full": "166 passed, 1 skipped (HF_HUB_OFFLINE=1)",
+    "backend_after_preview_change": "13 passed; includes one additional preview regression",
+    "frontend": "5 passed; type check and build passed",
+    "browser": "verified recovered source counts, failure details and separate queue/run durations"
+  },
+  "limits": [
+    "No live full-site speed comparison was run.",
+    "Video links and covers are source references, not transcripts.",
+    "An initial unrelated offline-export test hit an external tokenizer cache/network error; recheck and complete suite passed."
+  ]
+}

@@ -1,65 +1,221 @@
-from flask import Flask, render_template, request, jsonify, send_file, redirect
+"""Local governance workbench; durable jobs run in governance.worker."""
+import io
+import json
 import os
-import threading
-import time
+import re
 import uuid
-from datetime import datetime
-from zipfile import ZIP_DEFLATED, ZipFile
-import shutil
+from datetime import datetime, timezone
+from pathlib import Path
 
-from crawlers.base import CrawlCancelled
+from dotenv import load_dotenv
+from flask import Flask, g, request, jsonify, send_file, send_from_directory, redirect
+from werkzeug.exceptions import RequestEntityTooLarge
+
+from crawlers.base import DocumentStub
 from registry import ENTRIES, create_crawler, get_entry
 from integrations.showdoc import ShowDocAuthenticator, ShowDocProjectManager
+from integrations.contextdb import ContextDBError, ContextDBConflictError
+from common.env_sanitize import sanitize_no_proxy
+from governance.store import Store, StoreError, data_dir
+from governance.database import connection
+from governance.worker import publish
+from webapi import register_blueprints
+from webapi.auth import client_for_user, require_login, user_id, finish_audit
 
-# 尝试加载 .env 文件
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except (ImportError, FileNotFoundError, PermissionError) as e:
-    # 如果 python-dotenv 未安装、.env 文件不存在或权限不足，跳过加载
-    print(f"ℹ️  .env 加载被忽略: {e}")
-
+sanitize_no_proxy()
+load_dotenv()
 app = Flask(__name__)
-# 从环境变量获取密钥，如果未设置则使用默认值（仅用于开发）
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
-
-# 全局变量存储任务状态
-tasks = {}
-
-# ShowDoc相关全局对象
-qwen_api_key = os.getenv('QWEN_API_KEY', '')
-if not qwen_api_key:
-    print("⚠️  警告: 未设置QWEN_API_KEY环境变量,验证码识别可能失败")
-    print("   请设置: export QWEN_API_KEY='your-api-key'")
-
-showdoc_auth = ShowDocAuthenticator(qwen_api_key=qwen_api_key)
+app.secret_key = os.getenv('FLASK_SECRET_KEY') or os.urandom(32)
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
+register_blueprints(app)
+app.before_request(require_login)
+app.after_request(finish_audit)
+showdoc_auth = ShowDocAuthenticator(qwen_api_key=os.getenv('QWEN_API_KEY', ''))
 showdoc_project_manager = ShowDocProjectManager()
-
-# 爬虫仅用于列出页面/预览，不落盘的临时目录占位
-LISTING_SAVE_DIR = os.path.join('downloads', '_listing')
-
-# 请求中允许透传给 create_crawler 的爬取参数白名单
-CRAWLER_PARAM_KEYS = (
-    'item_id', 'keyword', 'default_page_id', 'user_token', 'url',
-    'crawl_mode', 'max_pages', 'max_depth',
-)
-
-class ApiError(Exception):
-    """带 HTTP 状态码的业务异常，由全局 errorhandler 统一返回。"""
-
-    def __init__(self, message, status_code=400):
-        super().__init__(message)
-        self.message = message
-        self.status_code = status_code
+LISTING_SAVE_DIR = str(data_dir() / '_listing')
+CRAWLER_PARAM_KEYS = ('item_id', 'keyword', 'default_page_id', 'user_token', 'url',
+                      'crawl_mode', 'max_pages', 'max_depth')
 
 
-class TaskCancelled(CrawlCancelled):
-    """任务在安全检查点收到取消请求。"""
+class ApiError(StoreError):
+    def __init__(self, message, status=400):
+        super().__init__(message, status)
 
 
-@app.errorhandler(ApiError)
+@app.route('/assets/<path:filename>')
+def frontend_assets(filename):
+    return send_from_directory(FRONTEND_DIST / 'assets', filename)
+
+
+@app.route('/favicon.svg')
+def frontend_favicon():
+    return send_from_directory(FRONTEND_DIST, 'favicon.svg')
+
+
+@app.errorhandler(404)
+def spa_fallback(error):
+    """SPA fallback:前端路由路径回退到 index.html(非 /api、/entries 等已注册前缀)。"""
+    public = (FRONTEND_DIST / request.path.lstrip('/')).resolve()
+    if public.is_relative_to(FRONTEND_DIST.resolve()) and public.is_file():
+        return send_from_directory(FRONTEND_DIST, request.path.lstrip('/'))
+    if (FRONTEND_DIST / 'index.html').is_file() and not request.path.startswith(('/api', '/entries', '/tasks', '/download', '/showdoc', '/static')) and '.' not in request.path.rsplit('/',1)[-1]:
+        return send_from_directory(FRONTEND_DIST, 'index.html')
+    return jsonify(success=False, message='资源不存在'), 404
+
+
+@app.errorhandler(StoreError)
 def handle_api_error(error):
-    return jsonify({'success': False, 'message': error.message}), error.status_code
+    return jsonify(success=False, message=str(error)), error.status
+
+
+@app.errorhandler(ContextDBError)
+def handle_contextdb_error(error):
+    if isinstance(error, ContextDBConflictError):
+        payload = {'success': False, 'message': str(error), 'request_id': error.request_id, 'error_code':error.error_code, 'source':'contextdb'}
+        body = request.get_json(silent=True) or {}
+        if body.get('knowledge_base_id') and body.get('page_id') and 'wiki/pages' in request.path:
+            try:
+                payload['current_version'] = client_for_user().get_wiki_page(body['knowledge_base_id'], body['page_id'])['version']
+            except ContextDBError:
+                pass
+        return jsonify(**payload), 409
+    status = error.status_code or 0
+    if 400 <= status < 500:
+        return jsonify(success=False, message=f'ContextDB 拒绝请求: {error}', request_id=error.request_id,error_code=error.error_code,source='contextdb'), status
+    return jsonify(success=False, message=f'ContextDB 不可用: {error}',request_id=error.request_id,error_code=error.error_code,source='contextdb'), 503
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_large_upload(error):
+    return jsonify(success=False, message='上传总大小不能超过 100 MB'), 413
+
+
+def get_store():
+    if app.testing and app.extensions.get('governance_store') is not None:
+        return app.extensions['governance_store']
+    if 'governance_store' not in g:
+        store = Store(client=client_for_user(), owner_id=user_id())
+        store.initialize()
+        g.governance_store = store
+    return g.governance_store
+
+
+def json_body():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        raise ApiError('请求必须是 JSON 对象', 400)
+    return body
+
+
+def applicability(value):
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ApiError('scope 必须是对象', 400)
+    output = {}
+    for key in ('product', 'version', 'role'):
+        item = value.get(key, '')
+        if not isinstance(item, str) or len(item) > 200:
+            raise ApiError('适用范围字段必须是 200 字以内的文本', 400)
+        if item.strip():
+            output[key] = item.strip()
+    return output
+
+
+def selected_space(store, value):
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip() or len(value) > 200:
+        raise ApiError('请选择有效的业务知识库', 400)
+    from governance.spaces import get_space
+    return get_space(store, value.strip())['scope']
+
+
+def public_document(document):
+    return {key: value for key, value in document.items() if key != 'artifact_dir'}
+
+
+def task_payload(task, include_logs=True):
+    summary = task.get('summary') or {}
+    store = get_store()
+    documents = store.list_documents(task['task_id'])
+    finished = datetime.fromisoformat(task.get('end_time') or datetime.now(timezone.utc).isoformat())
+    started = datetime.fromisoformat(task['start_time'])
+    executing = datetime.fromisoformat(task['attempt_started_at']) if task.get('attempt_started_at') else None
+    payload = {key: task.get(key) for key in (
+        'task_id', 'entry', 'status', 'phase', 'progress', 'total_pages', 'completed_pages',
+        'failed_pages', 'skipped_pages', 'current_item', 'message', 'start_time', 'end_time', 'retry_of', 'scope', 'kind')}
+    submitted = store._find('release', job_id=task['task_id'])
+    queued = False
+    if submitted:
+        with connection() as conn:
+            queued = conn.execute('''SELECT 1 FROM runtime_records WHERE owner_id=%s AND kind='job'
+                AND payload->>'kind'='ctxdb_sync' AND payload->'params'->>'release_id'=%s LIMIT 1''',
+                (store.owner_id or '', submitted['metadata']['release_id'])).fetchone() is not None
+    payload.update(
+        entry_name=ENTRIES.get(task['entry'], type('E', (), {'display_name': task['entry']})()).display_name,
+        successful_pages=max(0, task['completed_pages'] - task['failed_pages']),
+        elapsed_seconds=max(0, int((finished - started).total_seconds())),
+        queued_seconds=max(0, int(((executing or finished) - started).total_seconds())),
+        processing_seconds=max(0, int((finished - executing).total_seconds())) if executing else 0,
+        selected_count=len(task['selected_ids'] or task['selected_titles']),
+        download_available=bool(task.get('zip_file') and Path(task['zip_file']).exists()),
+        publish_available=bool(task['status'] == 'completed' and documents),
+        submit_available=bool(task['kind'] != 'ctxdb_sync' and task['status'] == 'completed' and documents and not queued),
+        submission_id=submitted['metadata']['release_id'] if submitted else None,
+        metrics={
+            'documents': summary.get('total_documents', len(documents)),
+            'exported_documents': summary.get('total_documents', len(documents)),
+            'captured_documents': task.get('total_pages', 0),
+            'empty_documents': summary.get('empty_documents', 0),
+            'categories': summary.get('category_count', 0),
+            'chunks': summary.get('chunk_count', 0),
+            'quality_score': summary.get('quality_score'),
+            'duplicate_documents': summary.get('duplicate_count', 0),
+            'errors': summary.get('error_count', 0),
+            'warnings': summary.get('warning_count', 0),
+            'video_references': summary.get('video_reference_documents', 0),
+            'discovery_strategy': summary.get('discovery_strategy', ''),
+            'coverage_score': summary.get('coverage_score'),
+        })
+    if include_logs:
+        payload['logs'] = task.get('logs', [])
+        payload['failure_details'] = []
+        payload['failure_details_truncated'] = False
+        report = (Path(task['output_dir']) / 'failed_documents.jsonl').resolve()
+        if task.get('failed_pages'):
+            if report.is_relative_to(data_dir()) and report.is_file():
+                try:
+                    with report.open(encoding='utf-8') as source:
+                        for line in source:
+                            if not line.strip():
+                                continue
+                            if len(payload['failure_details']) == 20:
+                                payload['failure_details_truncated'] = True
+                                break
+                            record = json.loads(line)
+                            payload['failure_details'].append({key: str(record.get(key, ''))[:600]
+                                for key in ('id', 'title', 'error')})
+                except (OSError, ValueError, TypeError):
+                    payload['failure_details_error'] = '失败报告无法完整读取，请查看任务日志或审计包'
+            else:
+                payload['failure_details_error'] = '失败报告不可用，请查看任务日志或审计包'
+    return payload
+
+
+FRONTEND_DIST = Path(__file__).resolve().parent / 'frontend' / 'dist'
+
+
+@app.route('/')
+def index():
+    if (FRONTEND_DIST / 'index.html').is_file():
+        return send_from_directory(FRONTEND_DIST, 'index.html')
+    return '前端未构建:cd frontend && npm install && npm run build', 503
+
+
+@app.route('/showdoc')
+def showdoc():
+    return redirect('/')
 
 
 def stubs_to_pages(stubs):
@@ -108,143 +264,15 @@ def entry_crawler_params(key, payload):
         params['crawl_mode'] = crawl_mode
     wants_session_auth = str(payload.get('auth', '')).lower() in ('1', 'true', 'yes')
     if key == 'showdoc' and wants_session_auth and 'user_token' not in params:
+        from flask import g
+        if g.user['role'] != 'admin':
+            raise ApiError('服务器 ShowDoc 登录凭据仅限平台管理员使用；请提供自己的 user_token', 403)
         token = showdoc_auth.auto_login_if_needed()
         if not token:
             raise ApiError('未登录或登录失败', 401)
         params['user_token'] = token
     return params
 
-
-class CrawlerTask:
-    def __init__(
-        self,
-        task_id,
-        entry,
-        params=None,
-        selected_ids=None,
-        selected_titles=None,
-        retry_of=None,
-    ):
-        self.task_id = task_id
-        self.entry = entry          # registry 平台键
-        self.params = params or {}  # create_crawler 透传的平台参数
-        self.selected_ids = [str(item) for item in (selected_ids or [])]
-        self.selected_titles = selected_titles or []
-        self.retry_of = retry_of
-        self.status = 'pending'  # pending, running, cancelling, completed, failed, cancelled
-        self.phase = 'queued'
-        self.progress = 0
-        self.total_pages = 0
-        self.completed_pages = 0
-        self.failed_pages = 0
-        self.skipped_pages = 0
-        self.current_item = ''
-        self.message = ''
-        self.start_time = datetime.now()
-        self.end_time = None
-        self.output_dir = None
-        self.zip_file = None
-        self.summary = None
-        self.logs = []
-        self.cancel_event = threading.Event()
-
-    def add_log(self, message):
-        text = str(message or '').strip()
-        if not text:
-            return
-        if self.logs and self.logs[-1]['message'] == text:
-            return
-        self.logs.append({
-            'time': datetime.now().isoformat(timespec='seconds'),
-            'message': text,
-        })
-        self.logs = self.logs[-120:]
-
-
-def task_payload(task, include_logs=True):
-    """生成前端任务契约，避免暴露账号 token 等爬虫参数。"""
-    finished_at = task.end_time or datetime.now()
-    elapsed_seconds = max(0, int((finished_at - task.start_time).total_seconds()))
-    metrics = {
-        'documents': task.summary.total_documents if task.summary else 0,
-        'exported_documents': task.summary.total_documents if task.summary else 0,
-        'captured_documents': (
-            task.summary.total_documents + task.summary.failed_documents
-            if task.summary else 0
-        ),
-        'empty_documents': task.summary.empty_documents if task.summary else 0,
-        'categories': task.summary.category_count if task.summary else 0,
-        'chunks': task.summary.chunk_count if task.summary else 0,
-        'quality_score': task.summary.quality_score if task.summary else None,
-        'duplicate_documents': task.summary.duplicate_count if task.summary else 0,
-        'errors': task.summary.error_count if task.summary else 0,
-        'warnings': task.summary.warning_count if task.summary else 0,
-        'discovery_strategy': getattr(task.summary, 'discovery_strategy', '') if task.summary else '',
-        'coverage_score': getattr(task.summary, 'coverage_score', None) if task.summary else None,
-    }
-    payload = {
-        'task_id': task.task_id,
-        'entry': task.entry,
-        'entry_name': get_entry(task.entry).display_name,
-        'status': task.status,
-        'phase': task.phase,
-        'progress': task.progress,
-        'total_pages': task.total_pages,
-        'completed_pages': task.completed_pages,
-        'successful_pages': max(0, task.completed_pages - task.failed_pages),
-        'failed_pages': task.failed_pages,
-        'skipped_pages': task.skipped_pages,
-        'current_item': task.current_item,
-        'message': task.message,
-        'start_time': task.start_time.isoformat(),
-        'end_time': task.end_time.isoformat() if task.end_time else None,
-        'elapsed_seconds': elapsed_seconds,
-        'selected_count': len(task.selected_ids or task.selected_titles),
-        'retry_of': task.retry_of,
-        'download_available': bool(task.status in {'completed', 'partial'} and task.zip_file),
-        'metrics': metrics,
-    }
-    if include_logs:
-        payload['logs'] = list(task.logs)
-    return payload
-
-
-def start_task(entry, params, selected_ids=None, selected_titles=None, retry_of=None):
-    task = CrawlerTask(
-        str(uuid.uuid4()),
-        entry,
-        params=params,
-        selected_ids=selected_ids,
-        selected_titles=selected_titles,
-        retry_of=retry_of,
-    )
-    task.add_log('任务已创建，等待执行')
-    tasks[task.task_id] = task
-    thread = threading.Thread(target=run_crawler_task, args=(task,), daemon=True)
-    thread.start()
-    return task
-
-
-def get_active_task():
-    """工作台按单任务串行执行，避免重复提交占用采集会话与网络资源。"""
-    return next(
-        (task for task in tasks.values() if task.status in {'pending', 'running', 'cancelling'}),
-        None,
-    )
-
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-
-@app.route('/showdoc')
-def showdoc():
-    """ShowDoc页面（已合并到首页，保持兼容重定向）"""
-    return redirect('/')
-
-
-# ==================== 通用平台接口（registry 分发） ====================
 
 @app.route('/api/entries')
 def api_entries():
@@ -304,173 +332,217 @@ def entry_documents(key):
 
 @app.route('/entries/<key>/preview')
 def entry_preview(key):
-    """预览指定文档内容"""
-    try:
-        entry = get_entry_or_404(key)
-        doc_id = (request.args.get('doc_id') or '').strip()
-        if not doc_id:
-            raise ApiError('缺少doc_id参数')
-        if doc_id == '0':
-            raise ApiError('无效的 page_id 或项目没有默认页')
-
-        params = entry_crawler_params(key, request.args)
-        crawler = create_crawler(entry.key, save_dir=LISTING_SAVE_DIR, **params)
-
-        if entry.key == 'showdoc':
-            if not params.get('item_id'):
-                raise ApiError('缺少item_id参数')
-            # ShowDoc 有单页直取接口，无需先拉取整份目录
-            page_data = crawler.fetch_page_data(doc_id)
-            if not page_data:
-                raise ApiError('获取页面内容失败', 404)
-            title = (page_data.get('page_title') or '').strip() or '页面预览'
-            content = page_data.get('page_content') or ''
-        elif entry.key == 'web':
-            crawler.authenticate()
-            stubs = crawler.list_documents()
-            stub = next((s for s in stubs if s.id == doc_id), None)
-            if stub is None:
-                raise ApiError('未找到网页文档', 404)
-            doc = crawler.fetch_document(stub)
-            title = doc.title
-            content = doc.markdown
-        else:
-            crawler.authenticate()
-            stubs = crawler.list_documents()
-            stub = next((s for s in stubs if s.id == doc_id), None)
-            if stub is None:
-                raise ApiError(f'未找到文档: {doc_id}', 404)
-            doc = crawler.fetch_document(stub)
-            title = doc.title
-            content = crawler.convert_document(doc, include_attachments=False).markdown
-
-        if not content.strip():
-            raise ApiError('获取页面内容失败', 404)
-        return jsonify({
-            'success': True,
-            'title': title,
-            'content': content,
-            'page_id': doc_id,
-        })
-    except ApiError:
-        raise
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'预览失败: {str(e)}'}), 500
+    entry = get_entry_or_404(key)
+    doc_id = (request.args.get('doc_id') or '').strip()
+    if not doc_id or doc_id == '0':
+        raise ApiError('缺少有效 doc_id', 400)
+    params = entry_crawler_params(key, request.args)
+    if entry.key == 'showdoc' and not params.get('item_id'):
+        raise ApiError('缺少 item_id 参数', 400)
+    crawler = create_crawler(entry.key, save_dir=LISTING_SAVE_DIR, **params)
+    crawler.authenticate()
+    if entry.key == 'showdoc':
+        stub = DocumentStub(doc_id, '页面预览', '根目录')
+    else:
+        stub = next((s for s in crawler.list_documents() if str(s.id) == doc_id), None)
+        if stub is None:
+            raise ApiError('文档不存在', 404)
+    doc = crawler.fetch_document(stub)
+    content = crawler._prepare_record(doc)['content']
+    if not content.strip():
+        raise ApiError('源正文为空，请采集后查看官方解析结果', 422)
+    return jsonify(success=True, title=doc.title, content=content,
+                   source_format=doc.source_format, page_id=doc_id,
+                   source_kind=doc.metadata.get('source_kind'),
+                   media_content_captured=doc.metadata.get('media_content_captured'))
 
 
 @app.route('/entries/<key>/start', methods=['POST'])
 def entry_start(key):
-    """启动指定平台的爬取任务"""
-    try:
-        entry = get_entry_or_404(key)
-        active = get_active_task()
-        if active:
-            raise ApiError(
-                f'已有 {get_entry(active.entry).display_name} 任务正在处理，请等待完成或先取消',
-                409,
-            )
-        data = request.get_json(silent=True) or {}
-        params = entry_crawler_params(entry.key, data)
-        if entry.key == 'showdoc' and not params.get('item_id'):
-            raise ApiError('缺少item_id参数')
-
-        task = start_task(
-            entry.key,
-            params=params,
-            selected_ids=data.get('selected_ids') or [],
-            selected_titles=data.get('selected_titles') or [],
-        )
-
-        download_type = "选择性下载" if (task.selected_ids or task.selected_titles) else "全量下载"
-        return jsonify({
-            'success': True,
-            'task_id': task.task_id,
-            'message': f'{entry.display_name}爬取任务已开始 ({download_type})'
-        })
-    except ApiError:
-        raise
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'启动失败: {str(e)}'}), 500
+    entry = get_entry_or_404(key)
+    if key == 'file':
+        raise ApiError('文件请通过上传入口提交', 400)
+    body = json_body()
+    params = entry_crawler_params(key, body)
+    if key == 'showdoc' and not params.get('item_id'):
+        raise ApiError('缺少 item_id 参数', 400)
+    for field in ('selected_ids', 'selected_titles'):
+        values = body.get(field, [])
+        if not isinstance(values, list) or not all(isinstance(v, (str, int)) for v in values):
+            raise ApiError(f'{field} 必须是文档标识列表', 400)
+    store = get_store()
+    scope = selected_space(store, body.get('space_scope'))
+    job = store.create_job(entry.key, params, body.get('selected_ids'), body.get('selected_titles'), scope=scope,
+                                 applicability=applicability(body.get('scope')))
+    return jsonify(success=True, task_id=job['task_id'], message='任务已入队')
 
 
 @app.route('/task_status/<task_id>')
 def task_status(task_id):
-    task = tasks.get(task_id)
-    if not task:
-        return jsonify({'error': '任务不存在'}), 404
-
-    return jsonify(task_payload(task))
+    return jsonify(task_payload(get_store().get_job(task_id)))
 
 
 @app.route('/api/tasks')
 def task_list():
-    """返回最近任务，用于刷新恢复、侧栏状态与数据集历史。"""
-    recent = sorted(tasks.values(), key=lambda item: item.start_time, reverse=True)[:30]
-    return jsonify({
-        'success': True,
-        'tasks': [task_payload(task, include_logs=False) for task in recent],
-    })
+    scope = request.args.get('space_scope')
+    store = get_store()
+    if scope is not None:
+        scope = selected_space(store, scope)
+    return jsonify(success=True, tasks=[task_payload(j, False) for j in store.list_jobs() if scope is None or j['scope'] == scope])
 
 
 @app.route('/tasks/<task_id>/cancel', methods=['POST'])
 def cancel_task(task_id):
-    task = tasks.get(task_id)
-    if not task:
-        raise ApiError('任务不存在', 404)
-    if task.status not in {'pending', 'running', 'cancelling'}:
-        raise ApiError('当前任务已经结束，无法取消', 409)
-    task.cancel_event.set()
-    task.status = 'cancelling'
-    task.message = '正在安全停止任务...'
-    task.add_log(task.message)
-    return jsonify({'success': True, 'message': task.message})
+    get_store().cancel(task_id)
+    return jsonify(success=True, message='取消请求已保存')
 
 
 @app.route('/tasks/<task_id>/retry', methods=['POST'])
 def retry_task(task_id):
-    task = tasks.get(task_id)
-    if not task:
-        raise ApiError('任务不存在', 404)
-    if task.status not in {'failed', 'cancelled', 'partial'}:
-        raise ApiError('只有失败或已取消的任务可以重试', 409)
-    active = get_active_task()
-    if active:
-        raise ApiError('已有任务正在处理，请等待完成或先取消', 409)
-    retried = start_task(
-        task.entry,
-        params=dict(task.params),
-        selected_ids=list(task.selected_ids),
-        selected_titles=list(task.selected_titles),
-        retry_of=task.task_id,
-    )
-    return jsonify({
-        'success': True,
-        'task_id': retried.task_id,
-        'message': '已创建重试任务',
-    })
+    store = get_store()
+    job = store.get_job(task_id)
+    if job['kind'] == 'ctxdb_sync':
+        raise ApiError('请在知识库的治理进度中选择失败目标重试', 409)
+    if job['status'] not in {'failed', 'cancelled', 'partial'}:
+        raise ApiError('仅失败、取消或部分完成任务可以重试')
+    retried = store.create_job(job['entry'], job['params'], job['selected_ids'], job['selected_titles'],
+                              retry_of=task_id, kind=job['kind'], scope=job['scope'],
+                              version_id=job.get('version_id'), document_id=job.get('document_id'),
+                              revision_reason=job.get('revision_reason', ''), applicability=job.get('applicability'))
+    return jsonify(success=True, task_id=retried['task_id'], message='重试任务已入队，将复用已保存产物')
 
 
 @app.route('/download/<task_id>')
 def download_result(task_id):
-    task = tasks.get(task_id)
-    if not task or task.status not in {'completed', 'partial'} or not task.zip_file:
-        return jsonify({'error': '文件不可用'}), 404
+    job = get_store().get_job(task_id)
+    path = job.get('zip_file')
+    if not path or not Path(path).is_file():
+        raise ApiError('审计包尚未生成', 404)
+    return send_file(path, as_attachment=True, download_name=f'audit-{task_id}.zip')
 
+
+@app.route('/api/uploads', methods=['POST'])
+def upload_files():
+    files = request.files.getlist('files')
+    if not files or len(files) > 50:
+        raise ApiError('请上传 1 至 50 个文件', 400)
     try:
-        platform = get_entry(task.entry).display_name
-        item_id = task.params.get('item_id', '')
-        download_type = "selected" if task.selected_titles else "all"
-        name_parts = [f'{platform}知识库']
-        if item_id:
-            name_parts.append(str(item_id))
-        name_parts.extend([download_type, datetime.now().strftime("%Y%m%d_%H%M%S")])
-        return send_file(
-            task.zip_file,
-            as_attachment=True,
-            download_name='_'.join(name_parts) + '.zip'
-        )
-    except Exception as e:
-        return jsonify({'error': f'下载失败: {str(e)}'}), 500
+        scope = applicability(json.loads(request.form.get('scope', '{}')))
+    except (ValueError, TypeError):
+        raise ApiError('scope 必须是有效 JSON 对象', 400)
+    store = get_store()
+    space_scope = selected_space(store, request.form.get('space_scope'))
+    for file in files:
+        if not file.filename:
+            raise ApiError('上传文件必须有文件名', 400)
+    directory = data_dir() / 'uploads' / str(uuid.uuid4())
+    directory.mkdir(parents=True)
+    paths = []
+    for index, file in enumerate(files):
+        original = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', Path(file.filename.replace('\\', '/')).name).strip(' .')
+        suffix = Path(original).suffix.lower().encode('utf-8')[:40].decode('utf-8', errors='ignore')
+        stem = Path(original).stem
+        stem = stem.encode('utf-8')[:180].decode('utf-8', errors='ignore') or 'document'
+        name = stem + suffix
+        path = directory / f'{index + 1:03d}-{name}'
+        file.save(path)
+        if not path.stat().st_size:
+            raise ApiError('不能上传空文件', 400)
+        paths.append(str(path))
+    job = store.create_job('file', {'file_paths': paths}, applicability=scope, scope=space_scope)
+    return jsonify(success=True, task_id=job['task_id'], message='文件已保存，任务已入队')
+
+
+@app.route('/api/documents')
+def list_documents():
+    return jsonify(success=True, documents=get_store().list_documents(request.args.get('task_id')))
+
+
+@app.route('/api/documents/<version_id>')
+def document_detail(version_id):
+    document = get_store().get_document(version_id)
+    return jsonify(success=True, document=public_document(document))
+
+
+@app.route('/api/documents/<version_id>/source')
+def document_source(version_id):
+    document = get_store().get_document(version_id)
+    source = document['source']
+    root = Path(document['artifact_dir']).resolve()
+    if source.get('source_path'):
+        path = (root / source['source_path']).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise ApiError('原始文件不可用', 404)
+        return send_file(path, as_attachment=True, download_name=path.name)
+    suffix = '.html' if source.get('source_format') == 'html' else '.md'
+    return send_file(io.BytesIO(source.get('content', '').encode('utf-8')), as_attachment=True,
+                     download_name=f"{version_id[:12]}{suffix}", mimetype='text/plain')
+
+
+@app.route('/api/documents/<version_id>/revisions', methods=['POST'])
+def revise_document(version_id):
+    store = get_store()
+    document = store.get_document(version_id)
+    if not document['is_current']:
+        raise ApiError('只能修订当前文档版本')
+    body = json_body()
+    content, reason = body.get('content'), body.get('reason')
+    if not isinstance(content, str) or not content.strip() or len(content.encode()) > 5 * 1024 * 1024:
+        raise ApiError('修订正文不能为空且不能超过 5 MB', 400)
+    if not isinstance(reason, str) or not reason.strip():
+        raise ApiError('请填写修订理由', 400)
+    directory = data_dir() / 'uploads' / str(uuid.uuid4())
+    directory.mkdir(parents=True)
+    path = directory / 'revision.md'
+    path.write_text(content, encoding='utf-8')
+    job = store.create_job('file', {'file_paths': [str(path)]}, scope=document['scope'],
+                           version_id=version_id, document_id=document['id'], revision_reason=reason.strip(),
+                           applicability=document.get('metadata', {}).get('scope'))
+    return jsonify(success=True, task_id=job['task_id'], message='修订已保存为新版本输入，等待解析')
+
+
+@app.route('/tasks/<task_id>/publish', methods=['POST'])
+@app.route('/tasks/<task_id>/submit', methods=['POST'])
+def publish_task(task_id):
+    store = get_store()
+    release_id = publish(store, task_id)
+    store.update_job(task_id, phase='submitted',
+        message='资料已加入 ContextDB 提交队列；评审、入库与 Wiki 编译状态请查看治理进度')
+    return jsonify(success=True, release_id=release_id, message='资料已提交治理；官方评审、入库与构建状态请查看知识库治理进度')
+
+
+@app.route('/api/releases')
+def list_releases():
+    return jsonify(success=True, releases=get_store().list_releases())
+
+
+@app.route('/api/releases/<release_id>/activate', methods=['POST'])
+def activate_release(release_id):
+    store=get_store()
+    release=store.get_release(release_id)
+    store.activate_release(release_id)
+    from governance.contextdb_sync import enqueue_sync
+    job=enqueue_sync(store,release_id,release['scope'])
+    return jsonify(success=True,task_id=job['task_id'],message='采集批次已激活并提交双库同步；知识生效以官方评审结果为准')
+
+
+@app.route('/api/releases/<release_id>/download')
+def download_release(release_id):
+    release = get_store().get_release(release_id)
+    if not Path(release['archive_path']).is_file():
+        raise ApiError('提交快照文件缺失', 404)
+    return send_file(release['archive_path'], as_attachment=True, download_name=f"dataset-{release_id}.zip")
+
+
+@app.route('/api/health')
+def health():
+    try:
+        store = Store()
+        store.initialize()
+        database, worker = True, store.worker_alive()
+    except Exception:
+        database, worker = False, False
+    return jsonify(success=True, database=database, contextdb=bool(os.getenv('CONTEXTDB_API_KEY')), worker=worker)
 
 
 # ==================== ShowDoc 登录辅助路由 ====================
@@ -571,190 +643,5 @@ def showdoc_get_project_detail(item_id):
         }), 500
 
 
-# ==================== 任务执行 ====================
-
-def run_crawler_task(task):
-    """在后台按注册表入口运行爬取任务"""
-    entry = get_entry(task.entry)
-    print(f"\n{'='*60}")
-    print(f"🚀 [{entry.display_name}任务启动] task_id={task.task_id}")
-    print(f"{'='*60}")
-
-    try:
-        task.status = 'running'
-        set_task_message(task, '正在初始化采集器...', phase='connecting')
-        ensure_task_active(task)
-
-        task.output_dir = os.path.join('downloads', task.task_id)
-        os.makedirs(task.output_dir, exist_ok=True)
-
-        crawler = create_crawler(
-            task.entry,
-            save_dir=task.output_dir,
-            progress_callback=lambda current, total, msg: update_task_progress(task, current, total, msg),
-            **task.params,
-        )
-        ensure_task_active(task)
-
-        summary = crawler.crawl(
-            selected_ids=task.selected_ids,
-            selected_titles=task.selected_titles,
-        )
-        ensure_task_active(task)
-        task.summary = summary
-
-        print(f"\n📊 爬取结果: total={summary.total_documents}, "
-              f"empty={summary.empty_documents}, categories={summary.category_count}")
-
-        if summary.total_documents > 0 or summary.failed_documents > 0:
-            set_task_message(task, '正在打包数据集...', phase='packaging')
-            ensure_task_active(task)
-            print("📦 正在创建ZIP文件...")
-            zip_filename = os.path.join('downloads', f'{task.task_id}.zip')
-            create_zip_file(
-                task.output_dir,
-                zip_filename,
-                cancel_check=lambda: ensure_task_active(task),
-            )
-            task.zip_file = zip_filename
-            ensure_task_active(task)
-
-            selected_count = len(task.selected_ids or task.selected_titles)
-            if selected_count:
-                task.skipped_pages = max(0, selected_count - summary.total_documents)
-            download_type = f"选择了{selected_count}个页面" if selected_count else "全量下载"
-            task.failed_pages = getattr(summary, 'failed_documents', 0)
-            task.completed_pages = summary.total_documents + task.failed_pages
-            task.total_pages = task.completed_pages
-            task.status = 'partial' if task.failed_pages or summary.error_count else 'completed'
-            task.phase = 'completed'
-            task.progress = 100
-            task.message = (
-                f'处理完成！共 {summary.total_documents} 个页面'
-                f'（{summary.empty_documents} 个无内容），'
-                f'{summary.category_count} 个分类 ({download_type})'
-            )
-            if task.status == 'partial':
-                task.message = (
-                    f'部分完成：{summary.total_documents} 篇有效文档，'
-                    f'{task.failed_pages} 篇采集或转换失败，'
-                    f'{summary.error_count} 项质量错误；详情见失败清单和质量报告。'
-                )
-            task.add_log(task.message)
-            print(f"\n{'='*60}")
-            print(f"✅ [任务完成] status={task.status}")
-            print(f"   ZIP文件: {zip_filename}")
-            print(f"{'='*60}\n")
-        else:
-            task.status = 'failed'
-            task.phase = 'failed'
-            task.message = '未找到任何页面内容或所选页面不存在'
-            task.failed_pages = max(1, task.failed_pages)
-            task.add_log(task.message)
-            print("\n❌ [任务失败] 未找到页面内容")
-
-    except TaskCancelled:
-        task.status = 'cancelled'
-        task.phase = 'cancelled'
-        task.message = '任务已取消，已完成的数据不会进入最终数据集'
-        task.skipped_pages = max(0, task.total_pages - task.completed_pages)
-        task.add_log(task.message)
-        print(f"\n⏹️ [任务取消] task_id={task.task_id}")
-    except Exception as e:
-        task.status = 'failed'
-        task.phase = 'failed'
-        task.message = f'爬取失败: {str(e)}'
-        task.failed_pages = max(1, task.failed_pages)
-        task.add_log(task.message)
-        print(f"\n❌ [任务异常] {str(e)}")
-    finally:
-        task.end_time = datetime.now()
-        print(f"📋 任务最终状态: status={task.status}, progress={task.progress}%")
-
-
-def ensure_task_active(task):
-    """在网络请求、清洗与打包之间提供安全取消点。"""
-    if task.cancel_event.is_set():
-        raise TaskCancelled('任务已取消')
-
-
-def set_task_message(task, message, phase=None):
-    task.message = message
-    if phase:
-        task.phase = phase
-    task.add_log(message)
-
-
-def update_task_progress(task, current, total, message):
-    """更新任务进度"""
-    ensure_task_active(task)
-    task.completed_pages = current
-    task.total_pages = total
-    task.progress = int((current / total * 100)) if total > 0 else 0
-    task.message = message
-    if message.startswith('正在抓取:'):
-        task.current_item = message.split(':', 1)[1].strip()
-    elif message.startswith('已抓取:'):
-        task.current_item = message.split(':', 1)[1].strip()
-
-    if '质量' in message:
-        task.phase = 'quality_check'
-    elif '数据集' in message or '保存' in message or '打包' in message:
-        task.phase = 'packaging'
-    elif '清洗' in message:
-        task.phase = 'cleaning'
-    elif '抓取' in message:
-        task.phase = 'crawling'
-    elif '登录' in message or '初始化' in message or '目录' in message:
-        task.phase = 'connecting'
-    task.add_log(message)
-
-
-def create_zip_file(source_dir, zip_filename, cancel_check=None):
-    """原子创建 ZIP；取消或失败时不会留下可误认成数据集的半成品。"""
-    partial_filename = f'{zip_filename}.part'
-    try:
-        with ZipFile(partial_filename, 'w', ZIP_DEFLATED) as zipf:
-            for root, dirs, files in os.walk(source_dir):
-                for file in files:
-                    if cancel_check:
-                        cancel_check()
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, source_dir)
-                    zipf.write(file_path, arcname)
-        os.replace(partial_filename, zip_filename)
-    except Exception:
-        if os.path.exists(partial_filename):
-            os.remove(partial_filename)
-        raise
-
-
-# 清理旧任务的定时任务
-def cleanup_old_tasks():
-    """清理超过24小时的旧任务"""
-    current_time = datetime.now()
-    to_remove = []
-
-    for task_id, task in tasks.items():
-        if (current_time - task.start_time).total_seconds() > 86400:  # 24小时
-            # 删除相关文件
-            if task.output_dir and os.path.exists(task.output_dir):
-                shutil.rmtree(task.output_dir, ignore_errors=True)
-            if task.zip_file and os.path.exists(task.zip_file):
-                os.remove(task.zip_file)
-            to_remove.append(task_id)
-
-    for task_id in to_remove:
-        del tasks[task_id]
-
-
 if __name__ == '__main__':
-    # 确保下载目录存在
-    os.makedirs('downloads', exist_ok=True)
-
-    # 启动定时清理任务
-    cleanup_thread = threading.Thread(target=lambda: [time.sleep(3600), cleanup_old_tasks()])
-    cleanup_thread.daemon = True
-    cleanup_thread.start()
-
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    app.run(host='127.0.0.1', port=8000, debug=False)

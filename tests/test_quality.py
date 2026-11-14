@@ -71,44 +71,12 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(report["summary"]["issue_counts"]["warning"], 1)
         self.assertEqual(report["summary"]["issue_document_counts"]["short_content"], 1)
 
-    def test_detects_collapsed_markdown_structure(self):
-        document = SimpleNamespace(
-            id="showdoc-1",
-            title="操作手册",
-            category="根目录",
-            markdown=(
-                "## 第一章 " + "正文内容" * 150 + " ### 第二章 后续正文"
-            ),
-            resources={"images": [], "links": []},
-        )
-
+    def test_low_parse_confidence_is_visible_and_not_semantic_accuracy(self):
+        document = SimpleNamespace(id="1", title="扫描件", category="教程", markdown="完整正文" * 20,
+            metadata={"conversion": {"confidence": {"low_grade": "poor"}}})
         report = assess_documents([document])
-
-        self.assertEqual(report["summary"]["error_documents"], 1)
-        self.assertIn(
-            "collapsed_markdown_structure",
-            [issue["rule"] for issue in report["documents"][0]["issues"]],
-        )
-
-    def test_does_not_treat_code_as_collapsed_structure(self):
-        document = SimpleNamespace(
-            id="code-1",
-            title="代码示例",
-            category="教程",
-            markdown=(
-                "## 示例\n\n```text\n"
-                + "正文内容" * 150
-                + " ### 这是代码而不是标题\n```"
-            ),
-            resources={"images": [], "links": []},
-        )
-
-        report = assess_documents([document])
-
-        self.assertNotIn(
-            "collapsed_markdown_structure",
-            [issue["rule"] for issue in report["documents"][0]["issues"]],
-        )
+        self.assertEqual(report["summary"]["error_documents"], 0)
+        self.assertIn("parse_confidence", [issue["rule"] for issue in report["documents"][0]["issues"]])
 
 
 if __name__ == "__main__":

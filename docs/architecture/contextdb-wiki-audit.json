@@ -1,0 +1,195 @@
+{
+  "checked_at": "2026-11-13T05:15:49.655425+00:00",
+  "observations": [
+    {
+      "method": "GET",
+      "path": "/v1/ping",
+      "http_status": 200,
+      "keys": [
+        "status",
+        "org_id",
+        "project_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/workspaces/members/self/permissions",
+      "http_status": 200,
+      "keys": [
+        "errorCode",
+        "errorMessage",
+        "requestId",
+        "data"
+      ],
+      "errorCode": 0,
+      "errorMessage": null,
+      "requestId": "9d736e33-8de8-411c-b79a-003c5ffaaa67"
+    },
+    {
+      "method": "GET",
+      "path": "/openapi.json",
+      "http_status": 403,
+      "keys": [
+        "openapi",
+        "info",
+        "servers",
+        "paths"
+      ],
+      "classification": "waf_blocked_not_an_api_schema"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/knowledge/wiki/revisions",
+      "http_status": 400,
+      "keys": [],
+      "errorCode": 1001,
+      "errorMessage": "COMMON_BAD_REQUEST: missing required parameter: page_id",
+      "requestId": "e9846355-25e6-4571-a589-b7e3f91d6d2b"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/knowledge/wiki/issues",
+      "http_status": 200,
+      "keys": [
+        "items",
+        "total",
+        "next_cursor",
+        "limit"
+      ],
+      "item_count": 0,
+      "item_keys": [],
+      "errorCode": 0,
+      "errorMessage": null,
+      "requestId": "4bd30141-3c6a-41a0-b6d2-f8cf7395ef46"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/knowledge/wiki/pages/revisions",
+      "http_status": 403,
+      "keys": [],
+      "errorCode": 4007,
+      "errorMessage": "AUTH_ACCESS_DENIED: route is not declared in the DATA API contract",
+      "requestId": "0cc5dd95-1384-4def-af31-e3532ac05b41"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/knowledge/wiki/revisions/pending",
+      "http_status": 403,
+      "keys": [],
+      "errorCode": 4007,
+      "errorMessage": "AUTH_ACCESS_DENIED: route is not declared in the DATA API contract",
+      "requestId": "ab6f27a1-68ee-416e-8b4b-116bf2837999"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/knowledge/wiki/revisions",
+      "params": {
+        "knowledge_base_id": "e42e30ad-607d-4b9b-93be-9ec1cbb18598",
+        "page_id": "845198b7-2419-4cb8-a690-99784df20292",
+        "limit": 1
+      },
+      "http_status": 200,
+      "errorCode": 0,
+      "requestId": "25666b73-dc16-45ca-b144-50a0b9ab67e9",
+      "response_keys": [
+        "items",
+        "next_cursor",
+        "limit"
+      ],
+      "item_count": 1,
+      "item_keys": [
+        "revision_id",
+        "page_id",
+        "section_id",
+        "base_revision_id",
+        "review_status",
+        "review_reason",
+        "issue_type",
+        "severity",
+        "edit_source",
+        "editor_member_id",
+        "created_at"
+      ],
+      "returns_history_body": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/knowledge/review_settings",
+      "http_status": 200,
+      "response_keys": [
+        "workspace_id",
+        "knowledge_base_id",
+        "review_enabled",
+        "high_threshold",
+        "rewrite_enabled",
+        "conflict_detection_enabled",
+        "rewrite_auto_ingest_enabled",
+        "logic_rewrite_threshold",
+        "noise_rewrite_threshold",
+        "max_rewrite_iterations",
+        "created_at",
+        "updated_at"
+      ]
+    }
+  ],
+  "member_role": "owner",
+  "permission_mode": "personal_compatibility",
+  "mcp": {
+    "http_status": 200,
+    "tool_names": [
+      "knowledge.create_base",
+      "knowledge.create_text_document",
+      "knowledge.delete_base",
+      "knowledge.delete_document",
+      "knowledge.get_base",
+      "knowledge.get_document",
+      "knowledge.get_graph",
+      "knowledge.list_bases",
+      "knowledge.list_documents",
+      "knowledge.list_entity_chunks",
+      "knowledge.list_graph_entities",
+      "knowledge.search",
+      "knowledge.update_base",
+      "knowledge.wiki_search",
+      "contextdb_connectors__list_auth_configs",
+      "contextdb_connectors__get_tools",
+      "contextdb_connectors__call_tool"
+    ],
+    "wiki_tools": [
+      "knowledge.wiki_search"
+    ]
+  },
+  "read_target_kb_id": "e42e30ad-607d-4b9b-93be-9ec1cbb18598",
+  "documentation": {
+    "url": "https://g.alicdn.com/rdsai/contextdb-doc/0.0.8/contextdb-documentation.html",
+    "sha256": "beb049f44247f13b5980987f51c73259dc64bdf981a2a32c0e1d86dcdff6d34f",
+    "page_count": 261,
+    "api_page_count": 154,
+    "wiki_api_page_count": 0
+  },
+  "cloud_writes_performed": false,
+  "features": {
+    "wiki_revision_approval": {
+      "console_guide_support": true,
+      "data_api_contract": "not_exposed",
+      "mcp_tool": false,
+      "platform_enabled": false
+    },
+    "wiki_history_comparison": {
+      "console_guide_support": true,
+      "data_api_metadata_read": true,
+      "data_api_historical_body_contract": "not_exposed"
+    },
+    "wiki_history_rollback": {
+      "console_guide_support": "not_documented",
+      "data_api_contract": "not_exposed",
+      "mcp_tool": false,
+      "platform_enabled": false
+    },
+    "strict_manual_publish": {
+      "guide_guarantee": "not_documented",
+      "native_enforcement_contract": "not_exposed",
+      "platform_enabled": false
+    }
+  }
+}

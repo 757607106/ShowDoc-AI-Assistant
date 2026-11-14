@@ -16,11 +16,13 @@
 import argparse
 import hashlib
 import os
+import shutil
+import tempfile
+from pathlib import Path
 from collections import Counter
 
 from registry import ENTRIES, create_crawler, get_entry
 
-VALID_PIPELINES = ["auto", "builtin", "crawl4ai"]
 
 
 def default_output_dir(args):
@@ -36,10 +38,22 @@ def default_output_dir(args):
 
 def build_crawler_kwargs(args):
     kwargs = {}
+    if args.files:
+        root = Path(os.getenv("GOVERNANCE_DATA_DIR", Path(__file__).resolve().parent / "downloads")) / "uploads"
+        root.mkdir(parents=True, exist_ok=True)
+        upload = Path(tempfile.mkdtemp(dir=root))
+        paths = []
+        for index, value in enumerate(args.files):
+            source = Path(value).resolve(strict=True)
+            if not source.is_file():
+                raise ValueError("上传对象必须是文件")
+            target = upload / str(index) / source.name
+            target.parent.mkdir()
+            shutil.copyfile(source, target)
+            paths.append(str(target.resolve()))
+        kwargs["file_paths"] = paths
     if args.page_size:
         kwargs["page_size"] = args.page_size
-    if args.pipeline:
-        kwargs["pipeline_mode"] = args.pipeline
     if args.item:
         kwargs["item_id"] = args.item
     if args.login:
@@ -110,13 +124,12 @@ def run_crawl(args):
     summary = crawler.crawl(limit=args.limit)
 
     print("\n" + "=" * 60)
-    print(f"✅ [{crawler.display_name}] 爬取完成")
+    print(f"✅ [{crawler.display_name}] 采集与 Docling 转换完成（审计导出，尚未治理发布）")
     print(f"   文档: {summary.total_documents} 条"
           f"（空正文 {summary.empty_documents} 条）")
     print(f"   分类: {summary.category_count} 个")
     print(f"   输出目录: {summary.output_dir}")
     print(f"   合并文档: {summary.merged_file}")
-    print(f"   原始文档: {summary.raw_documents_file}")
     print(f"   源数据: {summary.source_documents_file}")
     if summary.failed_documents:
         print(f"   失败文档: {summary.failed_documents} 条 ({summary.failed_documents_file})")
@@ -195,10 +208,8 @@ def main():
     parser.add_argument(
         "--page-size", type=int, default=0, help="分页大小（0 表示使用平台默认值）"
     )
+    parser.add_argument("--file", dest="files", action="append", help="（file）本地文件，可重复指定")
     parser.add_argument("--out", default=None, help="输出目录（默认 downloads/<入口键>）")
-    parser.add_argument(
-        "--pipeline", choices=VALID_PIPELINES, default=None, help="内容清洗引擎"
-    )
     args = parser.parse_args()
 
     if args.list_entries:
@@ -216,6 +227,8 @@ def main():
         if args.entry == "showdoc" and not args.item:
             parser.error("showdoc 爬取需要 --item 指定项目 ID"
                          "（可用 --list-projects 查看项目列表）")
+        if args.entry == "file" and not args.files:
+            parser.error("file 导入需要 --file 指定本地文件")
         if args.entry == "web" and not args.url:
             parser.error("web 爬取需要 --url 指定网页地址")
         run_crawl(args)

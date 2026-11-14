@@ -27,7 +27,6 @@ class TiantongCrawler(BaseCrawler):
         self,
         save_dir,
         progress_callback=None,
-        pipeline_mode=None,
         page_size=50,
         timeout=20,
         site_base_url=None,
@@ -43,7 +42,6 @@ class TiantongCrawler(BaseCrawler):
         super().__init__(
             save_dir,
             progress_callback=progress_callback,
-            pipeline_mode=pipeline_mode,
         )
 
     def list_documents(self):

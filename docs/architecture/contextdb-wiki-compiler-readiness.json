@@ -1,0 +1,84 @@
+{
+  "source": "ContextDB official DATA API and MCP",
+  "checked_at": "2026-11-14T01:00:04.048624+08:00",
+  "write_probe": true,
+  "checks": {
+    "source_chunks": {
+      "status": "available",
+      "chunks_read": 13,
+      "reported_total": 13,
+      "pagination_verified": true,
+      "source_marker": "document_id + updated_at",
+      "source_marker_stable": true,
+      "reason": "完整分页读取并核对来源标识；仅验证本次独立资料，不代表跨接口事务快照"
+    },
+    "page_location": {
+      "status": "unconfirmed",
+      "reason": "当前页可按 ID 读取，但受影响主题及来源映射的完整定位契约未确认；50 条搜索或类别列表不足以证明完整"
+    },
+    "compiler_metadata_write": {
+      "status": "unconfirmed",
+      "reason": "已验证接口仅覆盖正文创建与版本更新；来源切片、目录与链接的编译写契约未确认，未发送猜测字段"
+    },
+    "page_cas": {
+      "status": "available",
+      "stale_rejected": true,
+      "content_readback_matches": true,
+      "initial_version": 1,
+      "update_returned_version": 2,
+      "readback_version": 2,
+      "readback_wait_limit_seconds": 10
+    },
+    "compiler_isolation": {
+      "status": "unconfirmed",
+      "reason": "未确认停止或隔离目标页面云端自动编译的官方契约；未尝试猜测开关或调整业务库"
+    }
+  },
+  "cleanup": {
+    "status": "deleted",
+    "probe_kb_id": "11499d5d-e39a-4418-8aa1-5814eaca5830"
+  },
+  "official_docs": {
+    "url": "https://g.alicdn.com/rdsai/contextdb-doc/0.0.8/contextdb-documentation.html",
+    "sha256": "beb049f44247f13b5980987f51c73259dc64bdf981a2a32c0e1d86dcdff6d34f",
+    "article_count": 261,
+    "wiki_api_articles": [],
+    "reviewed_articles": [
+      "knowledge-wiki",
+      "api-updateKnowledgeBase",
+      "api-listKnowledgeDocumentChunks"
+    ]
+  },
+  "official_mcp": {
+    "status": "available",
+    "tool_names": [
+      "contextdb_connectors__call_tool",
+      "contextdb_connectors__get_tools",
+      "contextdb_connectors__list_auth_configs",
+      "knowledge.create_base",
+      "knowledge.create_text_document",
+      "knowledge.delete_base",
+      "knowledge.delete_document",
+      "knowledge.get_base",
+      "knowledge.get_document",
+      "knowledge.get_graph",
+      "knowledge.list_bases",
+      "knowledge.list_documents",
+      "knowledge.list_entity_chunks",
+      "knowledge.list_graph_entities",
+      "knowledge.search",
+      "knowledge.update_base",
+      "knowledge.wiki_search"
+    ],
+    "wiki_tools": [
+      "knowledge.wiki_search"
+    ]
+  },
+  "ready": false,
+  "blocked_checks": [
+    "page_location",
+    "compiler_metadata_write",
+    "compiler_isolation"
+  ],
+  "decision": "retain_contextdb_compiler"
+}

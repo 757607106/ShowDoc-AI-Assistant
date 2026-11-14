@@ -1,0 +1,13 @@
+{
+  "agent": "codex",
+  "version": "1.1.0",
+  "connected": true,
+  "hooks_node_ok": true,
+  "auto_capture": false,
+  "auto_recall": false,
+  "auto_skill_evolution": false,
+  "mcp_configured": true,
+  "hook_trust": "unverified",
+  "restart_codex_required": true,
+  "backup": "/Users/pusonglin/PycharmProjects/ShowDoc AI Assistant/downloads/dev-setup-backup/20261113T035551Z"
+}

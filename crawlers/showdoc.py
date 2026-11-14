@@ -28,7 +28,6 @@ class ShowDocCrawler(BaseCrawler):
         self,
         save_dir,
         progress_callback=None,
-        pipeline_mode=None,
         item_id=None,
         user_token=None,
         keyword="",
@@ -58,7 +57,6 @@ class ShowDocCrawler(BaseCrawler):
         super().__init__(
             save_dir,
             progress_callback=progress_callback,
-            pipeline_mode=pipeline_mode,
         )
 
     # ---------- 认证 ----------

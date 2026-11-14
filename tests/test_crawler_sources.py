@@ -1,0 +1,94 @@
+"""Source capture keeps media references without pretending to transcribe them."""
+import json
+from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
+
+from crawlers.base import DocumentStub
+from crawlers.cyb import CYBCrawler
+
+
+def records(path):
+    return [json.loads(line) for line in Path(path).read_text().splitlines() if line]
+
+
+def crawler(tmp_path):
+    result = CYBCrawler(str(tmp_path))
+    result.source_only = True
+    result.authenticate = Mock()
+    result.pipeline.convert = Mock(side_effect=AssertionError('Capture must not parse content locally'))
+    result._items = {
+        'tutorial-1': {'title':'视频教程','content':'','contentType':1,'videoUrl':'https://www.bilibili.com/video/example/','coverImage':'tutorial/cover.png'},
+        'tutorial-2': {'title':'文字教程','content':'<p>完整操作说明</p>'},
+        'tutorial-3': {'title':'真实空文档','content':'','coverImage':'tutorial/empty.png'},
+    }
+    result.list_documents = lambda: [DocumentStub(key,item['title'],'教程') for key,item in result._items.items()]
+    return result
+
+
+def test_video_reference_survives_source_capture_but_empty_cover_still_fails(tmp_path):
+    c = crawler(tmp_path)
+    summary = c.crawl()
+    assert summary.total_documents == 2 and summary.failed_documents == 1
+    assert summary.video_reference_documents == summary.warning_count == 1
+    video = next(row for row in records(summary.rag_documents_file) if row['id'] == 'tutorial-1')
+    assert 'https://www.bilibili.com/video/example/' in video['content']
+    assert c.site_base_url + '/tutorial/cover.png' in video['content']
+    assert '尚未采集或解析视频内容' in video['content']
+    assert video['metadata']['source_kind'] == 'video_reference'
+    assert video['metadata']['media_content_captured'] is False
+    assert video['metadata']['content'] == ''
+    assert [row['id'] for row in records(summary.failed_documents_file)] == ['tutorial-3']
+    assert Path(summary.rag_chunks_file).read_text() == ''
+    c.pipeline.convert.assert_not_called()
+
+
+def test_saved_video_references_recover_without_login_or_source_fetch(tmp_path):
+    c = crawler(tmp_path)
+    raw = []
+    for key in ('tutorial-1','tutorial-2'):
+        item = c._items[key]
+        raw.append({'id':key,'title':item['title'],'category':'教程','content':item['content'],
+                    'metadata':item,'source_format':'html','updated_at':'','source_path':''})
+    source = tmp_path / 'source_documents.jsonl'
+    source.write_text('\n'.join(json.dumps(row,ensure_ascii=False) for row in raw)+'\n')
+    c.authenticate.side_effect = AssertionError('Saved complete capture must not log in again')
+    c.fetch_document = Mock(side_effect=AssertionError('Saved source must not be fetched again'))
+    summary = c.reprocess_sources(source)
+    assert summary.failed_documents == 0 and summary.total_documents == 2
+    assert summary.video_reference_documents == 1
+    c.authenticate.assert_not_called(); c.fetch_document.assert_not_called()
+    again = c.reprocess_sources(source)
+    first = next(row for row in records(summary.rag_documents_file) if row['id'] == 'tutorial-1')
+    assert first['content'].count('尚未采集或解析视频内容') == 1
+    assert again.total_documents == 2
+
+
+def test_retry_refetches_genuinely_empty_sources_only(tmp_path):
+    c = crawler(tmp_path)
+    c.crawl()
+    original = c.fetch_document
+    c._items['tutorial-3']['content'] = '<p>源站补齐的正文</p>'
+    c.fetch_document = Mock(wraps=original)
+    summary = c.reprocess_sources(tmp_path/'source_documents.jsonl')
+    assert summary.failed_documents == 0 and summary.total_documents == 3
+    assert [call.args[0].id for call in c.fetch_document.call_args_list] == ['tutorial-3']
+
+
+@pytest.mark.parametrize('url',['javascript:alert(1)','https://','https://[invalid'])
+def test_invalid_video_link_does_not_make_an_empty_source_valid(tmp_path,url):
+    c = crawler(tmp_path)
+    c._items['tutorial-1']['videoUrl'] = url
+    summary = c.crawl(selected_ids=['tutorial-1'])
+    assert summary.total_documents == 0 and summary.failed_documents == 1
+
+
+def test_video_link_changes_affect_source_identity_but_view_counts_do_not(tmp_path):
+    c = crawler(tmp_path)
+    stub = DocumentStub('tutorial-1','视频教程','教程')
+    first = c._source_record(c.fetch_document(stub))
+    c._items['tutorial-1']['viewCount'] = 9999
+    assert c._source_record(c.fetch_document(stub))['source_sha256'] == first['source_sha256']
+    c._items['tutorial-1']['videoUrl'] = 'https://www.bilibili.com/video/updated/'
+    assert c._source_record(c.fetch_document(stub))['source_sha256'] != first['source_sha256']

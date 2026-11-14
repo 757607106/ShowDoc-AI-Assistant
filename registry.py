@@ -6,6 +6,7 @@ from crawlers.cyb import CYBCrawler
 from crawlers.showdoc import ShowDocCrawler
 from crawlers.tiantong import TiantongCrawler
 from crawlers.web import WebCrawler
+from crawlers.file import FileCrawler
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,10 @@ class CrawlerEntry:
 
 
 ENTRIES = {
+    "file": CrawlerEntry(
+        key="file", crawler_class=FileCrawler, display_name="上传文件", entry_url="",
+        requires_auth=False, description="上传 PDF、Office、Markdown、HTML 和图片，由 Docling 统一解析",
+    ),
     "tiantong": CrawlerEntry(
         key="tiantong",
         crawler_class=TiantongCrawler,

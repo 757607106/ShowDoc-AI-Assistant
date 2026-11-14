@@ -1,137 +1,70 @@
-# ShowDoc AI Assistant
+# 企业知识治理平台
 
-将多个知识库平台的文档转换为 Markdown、RAG JSONL 与大模型微调 JSONL。
+以固定提交 `cbdcebabf48c5ee2d6868b370326aa8341703f62` 的 **WeKnora 前端**为基线，使用 Vue 3、TDesign、原有布局、知识库卡片、文档列表与预览、Wiki Markdown 编辑、对话流及确认卡片。源码与许可记录在 [frontend/UPSTREAM.json](frontend/UPSTREAM.json) 和 [frontend/UPSTREAM-LICENSE](frontend/UPSTREAM-LICENSE)。
 
-工程结构、文件命名和文档归档规则见 [docs/engineering/project-structure.md](docs/engineering/project-structure.md)。
+知识解析、切片、检索、评审、Wiki、图谱和评审模板全部使用 **ContextDB 官方 REST/MCP**，产品入口聚焦知识库与知识评审。deepagents 的知识工具仅来自官方 MCP，连接失败会停止知识访问。Docker PostgreSQL 仅保存账号、加密成员凭据、平台任务、同步映射、会话、官方 LangGraph checkpoint 和操作记录；采集原件与发布 ZIP 留在受控产物目录。
 
-## 支持平台
+## 本机启动
 
-| 分类键 | 平台 | 登录 | 入口 |
-|---|---|---|---|
-| `tiantong` | 天通资源管理中心 | 免登录 | `http://117.172.29.67:6067/knowledge` |
-| `showdoc` | ShowDoc（云辉煌知识库） | 公开项目免登录；`--login` 或 `--list-projects` 需登录 | `https://yunhelp.gmgrasp.com.cn/server/index.php` |
-| `cyb` | 管家婆云辉煌创业版 | 验证码 + 手机号自动登录（同一服务进程复用 token，失效后自动重登） | `https://new.yuncyb.com` |
-| `web` | 通用网页 URL | 输入 URL，Crawl4AI 自动提取正文并输出 Markdown | 运行时传入 |
-
-## 安装
-
-需要 Python 3.10 或更高版本，项目推荐使用 `uv`：
+需要 Python 3.12、Node 22+、Docker 和 PostgreSQL 17 镜像。已配置的本机凭据保存在 Git 忽略的 `.env`，请勿提交。首次安装：
 
 ```bash
 uv venv --python 3.12
 uv pip install --python .venv/bin/python -r requirements.txt
-uv pip install --python .venv/bin/python -r requirements-dev.txt  # 开发和回归测试
-cp .env.example .env
-# Crawl4AI 首次使用需要安装浏览器运行时
-uv run --python .venv/bin/python crawl4ai-setup
+cp .env.example .env  # 仅在 .env 尚不存在时执行
 ```
 
-在 `.env` 中配置云创业版手机号、密码和 DashScope API Key。内容清洗按源格式
-分流：除 ShowDoc 外的 HTML 默认由 Crawl4AI 生成 Markdown；ShowDoc 的 Markdown
-原文直接进入规范化管道。`auto` 模式只在单篇转换失败时回退，并在文档元数据中记录
-实际引擎、版本和原因；所有入口在落盘前统一校验标题、代码围栏及图片/链接完整性。
-
-## 运行
-
-### 多平台统一入口（推荐）
+填写 `.env` 的 ContextDB、模型和平台配置：`POSTGRES_PASSWORD`、`DATABASE_URL`、`FLASK_SECRET_KEY`、`CREDENTIAL_ENCRYPTION_KEY`、`PLATFORM_ADMIN_EMAIL`、`PLATFORM_ADMIN_PASSWORD`。Fernet 密钥可用 `.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` 生成；账号密码至少 12 位，邮箱须有有效域名。数据库连接串中的密码需 URL 编码。
 
 ```bash
-python main.py --list-entries                       # 列出全部可用平台入口
-python main.py --entry tiantong --list-documents    # 查看分类与文档数量
-python main.py --entry tiantong                     # 全量爬取
-python main.py --entry tiantong --limit 5           # 小样本试跑
-python main.py --entry tiantong --pipeline builtin  # 指定清洗引擎
-
-python main.py --entry showdoc --item 412 --list-documents  # 查看项目目录（公开项目免登录）
-python main.py --entry showdoc --item 412                    # 全量爬取项目 412
-python main.py --entry showdoc --list-projects               # 列出我的项目（需登录）
-
-python main.py --entry cyb                       # 云创业版全量爬取（自动验证码登录）
-python main.py --entry cyb --limit 5            # 小样本试跑
-python main.py --entry web --url https://example.com/article  # 当前页正文提取
-python main.py --entry web --url https://docs.example.com/guide \
-  --crawl-mode site                                             # 同域整站采集
+docker compose -f compose.postgres.yml up -d
+.venv/bin/python -m webapi.auth --bootstrap
+.venv/bin/python -c 'from dotenv import load_dotenv; load_dotenv(); from agent.checkpointer import initialize_checkpoints; initialize_checkpoints()'
+cd frontend
+npm ci
+npm run type-check
+npm run build-only
+cd ..
+.venv/bin/python app.py                 # http://127.0.0.1:8000
 ```
 
-`web` 的 `site` 模式按“同一域名下全部可发现 HTML 页面”工作，不受输入 URL
-路径限制：合并 `robots.txt`/sitemap、输入页、站点首页、渲染后链接、前端路由与
-已捕获的只读分页接口，sitemap 不会阻止继续发现其未列出的页面。默认
-`--max-pages 0 --max-depth 0`（不限制）；试跑大型网站时可显式设置非零上限。
-整站模式只能发现公开可达或被 sitemap/页面链接公开声明的 URL，不能凭空获得
-未链接、需登录或被验证码/反爬保护的内容。
-整站结果另含 `crawl_report.json`，记录发现数、实际请求数、保存数以及失败、
-拦截、空正文和重复正文 URL，便于核对采集完整性。
+另开终端运行 `.venv/bin/python -m governance.worker`。PostgreSQL 默认仅监听 `127.0.0.1:55432`，数据保存在命名卷。已有独立 Docker PostgreSQL 时可直接配置其 `DATABASE_URL`，不必另外启动 Compose 服务。
 
-结果保存在 `downloads/tiantong/`：
+开发前端：`cd frontend && VITE_DEV_PROXY_TARGET=http://127.0.0.1:8000 npm run dev`。浏览器采集首次需要安装 Chromium：`PLAYWRIGHT_BROWSERS_PATH=downloads/_models/chromium .venv/bin/python -m playwright install chromium --only-shell`。
 
-- `<分类>/<标题>.md`：按分类目录组织的单篇文档（同分类同名自动追加 id 前缀防覆盖）。
-- `天通资源管理中心知识库.md`：`# 平台 / ## 分类 / ### 文档` 结构的合并汇总。
-- `assets/attachments/`：附件（附件下载地址 15 分钟失效，爬取时即时下载落盘）。
-- `raw_documents.jsonl`：按源格式转换后的审计 Markdown，用于追溯和重新清洗。
-- `source_documents.jsonl`：不可变源正文及哈希；转换失败后仍可审计和重新处理。
-- `failed_documents.jsonl`：逐篇采集或转换失败清单；失败文档不会中断整批任务。
-- `rag_documents.jsonl`：清洗后正文 + `metadata` 字段全量保留平台原始 16 个字段。
-- `rag_chunks.jsonl`：按标题和段落切分的 RAG 分块，metadata 含分类、章节路径和分块序号。
-- `quality_report.json`：本次任务的文档完整性、重复内容、标题结构与质量评分报告。
-  `summary.issue_counts` 统计问题实例，`summary.issue_document_counts` 统计受影响文档；
-  `source_empty_documents`、`empty_documents`、`exported_documents` 用于区分源数据为空、转换为空和最终成功导出的数量。
+## 使用
 
-ShowDoc 结果保存在 `downloads/showdoc_<item_id>/`，结构同上；分类来自项目目录树（如 `根目录`、`一级目录/二级目录`）。
+1. **成员与权限**：管理员在设置中创建账号，绑定各自的 ContextDB 成员密钥；服务端验证成员并加密保存。官方成员/密钥开通在 ContextDB 控制台完成。有效权限、用户组和知识库授权使用官方结果；本程序不切换工作空间权限模式。
+2. **采集与任务**：支持 ShowDoc、CYB、天瞳、通用网页和文件。平台只采集源内容、整理必要格式并检查完整性；云端承担资料解析和语义治理。失败和取消可重试，原件与来源标识保留。
+3. **自动提交治理**：采集和文件上传统一选择业务知识库，完整采集成功后自动创建 ContextDB 提交任务。采集不完整先重试；自动提交失败保留原件，可在资料任务补交。新建默认只启用 Wiki，实体图谱按需开启；既有范围保留原双库关联。分别记录文档 ID、源版本、上传及官方处理状态，未变化资料跳过，失败按目标重试。提交完成不等于官方治理或 Wiki 发布完成。
+4. **统一知识库入口**：WeKnora 卡片展示业务知识库，默认打开 Wiki，文档、图谱和治理进度在同一详情查看。独立“来源资料”入口已移除，旧 URL 转到知识库；本地原件及历史快照仍供恢复与追溯，任务支持下载资料包，Wiki 保留官方文档引用。内部 `space/scope` 只是官方库的关联及采集范围，不保存另一份知识正文。未绑定的官方库在“关联已有库”中查看或关联，原库 ID 和引用深链保留。图谱启用后会分别投递两库，形成独立评审状态；关闭仅影响后续提交，不删除已有库。
+5. **知识评审**：默认打开官方评审队列，展示原生评审状态与冲突处置、原文/重写稿、确认/拒绝/撤回/重试；完整人工编辑稿通过官方 `edited_content` 提交。决定受理后保留详情，分别刷新文档入库和 Wiki 编译状态，再打开同库 Wiki 核对。修订不回写采集原件、外部站点或另一图谱库。评审策略和模板由 ContextDB 执行。长期记忆、记忆整理、记忆晋升的页面、接口与 Agent 工具已移除；聊天历史、会话恢复及已入库的历史知识文档保留。
+6. **Wiki 与 Agent**：编辑器读取完整正文和真实版本，保存必须携带原版本；冲突保留草稿、显示差异，比较合并后才重新保存。Agent 按成员凭据和所选知识库调用官方 MCP；清空选择会停止后续知识访问，不删除已有聊天记录。工具参数同时受会话范围和官方成员权限约束，文档工具先校验归属。写工具由 deepagents 人工中断机制确认，断线通过执行 ID 重新连接，不重复 POST。
 
-云创业版结果保存在 `downloads/cyb/`，结构同上；分类为 `使用教程/<模块>` 与 `常见问题/<业务类型>`，另含 `finetuning_cyb.jsonl`（FAQ 问答微调语料）。
+回答引用只采用本轮成功官方工具返回的原文切片，按真实知识库/文档/切片 ID 校验；跨流片段完整输出标签，代码示例保持字面内容。工具错误、停止与恢复使用实际执行状态，停止无需等待卡住的工具再返回事件。
 
-`CYB_CONTENT_PIPELINE` 支持以下模式（`--pipeline` 同参数）：
+Wiki 编译器接管准入结果为 **未通过**：完整受影响页定位、编译来源/链接写入及云端编译隔离仍未确认，继续使用 ContextDB 官方编译。独立切片分页、页面版本冲突与读回实测见[准入报告](docs/architecture/contextdb-wiki-compiler-readiness.md)；未增加本地编译器或 Worker 编译阶段。
 
-- `crawl4ai`：仅使用 Crawl4AI。
-- `auto`：优先使用 Crawl4AI，依赖不可用或运行失败时回退到内置转换器。
-- `builtin`：使用项目内置转换器（支持标题、链接、图片、列表、代码块和 GFM 表格）。
+**治理格式边界**：官方明确支持 TXT、Markdown、PDF、DOC、DOCX 的知识评审。HTML、PPT、Excel、图片和音视频等使用官方现有上传、解析与检索能力，治理支持未确认；不将上传或入库成功显示为完成治理，不增加本地格式转换。
 
-## 回归测试
+**已确认的限制**：Wiki 搜索单次最多 50 页，页面会说明范围；官方类别列表不能冒充全量页面列表。修订必须按页面读取，返回章节元数据。官方控制台支持候选接受/拒绝和历史查看/比较，但公开 API 未提供审批写入、历史全文/原生回滚及严格人工发布的完整契约，对应入口禁用。当前官方 MCP 未提供 Wiki 修订工具，Agent 不以自建 REST 工具绕过该限制。阈值及关闭重写自动入库不保证全量人工发布。详见[专项核对与实测证据](docs/architecture/contextdb-wiki-support.md)。
+
+## 迁移与验证
 
 ```bash
-# 单元、数据完整性及真实 Chromium 集成回归
-RUN_BROWSER_TESTS=1 .venv/bin/python -m pytest -q
+# 只读备份旧 _governance，生成校验和
+.venv/bin/python -m scripts.migrate_runtime
+# 校验快照后导入指定的已绑定平台账号，不修改/删除旧云端记录
+.venv/bin/python -m scripts.migrate_runtime --snapshot downloads/migrations/<timestamp>.json --apply --owner-email admin@knowledge.local
 
-# Crawl4AI 安装与浏览器健康检查
-.venv/bin/crawl4ai-doctor
+.venv/bin/pytest -q
+cd frontend && npm run type-check && npm run build-only
 ```
 
-### 云创业版（兼容入口）
+默认测试不会访问 ContextDB 云端，平台测试在 Docker 的 `showdoc_knowledge_test` 中使用每例独立 schema；指定 `TEST_DATABASE_URL` 时库名必须以 `_test` 结尾。真实云端验证需显式执行 `.venv/bin/python -m scripts.contextdb_probe --write` 或 `.venv/bin/python -m scripts.contextdb_pipeline_smoke`，仅操作新建探测资源并记录清理结果。
 
-```bash
-python cyb_rag_md.py   # 等价于 python main.py --entry cyb --out downloads/cyb
-```
+旧 `_governance` 保留只读。迁移校验和、记录数量及 checkpoint 读回结果见 `downloads/migrations/`。数据库备份可使用 `docker compose -f compose.postgres.yml exec -T postgres pg_dump -U showdoc showdoc_knowledge > <private-backup.sql>`；备份还应包含 `.env` 的加密密钥和采集产物目录。公网部署使用生产 WSGI、TLS 和受控网络；开发服务器仅绑定回环地址。
 
-## Web UI
+原独立爬虫 CLI `main.py` 的 Docling 导出流程继续保留，供离线导出；平台 Worker 不调用该解析与切片链路。
 
-```bash
-python app.py   # http://127.0.0.1:8000
-```
-
-页面分为“采集工作台、任务监控、数据集输出”三个独立工作区。采集工作台提供 5 种数据源用法（ShowDoc 同一站点拆分为公开项目和账号项目）：
-
-| 标签 | 入口 | 登录 | 说明 |
-|---|---|---|---|
-| 云辉煌知识库 | `showdoc` | 免登录 | 填写公开项目 ID（如 412）后获取页面列表 |
-| ShowDoc 登录 | `showdoc` | 用户名+验证码 | 自动识别验证码登录，下拉选择账号下的项目 |
-| 云创业版 | `cyb` | 自动 | 验证码+手机号自动登录，免配置操作 |
-| 天通 | `tiantong` | 免登录 | 资源管理中心全量 1500+ 文档 |
-| 通用网页 URL | `web` | 免登录 | 单页或同域整站采集；自动匹配已验证适配器，其他站点使用 sitemap、渲染链接、动态路由和安全只读 API 分页发现 |
-
-每个数据源支持：配置采集范围（含分类标签与关键词过滤）→ 文档目录选择 → 单篇预览 → 内容清洗 → 质量检查 → RAG 数据集生成 → ZIP 下载（分类目录 + 合并文档 + JSONL + 质量报告）。浏览器会记住当前任务编号，刷新后可恢复进度；同一时间只运行一个治理任务，失败或取消后可以直接重试。
-
-通用网页入口只用于公开网页。系统优先遵守 `robots.txt` 并通过 sitemap 发现页面，不跨域，也不绕过登录、验证码、付费墙或其他访问控制；采集前仍需由使用者确认目标网站的服务条款、版权、隐私与访问频率要求。
-
-同站采集只保留一个入口：输入 URL 后，系统先按域名匹配已验证的薄适配器；未匹配时自动回退增强型通用采集。任务输出额外包含 `crawl_report.json`，用于区分“内容质量”和“采集覆盖率”。当前已验证 `club.cmgrasp.com` 的公开问答、知识、课程、活动和公告分页接口，问答会合并公开回答。
-
-后端为 registry 分发的通用接口，新增平台无需改动路由：
-
-- `GET /api/entries` — 列出全部入口
-- `GET /entries/web/inspect?url=` — 识别通用网页采集策略
-- `GET /entries/<key>/documents` — 文档列表（`auth=1` 注入 ShowDoc 会话）
-- `GET /entries/<key>/preview?doc_id=` — 单篇预览
-- `POST /entries/<key>/start` — 启动爬取任务
-- `GET /api/tasks` — 最近任务列表（不返回账号令牌等敏感参数）
-- `GET /task_status/<task_id>` — 任务阶段、进度、质量指标与日志
-- `POST /tasks/<task_id>/cancel` — 在安全检查点取消任务
-- `POST /tasks/<task_id>/retry` — 重试失败或已取消任务
+更多边界与验收状态见 [当前架构与接口清单](docs/architecture/agent-platform.md)。

@@ -1,10 +1,20 @@
 Flask==2.3.3
-requests==2.31.0
-# requests 2.31 在 urllib3 2.x 下会产生兼容性警告
+requests==2.34.2
 urllib3<2
 chardet<6
 jsonpath-ng==1.6.1
-beautifulsoup4==4.12.2
+beautifulsoup4==4.15.0
 python-dotenv==1.0.0
-markdown-it-py>=3,<5
 crawl4ai==0.9.3
+langchain-docling[local]==3.0.0
+docling-slim==2.150.0
+docling-core==2.106.0
+langchain-openai==1.7.4
+# openai 3.x 与 langchain-openai 1.7.4 不兼容(AsyncOpenAI 构造报缺凭证),钉 2.x
+openai<3
+deepagents==0.7.35
+langchain-mcp-adapters==0.3.2
+langgraph-checkpoint-postgres==3.2.0
+psycopg[binary,pool]==3.3.8
+cryptography==50.0.1
+tiktoken==0.14.0

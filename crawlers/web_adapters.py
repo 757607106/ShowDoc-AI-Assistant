@@ -16,7 +16,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from crawlers.base import CrawledDocument, DocumentStub, CrawlCancelled
+from crawlers.base import BaseCrawler, CrawledDocument, DocumentStub, CrawlCancelled
 
 
 class WebSourceAdapter:
@@ -45,12 +45,7 @@ class WebSourceAdapter:
 
     def crawl_documents(self, selected_ids=None, selected_titles=None):
         stubs = self.list_documents()
-        if selected_ids:
-            wanted = {str(item) for item in selected_ids}
-            stubs = [stub for stub in stubs if stub.id in wanted]
-        elif selected_titles:
-            wanted = set(selected_titles)
-            stubs = [stub for stub in stubs if stub.title in wanted]
+        stubs = BaseCrawler._filter_selection(stubs, selected_ids, selected_titles)
 
         documents = []
         for index, stub in enumerate(stubs, 1):

@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/Tencent/WeKnora",
+  "commit": "cbdcebabf48c5ee2d6868b370326aa8341703f62",
+  "version": "0.9.0",
+  "license": "UPSTREAM-LICENSE",
+  "adaptations": "API adapters and platform governance routes"
+}
