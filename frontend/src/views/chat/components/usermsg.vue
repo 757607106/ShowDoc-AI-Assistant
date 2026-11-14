@@ -82,7 +82,7 @@
 <script setup>
 import { computed, ref, watch, onMounted, nextTick } from "vue";
 import { hydrateProtectedFileImages } from '@/utils/security';
-import picturePreview from '@/components/picture-preview.vue';
+import picturePreview from './WeKnoraPicturePreview.vue';
 import ArtifactFileIcon from './ArtifactFileIcon.vue';
 import ChatActionIcon from '@/components/ChatActionIcon.vue';
 import { useI18n } from 'vue-i18n';

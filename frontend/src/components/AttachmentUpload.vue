@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { IS_CONTEXTDB } from '@/config/contextdb'
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useI18n } from 'vue-i18n';
@@ -63,7 +62,6 @@ const supportedTypes = ref([
 ]);
 
 onMounted(async () => {
-  if (IS_CONTEXTDB) return
   try {
     await editorResources.ensureParserEngines();
     const discovered = editorResources.parserEngines

@@ -117,8 +117,9 @@ export function getKnowledgeSearchSummaryHtml(
 ): string {
   if (!toolData) return ''
 
-  const results = toolData.results
-  const count = (Array.isArray(results) ? results.length : 0) || Number(toolData.count) || 0
+  const output = toolData.output && typeof toolData.output === 'object' ? toolData.output as Record<string, unknown> : toolData
+  const results = output.results || output.chunks
+  const count = (Array.isArray(results) ? results.length : 0) || Number(output.count) || Number(output.total) || 0
   if (count === 0) {
     // Retrieval found candidates but none cleared the relevance threshold, so the
     // turn answered from the fallback with nothing retrieved in its context. Say
@@ -182,7 +183,7 @@ export function getRagPipelineStepTitle(t: ComposerTranslation, event: RagPipeli
       : t('agentStream.toolStatus.queryUnderstandDone')
   }
 
-  if (toolName === 'knowledge_search' || toolName === 'search_knowledge') {
+  if (toolName === 'knowledge_search' || toolName === 'search_knowledge' || toolName === 'knowledge.search') {
     const searchSource = getRetrievalSearchSource(event.arguments, event.tool_data)
     const labels = getRetrievalStatusKeys(searchSource, event.success === false)
     if (pending) {

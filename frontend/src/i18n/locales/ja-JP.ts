@@ -1753,7 +1753,9 @@ export default {
       sandboxNoConfigs: 'このワークスペースにはサンドボックスがないため、スキルのスクリプトは実行されません。',
       skillsInfoTitle: 'スキルとサンドボックスの連携について',
       skillsInfoContent: 'スキルは知識モジュールで、そのスクリプトは選択したサンドボックスで実行されます。一覧にはそこにインストール済みのスキルが表示されます。セッションのサンドボックスが一度作成されると、以降の添付ファイル、生成物、破棄はすべて作成時の設定に固定されます。そのため、サンドボックスを変更しても影響するのは以降に新規作成されるセッションだけです。'
-    },
+    ,
+  memoryEnabled: '長期メモリ',
+},
     selector: {
       title: 'エージェントを選択',
       current: '現在',
@@ -4592,7 +4594,13 @@ export default {
     attachmentUploadFailed: '添付ファイルのアップロードに失敗しました',
     attachmentParseFailed: '添付ファイルの解析に失敗しました',
     attachmentStillProcessing: '添付ファイル{name}は解析中です'
-  },
+  ,
+  memoryUsedCount: '{count}件のメモリを使用',
+  memoryForget: 'このメモリを削除',
+  memoryForgotten: 'メモリを削除しました',
+  memoryForgetFailed: '削除に失敗しました',
+  memoryHint: 'この回答が参照した長期メモリです。削除すると以降は使用されません。',
+},
   tenant: {
     title: 'ワークスペース情報',
     currentTenant: '現在のワークスペース',
@@ -5882,7 +5890,9 @@ export default {
           follow_up_model: 'フォローアップモデル',
           unknown: 'その他のモデル設定'
         }
-      },
+      ,
+  longTermMemory: '長期メモリ',
+},
       debug: {
         reasoningEffort: '思考強度',
         reasoningEffortDesc: 'モデルカタログが報告するレベルで reasoning_effort を送信します',
@@ -6703,7 +6713,20 @@ export default {
             q2: 'Which skill do I need to install?',
             q3: 'What can I do in Claw after it is connected?',
           },
-        },
+
+  mymemory: {
+            description: 'I can show your personal memories, where they are used, and how to add or delete them.',
+            q1: 'Which personal memories are saved here?',
+            q2: 'How do I add or delete a memory?',
+            q3: 'Which conversations use these memories?',
+          },
+  memory: {
+            description: 'I can tell workspace memory apart from personal memory, and how to keep workspace conventions.',
+            q1: 'How is workspace memory different from my personal memory?',
+            q2: 'Which memory rules are enabled now?',
+            q3: 'How do I make agents remember this workspace’s conventions?',
+          },
+},
       startFailed: 'アシスタントを起動できませんでした。もう一度お試しください。',
       askAboutDocument: '{name}に聞く',
       chooseAction: "機能を選ぶか、希望する内容を入力してください。",
@@ -7858,7 +7881,9 @@ export default {
       fallbackStrategy: 'ナレッジベースで関連する内容が見つからない場合の処理方法',
       fallbackResponse: '回答できない場合に返す固定テキスト',
       fallbackPrompt: 'ナレッジベースで回答が見つからない場合に、モデルの応答を導くプロンプト'
-    },
+    ,
+  memoryEnabled: 'このエージェントが長期メモリを読み取り、追記できるようにします。無効にすると、このエージェントとの会話はメモリを読み取らず、新しいメモリも追加しません。ワークスペースまたは個人の設定が無効の場合、ここで有効にしても反映されません',
+},
     tools: {
       thinking: '思考',
       thinkingDesc: '動的かつ内省的に問題を解決する思考ツール',
@@ -9310,4 +9335,181 @@ export default {
         'まず画像の特徴を観察して説明を生成し、その特徴に基づいて OCR を実行するかどうかを判断します。モデル呼び出しを節約し、解析速度を向上させます 画像が補正可能な書類やラベルの写真と判定された場合、認識前にページを傾き補正・トリミングして OCR 精度を高めます。補正に失敗した場合は元の画像を使用します。'
     }
   }
+,
+  memorySettings: {
+    title: 'マイメモリ',
+    description: '会話をまたいでアシスタントが記憶しているあなたの情報です。ここで内容の確認・編集・削除ができます。削除したメモリが再び使われることはありません。',
+    workspaceDisabled: 'このワークスペースでは長期メモリが無効です。この切り替えは、管理者が有効にした後に反映されます。',
+    enableLabel: '自分の長期メモリを使用する',
+    enableDescription: 'オフにすると、アシスタントはあなたのメモリを読み取ることも追加することもありません。既存のメモリは保持され、再度オンにすると使用が再開されます。',
+    agentDisabledHint: '個々のエージェントが自分だけ長期メモリを無効にすることもできます。そのエージェントとの会話ではあなたのメモリは読み取られず追加もされませんが、他のエージェントには影響しません。',
+    usage: {
+      title: 'メモリが使われるタイミング',
+      iconHint: '会話で使われるメモリを確認',
+      intro: '会話で使われるのは「有効」なメモリのみです。',
+      rows: {
+        alwaysOn: {
+          label: '毎回のやり取り',
+          text: 'プロフィール、好み、覚えておくよう依頼した内容'
+        },
+        situational: {
+          label: '関連するとき',
+          text: '事実と進行中のタスク'
+        },
+        interest: {
+          label: 'よく話す話題',
+          text: '長期的な関心。毎回のやり取りで必ず引用されるわけではありません'
+        },
+        tracking: {
+          label: 'まず観察',
+          text: '繰り返し出る話題はまず回数が数えられ、しきい値に達してから長期的な関心になります'
+        },
+        documents: {
+          label: 'よく使う情報源',
+          text: '回答が繰り返し参照しているドキュメント。検索でわずかに優先されます'
+        },
+        pending: {
+          label: '確認した後',
+          text: '確認待ちの推測項目'
+        },
+        inactive: {
+          label: '使用しない',
+          text: '置き換えられた項目とアーカイブ済みの項目'
+        }
+      }
+    },
+    listTitle: 'メモリ',
+    listCount: '全{count}件',
+    statusActive: '有効',
+    statusSuperseded: '置き換え済み',
+    statusArchived: 'アーカイブ済み',
+    statusPending: '要確認',
+    statusTracking: '観察中',
+    statusDocuments: 'よく使う情報源',
+    confirmGuess: 'はい',
+    rejectGuess: 'いいえ',
+    pendingHint: 'これらはあなたの質問から推測された項目です。確認するまでは使用されません。',
+    trackingHint: 'これらは繰り返し質問している話題ですが、長期的な関心になるしきい値にはまだ達していません。それまでは会話で使用されません。',
+    documentsHint: 'これらのドキュメントは回答に繰り返し登場するため、検索でわずかに優先されます。観察を終了すると優先されなくなりますが、さらに2回引用されると再び表示されます。',
+    supersededHint: 'これらは新しいメモリに置き換えられました。変更の履歴として保持されており、会話では使用されません。',
+    archivedHint: 'アーカイブされたメモリは会話で使用されません。1人あたりの上限に達すると、使用頻度の低い項目から自動的にアーカイブされます。',
+    pendingEmptyTitle: '確認する項目はありません',
+    pendingEmptyDescription: 'あなたの質問から何かが推測されると、ここで確認を待ちます。',
+    trackingEmptyTitle: '観察中の話題はありません',
+    trackingEmptyDescription: '自動抽出を有効にすると、よく質問する内容の回数が数えられ、十分に繰り返された時点で長期的な関心になります。',
+    documentsEmptyTitle: 'よく使う情報源はまだありません',
+    documentsEmptyDescription: '回答で2回以上引用されたドキュメントがここに表示されます。',
+    supersededEmptyTitle: 'まだ置き換えられた項目はありません',
+    supersededEmptyDescription: '同じ話題を新しい表現で記録すると、古い表現がここに残ります。このページで項目を編集した場合はその場で更新され、履歴の行は作成されません。',
+    archivedEmptyTitle: 'まだアーカイブされた項目はありません',
+    archivedEmptyDescription: '有効なメモリが上限（デフォルトは200件）を超えると、使用頻度の低いものからアーカイブされます。期限付きのタスクも、期限が切れるとここに入ります。',
+    documentsHits: '{hits}回引用',
+    untitledDocument: '無題のドキュメント',
+    openDocument: 'ドキュメントを開く',
+    openDocumentUnavailable: '開けません: ナレッジベースが見つかりません',
+    stopTrackingDocument: '観察を終了',
+    stopTrackingDocumentConfirm: 'このドキュメントをパーソナライズ検索に使用しないようにしますか？さらに2回引用されると再び表示されます。',
+    stopTrackingDocumentSuccess: 'この情報源の観察を終了しました',
+    stopTrackingDocumentFailed: '観察の終了に失敗しました',
+    trackingProgress: 'これまで{hits}回質問しています。{threshold}回で長期的な関心になります',
+    trackingReady: 'しきい値に達しました。長期的な関心として保存できます',
+    trackingAliases: '他の言い方: {aliases}',
+    promoteTopic: '関心として保存',
+    dismissTopic: '観察を終了',
+    dismissTopicConfirm: 'この話題の観察を終了しますか？今後同じ話題を質問しても、自動的に長期的な関心として保存されなくなります。',
+    promoteSuccess: '長期的な関心として保存しました',
+    promoteFailed: '関心としての保存に失敗しました',
+    dismissSuccess: 'この話題の観察を終了しました',
+    dismissFailed: '観察の終了に失敗しました',
+    confirmSuccess: '確認しました',
+    confirmFailed: '確認に失敗しました',
+    rejectSuccess: '却下しました。今後推測されることはありません。',
+    rejectFailed: '却下に失敗しました',
+    export: 'エクスポート',
+    consolidate: '整理',
+    consolidateConfirm: '内容がほぼ重複する項目が統合されます。古い表現は「置き換え済み」に残ります。続行しますか？',
+    consolidateSuccess: '整理しました: {merged}グループを統合し、期限切れの{expired}件をアーカイブし、古いタスク{demoted}件を降格しました',
+    consolidateNothing: '整理が必要な項目はありませんでした',
+    consolidateTooFewItems: 'メモリが少ないため、まだ整理する必要はありません',
+    consolidateNoCandidates: '統合できるほど内容が近いメモリは見つかりませんでした',
+    consolidateModelDeclined: 'モデルが確認した結果、これらは別の内容と判断されたため、統合は行われませんでした',
+    consolidateTooSoon: '整理を実行したばかりです。しばらくしてから再試行してください。',
+    consolidateModelUnavailable: 'モデルを利用できなかったため、誤った統合を避けて何も変更しませんでした',
+    consolidateFailed: '整理に失敗しました',
+    clear: 'すべて削除',
+    clearConfirm: 'すべてのメモリ、観察中の話題、よく使う情報源が完全に削除され、元に戻せません。続行しますか？',
+    deleteConfirm: 'このメモリを完全に削除しますか？',
+    add: '追加',
+    addPlaceholder: 'アシスタントに覚えておいてほしいことを1文で入力してください',
+    addTitle: 'メモリを追加',
+    addKindLabel: '種類',
+    addContentLabel: '内容',
+    emptyTitle: 'メモリはまだありません',
+    emptyDescription: '会話で「...を覚えておいて」と伝えるか、上の入力欄から直接追加してください。',
+    kinds: {
+      profile: 'あなたについて',
+      preference: '好み',
+      fact: '事実',
+      task: '進行中のタスク',
+      interest: '長期的な関心'
+    },
+    kindHints: {
+      profile: '以降のすべてのやり取りに含まれます',
+      preference: '以降のすべてのやり取りに含まれます',
+      fact: '質問が関連する場合にのみ使用されます',
+      task: '質問が関連する場合にのみ使用されます',
+      interest: 'あなたがよく尋ねる内容の理解に役立ちます。毎回のやり取りで必ず引用されるわけではありません'
+    },
+    origins: {
+      explicit: '依頼による',
+      extracted: '自動抽出',
+      manual: '手動追加'
+    },
+    toasts: {
+      enabled: '長期メモリを有効にしました',
+      disabled: '長期メモリを無効にしました',
+      added: '追加しました',
+      updated: '更新しました',
+      deleted: '削除しました',
+      cleared: 'メモリを{count}件削除しました',
+      saveFailed: '操作に失敗しました: {message}'
+    }
+  },
+  memoryWorkspaceSettings: {
+    title: '長期メモリ',
+    description: 'メンバーが会話で伝えた内容（本人の情報、仕事の進め方の好み、変わりにくい事実、取り組んでいること）を、会話をまたいでアシスタントが記憶できるようにします。',
+    introTitle: 'デフォルトは無効。手動で有効にする必要があります',
+    introDescription: '長期メモリはメンバーが会話で話した内容を保持するため、初期状態では無効になっています。有効にすると、各メンバーは自分専用のメモリ領域を持ち、「マイメモリ」から内容の確認・編集・削除、または完全な無効化ができます。有効なプロフィールと好みのメモリは以降のすべてのやり取りに含まれ、事実と進行中のタスクは質問が関連する場合にのみ参照されます。',
+    enableLabel: 'このワークスペースで長期メモリを有効にする',
+    enableDescription: 'オフにすると、このワークスペースのどの会話でもメモリの読み書きは行われません。',
+    writeModeLabel: 'メモリの記録方法',
+    writeModeDescription: '何を記憶するかを制御します。',
+    writeModeExplicit: '明示的な依頼のみ',
+    writeModeAuto: '自動で抽出',
+    writeModeExplicitHint: 'メンバーが明示的に依頼した内容と、手動で追加した項目のみを記録します。追加のモデル呼び出しは発生しません。',
+    writeModeAutoHint: 'さらに、会話の終了後にバックグラウンドでモデルを1回呼び出し、メンバーの発言から記録する価値のある内容を抽出します。',
+    extractModelLabel: '抽出用モデル',
+    extractModelDescription: '空欄にすると、その会話で使用されたモデルを使用します。',
+    extractDelayLabel: '抽出までの待機時間',
+    extractDelayDescription: 'やり取りの終了から抽出を実行するまでの待機時間です。待つことで、ユーザが続けて送る複数のメッセージを1回のモデル呼び出しでまとめて処理できます。',
+    extractMinIntervalLabel: '実行間隔の下限',
+    extractMinIntervalDescription: '1人あたりの抽出実行の最短間隔で、コストを抑えるために使用します。この間隔内に発生したメッセージは破棄されず、次回の実行に持ち越されます。',
+    vectorRecallLabel: '意味でメモリを照合する',
+    vectorRecallDescription: '字句に加えて意味による照合を行うため、ユーザが話題を言い換えてもメモリが引き出されます（ほとんどのメモリはいずれ言い換えられます）。やり取りごとに埋め込みの呼び出しが1回発生し、タイムアウト時は字句のみの照合にフォールバックします。',
+    embeddingModelLabel: 'メモリ用の埋め込みモデル',
+    embeddingModelDescription: '意味によるリコールはこのモデルのみを使用し、ナレッジベースが紐づけている埋め込みモデルとは独立しています。空欄の場合は字句のみの照合になります。変更すると、新しいメモリはすぐに新しいモデルを使用し、既存のメモリは再度埋め込まれるまで字句のみの照合のままです。',
+    conditioningLabel: 'メモリを検索に反映する',
+    conditioningDescription: 'メモリを回答用プロンプトに付け加えるだけでなく、クエリのリライトやドキュメントのランキングにも利用します。ナレッジベース製品でメモリが最も効果を発揮する部分です。',
+    interestThresholdLabel: '関心として記録するまでの質問回数',
+    interestThresholdDescription: '同じ話題がこの回数だけ質問されて初めて記録されます。1にするとその場限りの質問もすべて記録されるため、通常はノイズが多くなりすぎます。',
+    instructionsLabel: 'カスタム抽出ルール',
+    instructionsDescription: '抽出プロンプトに追加されるワークスペースのルールです。「顧客名は記録しない」など、製品側では判断できないポリシーを指定します。',
+    instructionsPlaceholder: '1行に1つのルール。例: 顧客名は記録しない',
+    maxItemsLabel: 'メンバーあたりのメモリ上限',
+    maxItemsDescription: 'これを超えると、重要度と新しさに基づいて下位のメモリがアーカイブされます。アーカイブされたメモリは「マイメモリ」で引き続き確認できます。',
+    toasts: {
+      saveSuccess: '長期メモリの設定を保存しました',
+      saveFailed: '保存に失敗しました: {message}'
+    }
+  },
 }

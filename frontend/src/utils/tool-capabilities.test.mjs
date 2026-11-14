@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { deriveKbFilterFromTools, evaluateToolRequirement } from './tool-capabilities.ts'
+import { deriveKbFilterFromTools, evaluateToolRequirement, toolsConsumeFiles } from './tool-capabilities.ts'
 
 const wikiOnly = { vector: false, keyword: false, wiki: true, graph: false, faq: false }
+
+test('official knowledge tools preserve their document and knowledge-base scope requirements', () => {
+  assert.equal(toolsConsumeFiles(['knowledge.search']), true)
+  assert.equal(toolsConsumeFiles(['knowledge.wiki_search']), false)
+  assert.equal(evaluateToolRequirement('knowledge.get_graph', wikiOnly, true).ok, false)
+  assert.deepEqual(deriveKbFilterFromTools(['knowledge.wiki_search']).any_of, ['wiki'])
+})
 
 test('document readers are usable on a wiki-only knowledge base', () => {
   for (const tool of ['read_document', 'list_documents']) {

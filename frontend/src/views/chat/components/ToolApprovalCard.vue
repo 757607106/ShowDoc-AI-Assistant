@@ -23,18 +23,17 @@
 
     <div v-if="hasArgs" class="prompt-args">
       <button type="button" class="prompt-args-toggle" :aria-expanded="argsExpanded" @click="toggleArgs">
-        <span>{{ IS_CONTEXTDB ? '操作详情' : $t('agentStream.toolApproval.argsLabel') }}</span>
+        <span>{{ $t('agentStream.toolApproval.argsLabel') }}</span>
         <ChatTimelineIcon width="14" height="14" class="args-toggle-icon" :name="argsExpanded ? 'chevron-down' : 'chevron-right'" />
         <span v-if="!isJsonValid" class="args-status args-invalid">
           <t-icon name="error-circle" />
-          {{ IS_CONTEXTDB ? '操作详情读取失败' : $t('agentStream.toolApproval.invalidJson') }}
+          {{ $t('agentStream.toolApproval.invalidJson') }}
         </span>
         <span v-else-if="argsDirty" class="args-status args-dirty">
           {{ $t('agentStream.toolApproval.argsModified') }}
         </span>
       </button>
-      <StructuredFields v-if="argsExpanded && IS_CONTEXTDB" :model-value="nativeArgs" readonly />
-      <t-textarea v-else-if="argsExpanded" v-model="argsText" class="prompt-args-input"
+      <t-textarea v-if="argsExpanded" v-model="argsText" class="prompt-args-input"
         :autosize="{ minRows: 2, maxRows: 10 }" placeholder="{}" />
     </div>
 
@@ -83,22 +82,18 @@
 
     <div v-if="hasArgs && (open || argsExpanded)" class="approval-args">
       <button v-if="open" type="button" class="approval-args-toggle" :aria-expanded="argsExpanded" @click.stop="toggleArgs">
-        <span>{{ IS_CONTEXTDB ? '操作详情' : $t('agentStream.toolApproval.argsLabel') }}</span>
+        <span>{{ $t('agentStream.toolApproval.argsLabel') }}</span>
         <span v-if="!argsExpanded && argumentSummary" class="approval-args-summary">{{ argumentSummary }}</span>
         <ChatTimelineIcon width="14" height="14" class="args-toggle-icon" :name="argsExpanded ? 'chevron-down' : 'chevron-right'" />
       </button>
-      <div v-else class="approval-args-label">{{ IS_CONTEXTDB ? '操作详情' : $t('agentStream.toolApproval.argsLabel') }}</div>
-      <StructuredFields v-if="argsExpanded && IS_CONTEXTDB" :model-value="nativeArgs" readonly />
-      <pre v-else-if="argsExpanded" class="approval-args-content">{{ argsText }}</pre>
+      <div v-else class="approval-args-label">{{ $t('agentStream.toolApproval.argsLabel') }}</div>
+      <pre v-if="argsExpanded" class="approval-args-content">{{ argsText }}</pre>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import ChatTimelineIcon from '@/components/ChatTimelineIcon.vue'
-import StructuredFields from '@/components/StructuredFields.vue'
-import { IS_CONTEXTDB } from '@/config/contextdb'
-import { contextdbToolLabel } from '@/utils/platformPresentation'
 import { ref, computed, inject, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -166,10 +161,7 @@ function formatJson(raw: string): string {
 
 const initialArgs = formatJson(props.argsJson || '{}')
 const argsText = ref(initialArgs)
-const argsExpanded = ref(IS_CONTEXTDB)
-const nativeArgs = computed(() => {
-  try { return JSON.parse(props.argsJson || '{}') } catch { return {} }
-})
+const argsExpanded = ref(false)
 const allowInSession = ref(false)
 const GRANT_LAPSE_REASONS = ['changed', 'expired', 'idle']
 const grantLapsedText = computed(() => (
@@ -183,7 +175,7 @@ const { parked, secondsLeft, timerClass, countdownText, parkedText } = usePrompt
 const submission = computed(() => promptSubmission(props.pendingId))
 const open = computed(() => !props.resolved && !submission.value)
 // A handled approval returns to a compact timeline row, including local submits.
-watch([open, () => props.pendingId], () => { argsExpanded.value = IS_CONTEXTDB && open.value })
+watch([open, () => props.pendingId], () => { argsExpanded.value = false })
 // Without a dock (a view that does not provide one) the row stays answerable.
 const interactive = computed(() => open.value && (props.variant === 'dock' || !dock))
 const awaitingInDock = computed(() => open.value && props.variant !== 'dock' && Boolean(dock?.isDocked(props.pendingId)))
@@ -243,7 +235,6 @@ const compactDescription = computed(() => {
 })
 const hasLongDescription = computed(() => compactDescription.value !== descriptionParts.value.head)
 const argumentSummary = computed(() => {
-  if (IS_CONTEXTDB) return ''
   try {
     const args = JSON.parse(argsText.value)
     if (!args || Array.isArray(args) || typeof args !== 'object') return ''
@@ -252,7 +243,6 @@ const argumentSummary = computed(() => {
 })
 
 const question = computed(() => {
-  if (IS_CONTEXTDB) return '执行以下操作？'
   const { action, target } = descriptionParts.value
   if (!action) return t('agentStream.toolApproval.dockQuestion', { target: targetLabel.value })
   return target
@@ -353,7 +343,7 @@ const headerIcon = computed(() => {
   return 'close-circle'
 })
 
-const targetLabel = computed(() => IS_CONTEXTDB ? contextdbToolLabel(props.mcpToolName)||'执行操作' : (
+const targetLabel = computed(() => (
   t('agentStream.toolApproval.targetWithTool', {
     service: props.serviceName,
     tool: props.mcpToolName,
@@ -390,7 +380,7 @@ const submit = async (decision: 'approve' | 'reject') => {
   submitting.value = true
   try {
     let modified: Record<string, unknown> | undefined
-    if (decision === 'approve' && !IS_CONTEXTDB) {
+    if (decision === 'approve') {
       try {
         modified = JSON.parse(argsText.value || '{}') as Record<string, unknown>
       } catch {

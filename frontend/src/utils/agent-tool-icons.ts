@@ -14,7 +14,7 @@ export function getAgentToolIconName(
   if (toolName === 'thinking') {
     return 'ai-search'
   }
-  if (toolName === 'search_knowledge' || toolName === 'knowledge_search') {
+  if (toolName === 'search_knowledge' || toolName === 'knowledge_search' || toolName === 'knowledge.search') {
     if (searchSource === 'web') {
       return 'internet'
     }
@@ -39,7 +39,7 @@ export function getAgentToolIconName(
   if (toolName === 'get_document_content' || toolName === 'wiki_read_page' || toolName === 'wiki_read_source_doc') {
     return 'file-search'
   }
-  if (toolName === 'todo_write') {
+  if (toolName === 'todo_write' || toolName === 'write_todos') {
     return 'task'
   }
   if (toolName === 'image_analysis' || toolName === 'query_understand') {
@@ -54,7 +54,7 @@ export function getAgentToolIconName(
   if (toolName === 'call_mcp_tool' || toolName.startsWith('mcp_')) {
     return 'terminal'
   }
-  if (toolName === 'shell_exec') {
+  if (toolName === 'shell_exec' || toolName === 'execute') {
     return 'terminal'
   }
   if (toolName === 'list_sandbox_files') {

@@ -22,6 +22,11 @@ const STORAGE_BACKEND_FILE_SCHEME_RE = new RegExp(
 const KB_FILE_PROXY_PATH_RE = /^\/api\/v1\/knowledge-bases\/[^/]+\/files$/;
 const EMBED_FILE_PROXY_PATH_RE = /^\/api\/v1\/embed\/[^/]+\/files$/;
 const MESSAGE_FILE_PROXY_PATH_RE = /^\/api\/v1\/sessions\/[^/]+\/messages\/[^/]+\/files$/;
+const SESSION_ATTACHMENT_PREVIEW_RE = /^\/api\/v1\/sessions\/[A-Za-z0-9_-]+\/attachments\/[A-Za-z0-9_-]+\/preview$/;
+
+export function isSessionAttachmentPreviewPath(url: string): boolean {
+  return SESSION_ATTACHMENT_PREVIEW_RE.test(url);
+}
 
 export type ProtectedFileAccessContext =
   /** 登录态用户：Bearer + 选中租户。 */
@@ -117,7 +122,7 @@ function tenantRequestHeaders(): Record<string, string> {
     const selectedTenantId = (localStorage.getItem('weknora_selected_tenant_id') || '').trim();
     if (selectedTenantId) {
       // Always attach when a selected tenant is set. Same rationale as
-      // utils/request.ts / api/chat/streame.ts: the
+      // utils/request.ts: the
       // "selectedTenantId === defaultTenantId → skip" short-circuit
       // silently drops the header whenever any code path writes the
       // active tenant into weknora_tenant, leaving authenticated file
@@ -139,6 +144,9 @@ export function buildProtectedFileRequest(
   access: ProtectedFileAccessContext,
 ): ProtectedFileRequest | null {
   const filePath = sourceURL.trim();
+  if (isSessionAttachmentPreviewPath(filePath)) {
+    return access.mode === 'embed' ? null : { url: filePath, headers: tenantRequestHeaders() };
+  }
   if (!isProviderFileURL(filePath)) return null;
 
   const query = new URLSearchParams({ file_path: filePath }).toString();

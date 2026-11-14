@@ -4,6 +4,7 @@ import test, { type TestContext } from 'node:test'
 import { fixture, flush } from '../test-utils/vueFixture.ts'
 import * as presentation from '../utils/platformPresentation.ts'
 import * as reviewSupport from '../utils/contextdbReviewSupport.ts'
+import * as suspendedRun from '../utils/suspendedRun.ts'
 
 function collection(t: TestContext, listing = async () => ({pages:[{page_id:'doc-123',page_title:'操作手册'}]})) {
   const requests: any[]=[]
@@ -118,22 +119,31 @@ test('permission selectors use member/group identifiers and reset incompatible s
   assert.deepEqual(writes[2].body,{group_id:12,member_id:'member-a',role:'member'})
 })
 
-test('ContextDB approval submits only the supported approve/reject decision',async t=>{
+test('official approval posts decisions and edited arguments without mutating the source',async t=>{
   const writes:any[]=[]
   const args={actions:[{name:'knowledge.update_base',args:{knowledge_base_id:'kb-a',name:'新名称'}}]}
   const {vm}=fixture(t).component(new URL('./chat/components/ToolApprovalCard.vue',import.meta.url),{
-    '@/config/contextdb':{IS_CONTEXTDB:true},'vue-i18n':{useI18n:()=>({t:(key:string)=>key})},
-    '@/utils/platformPresentation':presentation,
-    'tdesign-vue-next':{MessagePlugin:{success(){},error:assert.fail}},
-    '@/api/mcp-service':{resolveToolApproval:async(id:string,body:any)=>{writes.push({id,body});return {resumed:false}}},
-    '@/api/embed':{resolveEmbedToolApproval:assert.fail},'@/utils/suspendedRun':{resumeSuspendedRunKey:Symbol()},
+    'vue-i18n':{useI18n:()=>({t:(key:string)=>key})},
+    '@/api/mcp-service':{resolveToolApproval:async(id:string,body:any)=>{writes.push({id,...body});return {resumed:false}}},
+    '@/api/embed':{resolveEmbedToolApproval:assert.fail},
+    '@/utils/suspendedRun':suspendedRun,
+    'tdesign-vue-next':{MessagePlugin:{success(){},error(){}}},
     '@/composables/usePromptCountdown':{usePromptCountdown:()=>({})},
     '@/composables/usePromptDock':{usePromptDock:()=>undefined,promptSubmission:()=>undefined,markPromptSubmitted(){}},
     '@/utils/promptKeys':{isSubmitKey:()=>true},
   },{pendingId:'pending-a',serviceName:'ContextDB',mcpToolName:'knowledge.update_base',argsJson:JSON.stringify(args)})
   assert.equal(vm.handleKey({target:null}),true);await flush()
-  assert.equal(vm.targetLabel,'修改知识库')
-  assert.equal(writes.length,1);assert.equal(writes[0].body.decision,'approve')
-  assert.equal(writes[0].body.modified_args,undefined)
+  assert.equal(writes.length,1);assert.equal(writes[0].decision,'approve')
+  assert.equal(writes[0].id,'pending-a')
+  assert.deepEqual(JSON.parse(JSON.stringify(writes[0].modified_args)),args)
+  await vm.submit('reject')
+  assert.equal(writes[1].decision,'reject')
+  assert.equal(writes[1].modified_args,undefined)
+  vm.argsText=JSON.stringify({actions:[]})
+  await vm.submit('approve')
+  assert.deepEqual(JSON.parse(JSON.stringify(writes[2].modified_args)),{actions:[]})
+  vm.argsText='invalid JSON'
+  await vm.submit('approve')
+  assert.equal(writes.length,3,'invalid JSON cannot reach the approval API')
   assert.deepEqual(args.actions[0].args,{knowledge_base_id:'kb-a',name:'新名称'})
 })

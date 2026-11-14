@@ -1,10 +1,12 @@
-"""deepagents 官方 Harness 构建:ChatOpenAI(BYOK→百炼,回退专属端点)+ ContextDB checkpointer。"""
-import os
+"""Official Deep Agents harness with owner-scoped model and MCP configuration."""
+import asyncio
+import json
 
 from langchain_openai import ChatOpenAI
+from langchain_qwq import ChatQwen
 
-from agent.checkpointer import make_checkpointer
 from agent.tools import make_governance_tools, load_knowledge_mcp_tools
+
 
 SYSTEM_PROMPT = """你是企业级知识治理平台的智能助手,服务数据治理与知识消费两个域。
 
@@ -22,43 +24,120 @@ SYSTEM_PROMPT = """你是企业级知识治理平台的智能助手,服务数据
 沟通风格:结论先行、简明中文;引用知识库证据时注明来源。"""
 
 
-def _fallback_base_url():
-    return (os.getenv('DASHSCOPE_API_URL') or 'https://llm-rtc5v8cnt0umugh9.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions') \
-        .rstrip('/').removesuffix('/chat/completions')
+def build_model(agent_config=None, owner_id=None):
+    """Use the configured model verbatim; provider errors must not change models."""
+    from agent.registry import model_config
+    config = agent_config or {}
+    return build_model_record(model_config(config.get('model_id'), owner_id), config)
 
 
-def build_model():
-    """BYOK 路由:百炼公开端点优先,未配置时回退现有专属端点。"""
-    bailian_key = os.getenv('BAILIAN_API_KEY', '').strip()
-    if bailian_key:
-        return ChatOpenAI(
-            model=os.getenv('AGENT_MAIN_MODEL', 'qwen-max'),
-            api_key=bailian_key,
-            base_url=os.getenv('AGENT_BAILIAN_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1'),
-            temperature=0, timeout=180, max_retries=2,
-        )
-    key = os.getenv('DASHSCOPE_API_KEY') or os.getenv('QWEN_API_KEY', '')
-    model = os.getenv('AGENT_MAIN_MODEL', 'qwen-max')
-    fallback_model = os.getenv('AGENT_FALLBACK_MODEL') or 'qwen-plus'
-    # 专属端点上未必存在 qwen-max:回退其已验证模型
-    if not bailian_key and 'max' in model:
-        model = fallback_model
-    return ChatOpenAI(
-        model=model, api_key=key, base_url=_fallback_base_url(),
-        temperature=0, timeout=180, max_retries=2,
-    )
+def build_model_record(saved, config):
+    """Use the same official model client for saved runs and draft connection tests."""
+    params = saved.get('parameters', {})
+    if saved['type'] not in ('KnowledgeQA', 'VLLM'):
+        from governance.store import StoreError
+        raise StoreError('请选择对话模型', 400)
+    extra = {}
+    effort = config.get('reasoning_effort')
+    provider = params.get('provider', '')
+    if provider in ('aliyun', 'dashscope') or 'aliyuncs.com' in params.get('base_url', ''):
+        extra['extra_body'] = {'enable_thinking': effort not in ('off', '') if effort else config.get('thinking', False)}
+    elif effort and effort not in ('off', 'auto'):
+        extra['reasoning_effort'] = effort
+    headers = {key: value for key, value in params.get('custom_headers', {}).items()
+               if key.lower() not in ('authorization', 'content-type', 'host')}
+    if headers:
+        extra['default_headers'] = headers
+    budget = config.get('max_completion_tokens', 0) or (2048 if config.get('agent_mode') == 'quick-answer' else 24576)
+    if params.get('max_output_tokens'):
+        budget = min(budget, int(params['max_output_tokens']))
+    extra['max_tokens'] = budget
+    model_type = ChatQwen if provider in ('aliyun', 'dashscope', 'qwen') or 'aliyuncs.com' in params.get('base_url', '') else ChatOpenAI
+    return model_type(model=params.get('model_name') or saved['name'], api_key=params.get('api_key') or 'not-required',
+        base_url=params.get('base_url'), temperature=config.get('temperature', 0.7),
+        timeout=config.get('llm_call_timeout') or 180, max_retries=2, **extra)
 
 
-async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowledge_base_ids=()):
+async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowledge_base_ids=(),
+                      agent_config=None, knowledge_ids=(), tag_scopes=(), session_id=None,
+                      load_tools=True):
+    """Configure the official harness; the caller owns its invocation and lifetime."""
     from deepagents import create_deep_agent
-    knowledge_tools = await load_knowledge_mcp_tools(api_key=api_key, role=role, owner_id=owner_id, knowledge_base_ids=knowledge_base_ids)
-    writes = {tool.name: {'allowed_decisions': ['approve', 'reject']}
-              for tool in knowledge_tools if not (tool.metadata or {}).get('readOnlyHint', False)}
+    from deepagents.backends import StateBackend
+    from deepagents.middleware.filesystem import FilesystemPermission
+    from langchain.agents.middleware import ModelCallLimitMiddleware, TodoListMiddleware
+    from agent import registry
+    from agent.config import DEFAULT_TOOLS, validate_config
+    from agent.interactions import make_interaction_tools
+    from governance.store import StoreError
+
+    config = validate_config(agent_config or ({'model_id': registry.default_model_id(owner_id)} if load_tools else {}))
+    allowed = config.get('allowed_tools')
+    selected = set(DEFAULT_TOOLS if allowed is None else allowed)
+    tools = []
+    if load_tools:
+        tools.extend(await load_knowledge_mcp_tools(api_key=api_key, role=role, owner_id=owner_id,
+            knowledge_base_ids=knowledge_base_ids, agent_config={**config, 'access_level': 'read_only'}))
+        tools.extend(tool for tool in make_governance_tools(api_key, owner_id, 'viewer')
+                     if tool.name in selected)
+        mode = config['mcp_selection_mode']
+        if mode != 'none':
+            services = [service for service in await asyncio.to_thread(registry.records, 'mcp', owner_id)
+                        if service.get('enabled') and (mode == 'all' or service['id'] in config['mcp_services'])]
+            if any(service['transport_type'] == 'stdio' for service in services):
+                raise StoreError('当前 Harness 仅支持远程 MCP；本地进程工具已停用', 501)
+        tools.extend(tool for tool in await registry.mcp_tools(owner_id, config)
+                     if (tool.metadata or {}).get('readOnlyHint') is True)
+    if 'ask_user' in selected:
+        tools.extend(make_interaction_tools(None, owner_id))
+
+    readonly = role == 'viewer' or config['access_level'] == 'read_only'
+    # Keep the same official HITL node when history is read without MCP discovery.
+    interrupts = {'write_file': False, 'edit_file': False, 'delete': False}
+    interrupts.update({tool.name: {'allowed_decisions': ['approve', 'reject', 'edit']}
+                       for tool in tools if (tool.metadata or {}).get('require_approval') is True})
+    if not readonly and config['access_level'] == 'confirm':
+        interrupts.update({name: {'allowed_decisions': ['approve', 'reject', 'edit']}
+                           for name in ('write_file', 'edit_file', 'delete')})
+    limit = config['max_iterations']
+    middleware = [TodoListMiddleware()]
+    if limit > 0:
+        middleware.append(ModelCallLimitMiddleware(run_limit=limit, exit_behavior='end'))
+    prompt = SYSTEM_PROMPT
+    if config['agent_mode'] == 'quick-answer':
+        prompt += '\n当前为快速问答：优先直接检索相关原文，简明作答；仅在有必要时使用计划或委派。'
+    if config.get('system_prompt'):
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+        current = datetime.now(ZoneInfo('Asia/Shanghai'))
+        values = {'query': config.get('_query', ''), 'web_search_status': 'Disabled',
+                  'knowledge_bases': json.dumps(list(knowledge_base_ids), ensure_ascii=False),
+                  'current_time': current.date().isoformat(), 'current_week': current.strftime('%A'),
+                  'yesterday': (current.date() - timedelta(days=1)).isoformat(), 'language': config.get('_locale', 'zh-CN')}
+        instructions = config['system_prompt']
+        for key, value in values.items():
+            instructions = instructions.replace('{{' + key + '}}', value)
+        prompt += '\n\nAgent 指令:\n' + instructions
+    if config.get('_page_context'):
+        prompt += '\n\n用户当前页面上下文（仅作定位，不能作为知识证据）:\n' + json.dumps(config['_page_context'], ensure_ascii=False)
+    if config.get('citation_enabled') is False:
+        prompt += '\n本轮不输出来源引用标签。'
+    if config.get('_document_bases'):
+        prompt += '\n本轮文档范围: ' + json.dumps(config['_document_bases'], ensure_ascii=False) + '；只检索所选文档；整库与文档范围分开调用。'
+    prompt += '\n文件保存在当前会话的虚拟文件系统中，不支持 Shell 或浏览器执行。'
+    prompt += ('\n当前会话知识库 ID: ' + ', '.join(knowledge_base_ids) if knowledge_base_ids
+               else '\n当前会话未选择知识库，不可访问知识库内容。')
+    # History reads need the official graph's channels, not a working provider.
+    # This branch is only for aget_state/aget_state_history, never invocation or
+    # resume. The explicit placeholder is not a fallback for an execution model.
+    model = build_model(config, owner_id) if load_tools else ChatOpenAI(model='checkpoint-reader', api_key='unused')
     agent = create_deep_agent(
-        model=build_model(),
-        tools=[*make_governance_tools(api_key, owner_id, role), *knowledge_tools],
-        system_prompt=SYSTEM_PROMPT + ('\n当前会话知识库 ID: '+', '.join(knowledge_base_ids) if knowledge_base_ids else '\n当前会话未选择知识库，不可访问知识库内容。'),
-        checkpointer=checkpointer,
-        interrupt_on=writes,
+        model=model, tools=tools, system_prompt=prompt,
+        checkpointer=checkpointer, backend=StateBackend(),
+        skills=['/skills/'], memory=['/AGENTS.md'], middleware=middleware,
+        interrupt_on=interrupts,
+        permissions=[FilesystemPermission(operations=['write'],
+            paths=['/**'] if readonly else ['/skills/**'], mode='deny')],
     )
-    return agent
+    # ModelCallLimitMiddleware owns the model budget, including official middleware steps.
+    return agent.with_config(recursion_limit=max(80, limit * 4 + 20) if limit > 0 else 10000)

@@ -9,7 +9,7 @@
     }">
         <div v-if="!embeddedMode" class="chat-topbar">
             <ChatHeader :session="currentSession" />
-            <div v-if="!IS_CONTEXTDB && !sandboxPanel.visible.value" class="sandbox-header-toggle">
+            <div v-if="!sandboxPanel.visible.value" class="sandbox-header-toggle">
                 <t-tooltip placement="bottom">
                     <template #content>{{ t('chatHeader.toggleSandboxPanel') }}</template>
                     <button type="button" class="sandbox-header-toggle__btn"
@@ -116,8 +116,8 @@
                                     :session-id="session_id"
                                     :message-id="session.id"
                                     :created-at="session.created_at"
-                                    :can-fork="!IS_CONTEXTDB && !embeddedMode && forkAffordanceOf(session.id).canFork"
-                                    :can-rewind="!IS_CONTEXTDB && canRewindMessage(session.id)"
+                                    :can-fork="!embeddedMode && forkAffordanceOf(session.id).canFork"
+                                    :can-rewind="canRewindMessage(session.id)"
                                     :steer-failed="Boolean(session._steerFailed)"
                                     @retry-steer="handleRetrySteer(session.steer_id)"
                                     @remove-steer="handleRemoveSteer(session.steer_id)"
@@ -132,15 +132,15 @@
                                     :user-query="getUserQuery(index)" @scroll-bottom="scrollToBottom"
                                     :isFirstEnter="isFirstEnter" :embeddedMode="embeddedMode"
                                     :follow-up-loading="Boolean(session.suggestionLoading && !session.suggestionSet?.questions?.length)"
-                                    :can-fork="!IS_CONTEXTDB && !embeddedMode && forkAffordanceOf(session.id).canFork"
-                                    :can-rewind="!IS_CONTEXTDB && canRewindMessage(session.id)"
-                                    :can-ask-assistant="!IS_CONTEXTDB && !embeddedMode"
+                                    :can-fork="!embeddedMode && forkAffordanceOf(session.id).canFork"
+                                    :can-rewind="canRewindMessage(session.id)"
+                                    :can-ask-assistant="!embeddedMode"
                                     @fork="handleFork"
                                     @rewind="handleRewind"
                                     @ask-assistant="handleAskAssistant"
                                     @render-complete-change="(ready) => handleAnswerRenderComplete(session, ready)">
                                 </botmsg>
-                                <FollowUpSuggestions v-if="!isAutomationSession && session.answerFullyRendered && !session.steerForked && !session.suggestionsDismissed && !IS_CONTEXTDB"
+                                <FollowUpSuggestions v-if="!isAutomationSession && session.answerFullyRendered && !session.steerForked && !session.suggestionsDismissed"
                                     :suggestion-set="session.suggestionSet"
                                     :loading="session.suggestionLoading"
                                     :allow-regenerate="session.suggestionSet?.allow_regenerate"
@@ -192,7 +192,7 @@
                         :assistantMessageId="currentAssistantMessageId" :embeddedMode="embeddedMode"
                         :model-id="modelId" :default-model-id="defaultModelId"
                         @update:model-id="(id) => emit('update:modelId', id)"
-                        :queuedSteers="steerQueue.filter(item => item.delivery === 'after')" :canSteer="!IS_CONTEXTDB && isAgentStreamSession()">
+                        :queuedSteers="steerQueue.filter(item => item.delivery === 'after')" :canSteer="isAgentStreamSession()">
                         <template v-if="$slots['composer-chips']" #chips>
                             <slot name="composer-chips" />
                         </template>
@@ -204,7 +204,7 @@
                 </div>
             </div>
             <div v-if="!embeddedMode" class="chat_overlays">
-                <BrowserTaskPreview v-if="!IS_CONTEXTDB && session_id" :key="session_id" :session-id="session_id" />
+                <BrowserTaskPreview v-if="session_id" :key="session_id" :session-id="session_id" />
                 <ChatQuestionMinimap :scroll-container="scrollContainer" :messages="messagesList"
                     @jump="jumpToQuestion" />
             </div>
@@ -218,7 +218,7 @@
         @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess" />
     <ChatReferencesDrawer />
     <ChatAttachmentPreviewDrawer />
-    <SandboxSidePanel v-if="!IS_CONTEXTDB && !embeddedMode" :session-id="session_id"
+    <SandboxSidePanel v-if="!embeddedMode" :session-id="session_id"
         :agent-id="useSettingsStoreInstance.selectedAgentId"
         :agent-source-tenant-id="useSettingsStoreInstance.selectedAgentSourceTenantId"
         :shifted="referencesDrawerVisible"
@@ -231,7 +231,6 @@
     </t-dialog>
 </template>
 <script setup>
-import { IS_CONTEXTDB } from '@/config/contextdb';
 import ChildAgentTabBar from './components/ChildAgentTabBar.vue';
 import ChildAgentStream from './components/ChildAgentStream.vue';
 import { createChildAgentTabs, childAgentTabsKey, childAgentTaskLookupKey, findChildAgentTask } from '@/composables/useChildAgentTabs';
@@ -408,7 +407,6 @@ const backgroundPoller = createBackgroundWorkPoller({
 });
 
 function startBackgroundWork() {
-    if (IS_CONTEXTDB) return;
     if (!session_id.value) {
         backgroundItems.value = [];
         return;
@@ -417,7 +415,6 @@ function startBackgroundWork() {
 }
 
 async function refreshBackgroundWork() {
-    if (IS_CONTEXTDB) return;
     if (!session_id.value) return;
     await backgroundPoller.refresh();
 }
@@ -447,7 +444,7 @@ watch(session_id, (id) => {
     backgroundItems.value = [];
     viewingWorkId.value = '';
     workOutputVisible.value = false;
-    if (id && !IS_CONTEXTDB) backgroundPoller.start();
+    if (id) backgroundPoller.start();
 });
 
 // 拉 session 详情，并按其 last_request_state 把输入栏状态恢复到当时的发起态。
@@ -463,7 +460,7 @@ const loadSessionAndHydrate = async (sid) => {
         const sessionRes = await getSession(sid);
         if (sessionRes?.data && version === chatLoadVersion && sid === session_id.value) {
             currentSession.value = sessionRes.data;
-            const lastState = sessionRes.data.last_request_state ?? (IS_CONTEXTDB ? sessionRes.data.agent_config : undefined);
+            const lastState = sessionRes.data.last_request_state;
             useSettingsStoreInstance.hydrateSessionInputState(lastState, preserveDraft);
         }
     } catch (error) {
@@ -837,7 +834,7 @@ const cancelSuggestedQuestionsFetch = () => {
 };
 
 const fetchSuggestedQuestionsIfNeeded = async () => {
-    if (IS_CONTEXTDB || props.embeddedMode) return;
+    if (props.embeddedMode) return;
     // 初始历史尚未拉完时不能判断是否有消息，避免有历史的会话误请求推荐问法
     if (historyLoading.value || messagesList.length > 0) {
         if (messagesList.length > 0) {
@@ -849,7 +846,6 @@ const fetchSuggestedQuestionsIfNeeded = async () => {
 };
 
 const fetchSuggestedQuestions = async () => {
-    if (IS_CONTEXTDB) return;
     if (historyLoading.value || messagesList.length > 0) {
         return;
     }
@@ -892,7 +888,7 @@ const handleAnswerRenderComplete = (message, ready) => {
 };
 
 const loadFollowUpSuggestions = async (message, ensure = false, regenerate = false) => {
-    if (IS_CONTEXTDB || isAutomationSession.value) return;
+    if (isAutomationSession.value) return;
     const messageId = resolveAssistantMessageId(message);
     const targetSessionId = session_id.value;
     if (!messageId || !targetSessionId || message.suggestionsDismissed) return;
@@ -1074,7 +1070,6 @@ const fetchMessageList = (data) => getMessageList(data);
 // its carried-over queue is readable, and treating that gap as "queue is
 // empty" would wipe messages the user can still see.
 const hydrateSteerQueue = async ({ onlyWhenLive = false } = {}) => {
-    if (IS_CONTEXTDB) return;
     const sid = session_id.value;
     const version = chatLoadVersion;
     if (!sid) return;
@@ -2036,9 +2031,6 @@ onBeforeRouteUpdate((to, from, next) => {
 </script>
 <style lang="less" scoped>
 @import '../../components/css/chat-scrollbar.less';
-:deep(.markdown-content) {
-    overflow-wrap: anywhere;
-}
 .chat {
     // 水平方向不留 padding，让滚动条贴到内容区最右缘；
     // 消息列与输入列各自用 --chat-content-inset 做左右对称的留白（窄屏时才可见）。

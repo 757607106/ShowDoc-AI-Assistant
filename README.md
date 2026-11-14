@@ -39,7 +39,7 @@ cd ..
 3. **自动提交治理**：采集和文件上传统一选择业务知识库，完整采集成功后自动创建 ContextDB 提交任务。采集不完整先重试；自动提交失败保留原件，可在资料任务补交。新建默认只启用 Wiki，实体图谱按需开启；既有范围保留原双库关联。分别记录文档 ID、源版本、上传及官方处理状态，未变化资料跳过，失败按目标重试。提交完成不等于官方治理或 Wiki 发布完成。
 4. **统一知识库入口**：WeKnora 卡片展示业务知识库，默认打开 Wiki，文档、图谱和治理进度在同一详情查看。独立“来源资料”入口已移除，旧 URL 转到知识库；本地原件及历史快照仍供恢复与追溯，任务支持下载资料包，Wiki 保留官方文档引用。内部 `space/scope` 只是官方库的关联及采集范围，不保存另一份知识正文。未绑定的官方库在“关联已有库”中查看或关联，原库 ID 和引用深链保留。图谱启用后会分别投递两库，形成独立评审状态；关闭仅影响后续提交，不删除已有库。
 5. **知识评审**：默认打开官方评审队列，展示原生评审状态与冲突处置、原文/重写稿、确认/拒绝/撤回/重试；完整人工编辑稿通过官方 `edited_content` 提交。决定受理后保留详情，分别刷新文档入库和 Wiki 编译状态，再打开同库 Wiki 核对。修订不回写采集原件、外部站点或另一图谱库。评审策略和模板由 ContextDB 执行。长期记忆、记忆整理、记忆晋升的页面、接口与 Agent 工具已移除；聊天历史、会话恢复及已入库的历史知识文档保留。
-6. **Wiki 与 Agent**：编辑器读取完整正文和真实版本，保存必须携带原版本；冲突保留草稿、显示差异，比较合并后才重新保存。Agent 按成员凭据和所选知识库调用官方 MCP；清空选择会停止后续知识访问，不删除已有聊天记录。工具参数同时受会话范围和官方成员权限约束，文档工具先校验归属。写工具由 deepagents 人工中断机制确认，断线通过执行 ID 重新连接，不重复 POST。
+6. **Wiki 与 Agent**：编辑器读取完整正文和真实版本，保存携带原版本；冲突保留草稿，比较合并后保存。Agent 后端直接使用官方开源免费的 Python Deep Agents Harness；前端使用 WeKnora 原组件和流处理器，由 API Adapter 转换原生流与状态。没有显式 @ 提及时采用 Agent 默认知识库策略；知识工具通过官方 MCP，文档 ID 校验归属。提问和工具确认使用官方 interrupt/Command；连接断开后结束本次请求，刷新读取 checkpoint，不在后台续跑或重放旧执行。
 
 回答引用只采用本轮成功官方工具返回的原文切片，按真实知识库/文档/切片 ID 校验；跨流片段完整输出标签，代码示例保持字面内容。工具错误、停止与恢复使用实际执行状态，停止无需等待卡住的工具再返回事件。
 
@@ -63,7 +63,9 @@ cd frontend && npm run type-check && npm run build-only
 
 默认测试不会访问 ContextDB 云端，平台测试在 Docker 的 `showdoc_knowledge_test` 中使用每例独立 schema；指定 `TEST_DATABASE_URL` 时库名必须以 `_test` 结尾。真实云端验证需显式执行 `.venv/bin/python -m scripts.contextdb_probe --write` 或 `.venv/bin/python -m scripts.contextdb_pipeline_smoke`，仅操作新建探测资源并记录清理结果。
 
-旧 `_governance` 保留只读。迁移校验和、记录数量及 checkpoint 读回结果见 `downloads/migrations/`。数据库备份可使用 `docker compose -f compose.postgres.yml exec -T postgres pg_dump -U showdoc showdoc_knowledge > <private-backup.sql>`；备份还应包含 `.env` 的加密密钥和采集产物目录。公网部署使用生产 WSGI、TLS 和受控网络；开发服务器仅绑定回环地址。
+新会话在既有 `agent_sessions.agent_config` 标记 `runtime=deepagents`，执行状态只保存在官方 LangGraph checkpoint。WeKnora 聊天、历史、审批与提问接口由 API Adapter 对接；审批 POST 只提交协议决定，随后的续接 GET 调用原生 `Command` 并流式返回。旧会话、运行记录、上传文件和沙箱卷保留，只读展示；旧执行入口继续拒绝执行。官方 StateBackend 提供会话文件、Skills 指令与工具调用，Docker 命令、终端、BrowserSkill、自动安装、steering 和应用层 fork/rewind 尚未接入。原组件没有能力开关的入口保留，API 明确拒绝，不伪装成功。源码核对与验证见 [官方对齐审计](docs/architecture/agent-official-alignment-audit.md)。
+
+旧 `_governance` 保留只读。迁移记录见 `downloads/migrations/`。数据库备份可使用 `docker compose -f compose.postgres.yml exec -T postgres pg_dump -U showdoc showdoc_knowledge > <private-backup.sql>`；同时备份 `.env` 的加密密钥和产物目录。Agent 必须经 ASGI 启动：`app.py` 已默认启动 Uvicorn，也可执行 `.venv/bin/uvicorn asgi:create_app --factory --host 127.0.0.1 --port 8000`。本方案不部署生产 Agent Server、Redis 或 Helm，也不需要其部署许可；模型及 ContextDB 服务仍使用已配置账号。详见 [Agent 验证边界](docs/guides/agent-interaction-validation.md)。
 
 原独立爬虫 CLI `main.py` 的 Docling 导出流程继续保留，供离线导出；平台 Worker 不调用该解析与切片链路。
 

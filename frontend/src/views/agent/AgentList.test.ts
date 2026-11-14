@@ -4,7 +4,7 @@ import * as vue from 'vue'
 import * as sorting from '../../utils/resourceSorting.ts'
 import { change, fixture, flush } from '../../test-utils/vueFixture.ts'
 
-function setup(t: TestContext, initialScope = 'all', contextdb = false) {
+function setup(t: TestContext, initialScope = 'all') {
   const f = fixture(t)
   const fetchAgentsForList = t.mock.fn(async (_params: unknown, _force: boolean) => ({
     data: [{ id: 'agent', name: 'Updated agent' }], disabled_own_agent_ids: [],
@@ -13,11 +13,10 @@ function setup(t: TestContext, initialScope = 'all', contextdb = false) {
     success: true, data: [{ agent: { id: 'shared-agent' } }],
   }))
   const page = f.component(new URL('./AgentList.vue', import.meta.url), {
-    '@/config/contextdb': { IS_CONTEXTDB: contextdb },
     'vue-router': { useRoute: () => ({ query: {} }), useRouter: () => ({}) },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
     'tdesign-vue-next': { MessagePlugin: {} },
-    '@/stores/auth': { useAuthStore: () => ({ user: { id: 'owner' }, hasRole: () => true }) },
+    '@/stores/auth': { useAuthStore: () => ({ hasRole: () => true }) },
     '@/stores/ui': { useUIStore: () => ({}) },
     '@/stores/organization': { useOrganizationStore: () => ({
       sharedAgents: [], async fetchOrganizations() {}, async fetchSharedAgents() {},
@@ -113,11 +112,4 @@ test('the original create entry opens the configuration form directly', async t 
   assert.equal(f.vm.editorMode, 'create')
   assert.equal(f.vm.editorInitialSection, 'basic')
   assert.equal(f.vm.editingAgent, null)
-})
-
-test('ContextDB keeps built-in agents read-only even for an administrator or creator', async t => {
-  const f = setup(t, 'all', true)
-  await flush()
-  assert.equal(f.vm.canManageAgent({ id: 'platform-agent', is_builtin: true }), false)
-  assert.equal(f.vm.canManageAgent({ id: 'agent', created_by: 'owner' }), false)
 })

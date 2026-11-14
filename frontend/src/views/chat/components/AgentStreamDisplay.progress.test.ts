@@ -10,7 +10,7 @@ import { foldProgressIntoThinking } from '../../../utils/agentTimelinePresentati
 const source = readFileSync(new URL('./AgentStreamDisplay.vue', import.meta.url), 'utf8')
 
 test('delegated work keeps progress and approvals in one chronological stream and restores the completed steps fold without duplicating child entry points', () => {
-  const collapse = source.slice(source.indexOf('const shouldShowCollapsedSteps ='), source.indexOf('const isThinkingLikeEvent ='))
+  const collapse = source.slice(source.indexOf('const shouldShowCollapsedSteps ='), source.indexOf('// Once the steps collapse'))
   const display = source.slice(source.indexOf('const displayEvents ='), source.indexOf('const isPageLinkEvent ='))
   const done = ref(false)
   const delegated = ref(false)

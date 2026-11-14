@@ -1,15 +1,14 @@
-"""Agent 域 API:会话管理、消息读回、SSE 流式对话。"""
-import json
-import time
-import uuid
+"""Session metadata and read-only legacy history; native streaming lives in harness.py."""
+import asyncio
+from datetime import datetime
 
-from flask import Blueprint, Response, g, jsonify, request, stream_with_context
+from flask import Blueprint, g, jsonify, request
 
 from agent import sessions as agent_sessions
-from agent.service import stream_chat_flask
 from governance.store import StoreError
 from governance.database import connection
-from webapi.auth import client_for_user, user_id
+from webapi.auth import user_id
+from webapi.legacy_runtime import unavailable
 
 agent_bp = Blueprint('agent', __name__)
 
@@ -19,13 +18,6 @@ def _json_body():
     if not isinstance(body, dict):
         raise StoreError('请求必须是 JSON 对象', 400)
     return body
-
-
-def _knowledge_base_ids(body):
-    ids = body.get('knowledge_base_ids')
-    if ids is not None and (not isinstance(ids, list) or len(ids) > 100 or any(not isinstance(kb, str) or not kb or len(kb) > 200 for kb in ids)):
-        raise StoreError('knowledge_base_ids 必须是有效 ID 列表', 400)
-    return ids
 
 
 @agent_bp.route('/api/agent/sessions')
@@ -57,27 +49,17 @@ def agent_session_delete(session_id):
 
 @agent_bp.route('/api/agent/chat', methods=['POST'])
 def agent_chat():
-    body = _json_body()
-    session_id = str(body.get('session_id', '')).strip()
-    message = str(body.get('message', '')).strip()
-    if not session_id:
-        raise StoreError('缺少 session_id 参数', 400)
-    if not message:
-        raise StoreError('message 不能为空', 400)
-    client = client_for_user()
-    generator = stream_chat_flask(session_id, message, owner_id=user_id(), api_key=client.api_key,
-                                  role=g.user['role'], knowledge_base_ids=_knowledge_base_ids(body))
-    return Response(generator, mimetype='text/event-stream',
-                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+    unavailable(_json_body().get('session_id'))
 
 
 @agent_bp.route('/api/v1/sessions', methods=['GET', 'POST'])
 def weknora_sessions():
     if request.method == 'POST':
-        item = agent_sessions.create_session(_json_body().get('title', ''))
+        body = _json_body()
+        item = agent_sessions.create_session(body.get('title', ''), agent_config=body.get('agent_config'), kind=body.get('kind', ''))
         return jsonify(success=True, data=item)
     source = request.args.get('source')
-    items = agent_sessions.list_sessions() if not source or source=='web' else []
+    items = agent_sessions.list_sessions(source=source or None)
     page = max(1, request.args.get('page', 1, type=int))
     size = min(100, max(1, request.args.get('page_size', 30, type=int)))
     return jsonify(success=True, data=items[(page-1)*size:page*size], total=len(items))
@@ -97,7 +79,22 @@ def weknora_session(session_id):
 
 @agent_bp.route('/api/v1/messages/<session_id>/load')
 def weknora_messages(session_id):
-    agent_sessions.get_session(session_id)
+    selected_session = agent_sessions.get_session(session_id)
+    if selected_session['agent_config'].get('runtime') == 'deepagents':
+        from webapi.harness import read_weknora_history
+        messages = asyncio.run(read_weknora_history(g.user, selected_session))
+        before = request.args.get('before_time')
+        if before:
+            try:
+                cutoff = datetime.fromisoformat(before.replace('Z', '+00:00'))
+                if cutoff.tzinfo is None:
+                    raise ValueError()
+            except ValueError:
+                raise StoreError('消息时间无效', 400)
+            messages = [item for item in messages if item.get('created_at')
+                        and datetime.fromisoformat(item['created_at']) < cutoff]
+        limit = min(100, max(2, request.args.get('limit', 20, type=int)))
+        return jsonify(success=True, data=messages[-(limit // 2 * 2):])
     with connection() as conn:
         runs = conn.execute('SELECT * FROM agent_runs WHERE session_id=%s AND owner_id=%s ORDER BY created_at,id', (session_id, user_id())).fetchall()
     messages = []
@@ -109,8 +106,21 @@ def weknora_messages(session_id):
                                  'role':roles[item['role']], 'session_id':session_id, 'is_completed':True})
     by_id={run['id']:run for run in runs}
     linked={run['pending_json']['resumed_run_id'] for run in runs if run['pending_json'] and run['pending_json'].get('resumed_run_id')}
+    roots = [run for run in runs if run['id'] not in linked]
+    before = request.args.get('before_time')
+    if before:
+        try:
+            cutoff = datetime.fromisoformat(before.replace('Z', '+00:00'))
+            if cutoff.tzinfo is None:
+                raise ValueError()
+        except ValueError:
+            raise StoreError('消息时间无效', 400)
+        roots = [run for run in roots if run['created_at'] < cutoff]
+    limit = min(100, max(1, request.args.get('limit', 20, type=int)))
+    # Keep a user turn and its resumed/injected assistant rows on the same page.
+    selected = {run['id'] for run in roots[-max(1, limit // 2):]}
     for run in runs:
-        if run['id'] in linked:
+        if run['id'] not in selected:
             continue
         chain, seen=[],set()
         current=run
@@ -119,8 +129,42 @@ def weknora_messages(session_id):
             next_id=(current['pending_json'] or {}).get('resumed_run_id')
             current=by_id.get(next_id)
         latest=chain[-1]
+        with connection() as conn:
+            event_rows = conn.execute('SELECT cursor,event_json FROM agent_run_events WHERE owner_id=%s AND run_id=ANY(%s) ORDER BY cursor',
+                                      (user_id(), [part['id'] for part in chain])).fetchall()
+        tools, answers, answer_parts, timeline, collaboration = {}, {}, {}, [], None
+        for stored in event_rows:
+            event = stored['event_json']
+            data = event.get('data') or {}
+            if event['response_type'] == 'answer':
+                key = event['id']
+                parts = answer_parts.setdefault(key, {})
+                model_id = data.get('event_id', key)
+                if data.get('replace'):
+                    parts.clear()
+                parts[model_id] = parts.get(model_id, '') + event.get('content', '')
+                answers[key] = ''.join(parts.values())
+            elif event['response_type'] == 'progress':
+                parts = answer_parts.setdefault(event['id'], {})
+                parts.pop(data.get('event_id'), None)
+                answers[event['id']] = ''.join(parts.values())
+                timeline.append({'iteration': len(timeline), 'tool_calls': [], 'progress': event.get('content') or data.get('content', ''), 'progress_event_id': data.get('event_id')})
+            elif event['response_type'] == 'tool_call':
+                if data['tool_call_id'] not in tools:
+                    tools[data['tool_call_id']] = {'id': data['tool_call_id'], 'name': data['tool_name'], 'arguments': data.get('arguments')}
+                    timeline.append({'iteration': len(timeline), 'tool_calls': [tools[data['tool_call_id']]]})
+                else:
+                    tools[data['tool_call_id']]['arguments'] = data.get('arguments')
+            elif event['response_type'] == 'tool_result' and data['tool_call_id'] in tools:
+                tools[data['tool_call_id']]['result'] = {k: data[k] for k in ('success', 'output', 'error') if k in data}
+                tools[data['tool_call_id']]['result']['data'] = data.get('data') or data
+            elif event['response_type'] == 'collaboration_status':
+                collaboration = data
         if run['query']:
             messages.append({'id':'user-'+run['id'],'session_id':session_id,'role':'user','content':run['query'],
+                             'mentioned_items': (run['request_json'] or {}).get('mentioned_items', []),
+                             'images': (run['request_json'] or {}).get('user_images', []),
+                             'attachments': (run['request_json'] or {}).get('attachments', []),
                              'created_at':run['created_at'].isoformat(),'is_completed':True})
         references=[]
         for part in chain:
@@ -128,19 +172,76 @@ def weknora_messages(session_id):
                 if ref.get('title') and not ref.get('knowledge_title'):
                     ref={**ref,'knowledge_title':ref['title'],'knowledge_filename':ref['title']}
                 if ref not in references:references.append(ref)
+        for stored in event_rows:
+            if stored['event_json']['response_type'] == 'references':
+                for ref in stored['event_json'].get('data', {}).get('references', []):
+                    if not any(existing.get('id') == ref.get('id') and existing.get('kb_id') == ref.get('kb_id') for existing in references):
+                        references.append(ref)
         messages.append({'id':run['id'],'session_id':session_id,'role':'assistant',
-            'content':'\n\n'.join(part['answer'] for part in chain if part['answer']) or latest['error'] or '',
-            'created_at':run['created_at'].isoformat(),'is_completed':latest['status']!='running',
+            'content':'\n\n'.join(answers.get(part['id'], part['answer']) for part in chain if answers.get(part['id'], part['answer'])) or latest['error'] or '',
+            'created_at':run['created_at'].isoformat(),'is_completed':True, 'read_only':True, 'archived_status':latest['status'],
             'knowledge_references':references,'pending_prompt':latest['pending_json'],'error':latest['error'],
-            'agent_steps':[step for part in chain for step in part['steps_json']],
+            'artifacts': run.get('artifacts_json', []), 'artifacts_truncated': run.get('artifacts_truncated', False),
+            'agent_steps': timeline if timeline else [step for part in chain for step in part['steps_json']],
+            'collaboration_status': collaboration,
+            'stream_cursor': event_rows[-1]['cursor'] if event_rows else 0,
             'prompt_history':[part['pending_json'] for part in chain[:-1] if part['pending_json']],
             'run_state':'awaiting_input' if latest['status']=='waiting' else 'cancelled' if latest['status']=='cancelled' else ''})
+        injections = [i for i, stored in enumerate(event_rows) if stored['event_json']['response_type'] == 'user_message_injected'
+                      and stored['event_json'].get('data', {}).get('delivery') != 'after']
+        if injections:
+            whole = messages.pop()
+            start = 0
+            for segment, end in enumerate([*injections, len(event_rows)]):
+                segment_events = event_rows[start:end]
+                segment_tools, segment_answers, segment_steps = {}, {}, []
+                for stored in segment_events:
+                    event = stored['event_json']
+                    data = event.get('data') or {}
+                    if event['response_type'] == 'answer':
+                        model_id = data.get('event_id', event['id'])
+                        if data.get('replace'):
+                            segment_answers.clear()
+                        segment_answers[model_id] = segment_answers.get(model_id, '') + event.get('content', '')
+                    elif event['response_type'] == 'progress':
+                        segment_answers.pop(data.get('event_id'), None)
+                        segment_steps.append({'iteration': len(segment_steps), 'tool_calls': [], 'progress': event.get('content') or data.get('content', ''), 'progress_event_id': data.get('event_id')})
+                    elif event['response_type'] == 'tool_call':
+                        if data['tool_call_id'] not in segment_tools:
+                            segment_tools[data['tool_call_id']] = {'id': data['tool_call_id'], 'name': data['tool_name'], 'arguments': data.get('arguments')}
+                            segment_steps.append({'iteration': len(segment_steps), 'tool_calls': [segment_tools[data['tool_call_id']]]})
+                        else:
+                            segment_tools[data['tool_call_id']]['arguments'] = data.get('arguments')
+                    elif event['response_type'] == 'tool_result' and data['tool_call_id'] in segment_tools:
+                        segment_tools[data['tool_call_id']]['result'] = {k: data[k] for k in ('success', 'output', 'error') if k in data}
+                        segment_tools[data['tool_call_id']]['result']['data'] = data.get('data') or data
+                last_segment = end == len(event_rows)
+                item = {**whole, 'id': run['id'] if segment == 0 else f'{run["id"]}:steer:{segment}',
+                    'assistant_message_id': run['id'], 'request_id': run['id'], 'content': ''.join(segment_answers.values()),
+                    'agent_steps': segment_steps}
+                if not last_segment:
+                    item.update(steerForked=True, is_completed=True, pending_prompt=None, prompt_history=[],
+                                collaboration_status=None, stream_cursor=0, run_state='', artifacts=[], artifacts_truncated=False)
+                messages.append(item)
+                if not last_segment:
+                    data = event_rows[end]['event_json']['data']
+                    messages.append({'id': data.get('user_message_id') or 'steer-user-' + data['steer_id'],
+                        'request_id': run['id'], 'session_id': session_id, 'role': 'user', 'isSteer': True,
+                        'steer_id': data['steer_id'], 'content': data.get('content', ''),
+                        'mentioned_items': data.get('mentioned_items', []), 'is_completed': True,
+                        'created_at': run['created_at'].isoformat()})
+                start = end + 1
     return jsonify(success=True, data=messages)
 
 
 @agent_bp.route('/api/v1/sessions/<session_id>/generate_title', methods=['POST'])
 def session_title(session_id):
-    agent_sessions.get_session(session_id)
+    selected = agent_sessions.get_session(session_id)
+    if selected['agent_config'].get('runtime') == 'deepagents':
+        messages = agent_sessions.read_messages(session_id)
+        first = next((item['content'] for item in messages if item['role'] == 'human'), '')
+        item = agent_sessions.touch_session(session_id, first[:40] or None)
+        return jsonify(success=True, data=item)
     with connection() as conn:
         first = conn.execute("SELECT query FROM agent_runs WHERE session_id=%s AND owner_id=%s AND query<>'' ORDER BY created_at LIMIT 1", (session_id,user_id())).fetchone()
     item = agent_sessions.touch_session(session_id, first['query'][:40] if first else None)
@@ -149,7 +250,8 @@ def session_title(session_id):
 
 @agent_bp.route('/api/v1/sessions/<session_id>/pin', methods=['POST','DELETE'])
 def session_pin(session_id):
-    agent_sessions.get_session(session_id)
+    if agent_sessions.get_session(session_id)['agent_config'].get('runtime') != 'deepagents':
+        unavailable()
     with connection() as conn:
         row = conn.execute('UPDATE agent_sessions SET pinned_at=CASE WHEN %s THEN now() ELSE NULL END WHERE id=%s AND owner_id=%s RETURNING *', (request.method=='POST',session_id,user_id())).fetchone()
     return jsonify(success=True, data=agent_sessions._public(row))
@@ -157,14 +259,7 @@ def session_pin(session_id):
 
 @agent_bp.route('/api/v1/sessions/<session_id>/messages', methods=['DELETE'])
 def session_clear(session_id):
-    row = agent_sessions.get_session(session_id)
-    if row['running_id']:
-        raise StoreError('请先停止会话', 409)
-    from agent.checkpointer import make_checkpointer
-    with make_checkpointer() as saver:
-        saver.delete_thread(session_id)
-    with connection() as conn:
-        conn.execute('DELETE FROM agent_runs WHERE session_id=%s AND owner_id=%s', (session_id,user_id()))
+    agent_sessions.clear_session(session_id)
     return jsonify(success=True)
 
 
@@ -175,8 +270,8 @@ def sessions_delete_batch():
     if not isinstance(ids,list) or len(ids)>500 or any(not isinstance(sid,str) for sid in ids):
         raise StoreError('请提供不超过 500 个会话 ID', 400)
     for sid in ids:
-        if agent_sessions.get_session(sid)['running_id']:
-            raise StoreError('请先停止正在执行的会话',409)
+        if agent_sessions.get_session(sid)['agent_config'].get('runtime') != 'deepagents':
+            unavailable()
     for sid in ids:
         agent_sessions.delete_session(sid)
     return jsonify(success=True)
@@ -186,114 +281,57 @@ def sessions_delete_batch():
 @agent_bp.route('/api/v1/agent-chat/<session_id>', methods=['POST'])
 @agent_bp.route('/api/v1/knowledge-chat/<session_id>', methods=['POST'])
 def weknora_chat(session_id=None):
-    body = _json_body()
-    session_id = session_id or body.get('session_id')
-    message = body.get('query', '')
-    if not isinstance(message, str) or not message.strip() or not session_id:
-        raise StoreError('缺少会话或问题', 400)
-    if body.get('knowledge_ids') or body.get('tag_ids') or body.get('images') or body.get('attachment_ids'):
-        raise StoreError('本期对话请按知识库选择范围；文件、标签和临时附件对话尚未接入', 501)
-    ids = _knowledge_base_ids(body)
-    client = client_for_user()
-    request_id = request.headers.get('X-Request-ID', '')
-    request_id = request_id[:80] if request_id else str(uuid.uuid4())
-    generator = stream_chat_flask(session_id, message, owner_id=user_id(), api_key=client.api_key,
-                                  role=g.user['role'], run_id=f'{user_id()}:{request_id}', knowledge_base_ids=ids)
-    return Response(generator, mimetype='text/event-stream',
-                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+    unavailable(session_id or _json_body().get('session_id'))
 
 
 @agent_bp.route('/api/v1/sessions/<session_id>/stop', methods=['POST'])
 def stop(session_id):
-    agent_sessions.get_session(session_id)
-    with connection() as conn:
-        conn.execute('UPDATE agent_sessions SET cancel_requested=true WHERE id=%s AND owner_id=%s', (session_id, user_id()))
+    selected = agent_sessions.get_session(session_id)
+    if selected['agent_config'].get('runtime') != 'deepagents':
+        unavailable(session_id)
+    body = _json_body()
+    identifier = body.get('message_id')
+    if not isinstance(identifier, str) or not identifier:
+        raise StoreError('message_id 必须是非空字符串', 400)
+    from webapi.harness import _active_requests, read_weknora_history
+    active = _active_requests.get(session_id)
+    if active:
+        loop, task, active_id = active
+        if active_id != identifier:
+            raise StoreError('消息已变化，请重新加载会话', 409)
+        loop.call_soon_threadsafe(task.cancel)
+    else:
+        # shortcut: stop uses a local request handle; add cross-worker cancellation before deploying multiple API workers.
+        with agent_sessions._mutation(session_id, g.user['id']):
+            rows = asyncio.run(read_weknora_history(g.user, selected))
+            if not any(row['role'] == 'assistant' and row['id'] == identifier for row in rows):
+                raise StoreError('消息不存在', 404)
     return jsonify(success=True)
 
 
 @agent_bp.route('/api/v1/agent/tool-approvals/<pending_id>', methods=['POST'])
 def approve_tool(pending_id):
-    if g.user['role'] == 'viewer':
-        raise StoreError('只读账号不能批准知识写入操作', 403)
-    body = _json_body()
-    if body.get('decision') not in ('approve', 'reject') or body.get('modified_args'):
-        raise StoreError('当前确认仅支持批准或拒绝原始工具参数', 400)
-    with connection() as conn:
-        row = conn.execute('SELECT * FROM agent_runs WHERE id=%s AND owner_id=%s FOR UPDATE', (pending_id, user_id())).fetchone()
-        if row is None or row['status'] != 'waiting':
-            raise StoreError('待确认操作不存在或已处理', 409)
-        count = len(row['pending_json']['request']['action_requests'])
-        conn.execute("UPDATE agent_runs SET status='resuming',updated_at=now() WHERE id=%s", (pending_id,))
-    client = client_for_user()
-    from agent.service import stream_chat
-    next_id = str(uuid.uuid4())
-    try:
-        stream_chat(row['session_id'], '', owner_id=user_id(), api_key=client.api_key, role=g.user['role'],
-                    run_id=next_id, decisions=[{'type': body['decision']} for _ in range(count)])
-    except Exception:
-        with connection() as conn:
-            conn.execute("UPDATE agent_runs SET status='waiting' WHERE id=%s", (pending_id,))
-        raise
-    from psycopg.types.json import Jsonb
-    with connection() as conn:
-        pending = {**row['pending_json'], 'status': 'done', 'response': {'approved': body['decision'] == 'approve'}, 'resumed_run_id': next_id}
-        conn.execute('UPDATE agent_runs SET pending_json=%s WHERE id=%s', (Jsonb(pending), pending_id))
-    return jsonify(success=True, resumed=True)
+    from webapi.weknora_prompts import stage
+    return jsonify(resumed=stage(g.user, pending_id, _json_body(), 'tool_approval'))
+
+
+@agent_bp.route('/api/v1/agent/prompts/<pending_id>', methods=['POST'])
+def answer_prompt(pending_id):
+    from webapi.weknora_prompts import stage
+    return jsonify(resumed=stage(g.user, pending_id, _json_body(), 'ask_user'))
+
+
+@agent_bp.route('/api/v1/agent/mcp-oauth-resolutions/<pending_id>', methods=['POST'])
+@agent_bp.route('/api/v1/agent/mcp-oauth-resolutions/<pending_id>/cancel', methods=['POST'])
+def resolve_oauth(pending_id):
+    from webapi.weknora_prompts import stage
+    body = {'decision': 'cancel'} if request.path.endswith('/cancel') else _json_body()
+    return jsonify(resumed=stage(g.user, pending_id, body, 'mcp_oauth'))
+
+
 
 
 @agent_bp.route('/api/v1/sessions/continue-stream')
 @agent_bp.route('/api/v1/sessions/continue-stream/<session_id>')
 def continue_stream(session_id=None):
-    run_id = request.args.get('message_id') or request.args.get('query')
-    with connection() as conn:
-        row = conn.execute('SELECT * FROM agent_runs WHERE id=%s AND owner_id=%s', (run_id, user_id())).fetchone()
-    if row is None or (session_id and row['session_id'] != session_id):
-        raise StoreError('执行记录不存在', 404)
-    message_id=row['id']
-    resume_pending_id=request.args.get('resume_pending_id','')
-    seen={run_id}
-    while row['pending_json'] and row['pending_json'].get('resumed_run_id'):
-        run_id=row['pending_json']['resumed_run_id']
-        if run_id in seen:raise StoreError('执行恢复链异常',409)
-        seen.add(run_id)
-        with connection() as conn:
-            row=conn.execute('SELECT * FROM agent_runs WHERE id=%s AND owner_id=%s',(run_id,user_id())).fetchone()
-        if row is None:raise StoreError('后续执行记录缺失',409)
-    owner = user_id()
-    def generate():
-        while True:
-            with connection() as conn:
-                run = conn.execute('SELECT * FROM agent_runs WHERE id=%s AND owner_id=%s', (run_id, owner)).fetchone()
-            if run is None:
-                break
-            if run['status'] == 'running':
-                agent_sessions.get_session(run['session_id'], owner)
-            if run['status'] != 'running':
-                replay = [
-                    {'response_type':'agent_query','id':message_id,'assistant_message_id':message_id,'data':{'resume_pending_id':resume_pending_id}},
-                    {'response_type': 'answer', 'id': message_id, 'content': run['answer'], 'data': {'event_id': run_id, 'replace': True}},
-                    {'response_type': 'references', 'id': message_id, 'data': {'references': run['references_json']}},
-                    {'response_type': 'complete', 'id': message_id, 'done': True},
-                ]
-                for step in run['steps_json']:
-                    for call in step.get('tool_calls', []):
-                        replay.insert(-1, {'response_type': 'tool_call', 'id': message_id,
-                            'data': {'tool_call_id': call['id'], 'tool_name': call['name'],
-                                     'arguments': call.get('arguments')}})
-                        if 'result' in call:
-                            replay.insert(-1, {'response_type': 'tool_result', 'id': message_id,
-                                'data': {'tool_call_id': call['id'], 'tool_name': call['name'], **call['result']}})
-                if run['pending_json'] and run['status']=='waiting':
-                    pending=run['pending_json'];req=pending['request']
-                    replay.insert(-1,{'response_type':'tool_approval_required','id':message_id,'data':{'pending_id':run_id,'service_name':'ContextDB','mcp_tool_name':req['mcp_tool_name'],'args_json':json.dumps(req['args'],ensure_ascii=False),'suspendable':True}})
-                    replay.insert(-1,{'response_type':'run_suspended','id':message_id,'data':{'pending_id':run_id}})
-                if run['status'] in ('failed','interrupted'):
-                    replay[-1]={'response_type':'error','id':message_id,'content':run['error'],'done':True}
-                elif run['status'] == 'cancelled':
-                    replay[-1]={'response_type':'stop','id':message_id,'done':True}
-                for event in replay:
-                    yield 'data: ' + json.dumps(event, ensure_ascii=False) + '\n\n'
-                break
-            yield 'data: ' + json.dumps({'response_type': 'heartbeat', 'id': run_id}) + '\n\n'
-            time.sleep(1)
-    return Response(stream_with_context(generate()), mimetype='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+    unavailable(session_id)

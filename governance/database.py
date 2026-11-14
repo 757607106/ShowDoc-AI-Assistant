@@ -132,7 +132,37 @@ def _initialize_schema():
             ALTER TABLE platform_users ADD COLUMN IF NOT EXISTS preferences jsonb NOT NULL DEFAULT '{}';
             ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS knowledge_base_ids jsonb NOT NULL DEFAULT '[]';
             ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS pinned_at timestamptz;
+            ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS agent_config jsonb NOT NULL DEFAULT '{}';
+            ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS parent_session_id text REFERENCES agent_sessions(id) ON DELETE CASCADE;
             ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS steps_json jsonb NOT NULL DEFAULT '[]';
+            ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS request_json jsonb NOT NULL DEFAULT '{}';
+            ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS checkpoint_before text;
+            ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS checkpoint_after text;
+            ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS workspace_before jsonb;
+            ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS workspace_after jsonb;
+            ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS artifacts_json jsonb NOT NULL DEFAULT '[]';
+            ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS artifact_sources jsonb NOT NULL DEFAULT '[]';
+            ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS artifacts_truncated boolean NOT NULL DEFAULT false;
+            ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS parent_run_id text REFERENCES agent_runs(id) ON DELETE CASCADE;
+            CREATE TABLE IF NOT EXISTS agent_run_events (
+                cursor bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                run_id text NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+                owner_id text NOT NULL,
+                event_json jsonb NOT NULL,
+                created_at timestamptz NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS agent_run_events_run_cursor ON agent_run_events(run_id,cursor);
+            CREATE TABLE IF NOT EXISTS agent_steers (
+                id text PRIMARY KEY,
+                session_id text NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+                owner_id text NOT NULL,
+                run_id text NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+                content text NOT NULL,
+                mentioned_items jsonb NOT NULL DEFAULT '[]',
+                delivery text NOT NULL CHECK (delivery IN ('after','inject')),
+                status text NOT NULL DEFAULT 'queued',
+                created_at timestamptz NOT NULL DEFAULT now()
+            );
             CREATE TABLE IF NOT EXISTS platform_audit (
                 id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 owner_id text,

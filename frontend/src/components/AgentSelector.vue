@@ -122,7 +122,7 @@
             </div>
           </div>
 
-          <p v-if="activeDetail.agent.description" class="detail-desc">{{ activeDetail.agent.description }}</p>
+          <p class="detail-desc">{{ activeDetail.agent.description || $t('agent.noDescription') }}</p>
 
           <div class="detail-tags">
             <span class="detail-tag">
@@ -180,7 +180,6 @@
 </template>
 
 <script setup lang="ts">
-import { IS_CONTEXTDB } from '@/config/contextdb'
 import { ref, computed, watch, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
@@ -394,7 +393,6 @@ const getAgentNotReadyReasonKeysFor = (agent: CustomAgent, sourceTenantId?: stri
   return getAgentNotReadyReasonKeys(agent.config, modelsList.value, {
     isAgentMode,
     isSharedAgent,
-    managedRetrieval: IS_CONTEXTDB,
   });
 };
 

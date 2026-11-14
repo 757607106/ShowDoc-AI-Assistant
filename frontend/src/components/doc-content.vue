@@ -1627,13 +1627,13 @@ const handleChunkPageChange = (pageInfo: { current: number }) => {
                 <t-icon name="download" size="16px" />
               </template>
             </t-button>
-            <t-button v-if="!IS_CONTEXTDB && details.id && hasTimelineSpans" class="header-action-btn trace-entry-btn" size="small"
+            <t-button v-if="details.id && hasTimelineSpans" class="header-action-btn trace-entry-btn" size="small"
               variant="text" shape="square" :theme="traceEntryTheme" :title="traceEntryTitle" @click="openTimeline">
               <template #icon>
                 <t-icon name="chart-line" size="16px" />
               </template>
             </t-button>
-            <AssistantActionsButton v-if="!IS_CONTEXTDB && details.id" icon-only
+            <AssistantActionsButton v-if="details.id" icon-only
               :label="$t('assistant.askAboutDocument', { name: assistant.displayName || $t('assistant.title') })"
               :actions="readingAssistantActions" />
           </div>
@@ -1644,7 +1644,7 @@ const handleChunkPageChange = (pageInfo: { current: number }) => {
            link's status dot / duration stays live even before the user
            opens the secondary drawer. -->
       <div class="kp-trigger-shadow" aria-hidden="true">
-        <KnowledgeProcessingTimeline v-if="!IS_CONTEXTDB && details.id" :knowledge-id="details.id" :parse-status="details.parse_status"
+        <KnowledgeProcessingTimeline v-if="details.id" :knowledge-id="details.id" :parse-status="details.parse_status"
           :compact="true" :grace-poll="false" @update:has-spans="hasTimelineSpans = $event"
           @update:summary="timelineSummary = $event" />
       </div>
@@ -1663,7 +1663,7 @@ const handleChunkPageChange = (pageInfo: { current: number }) => {
         placement="right" :class="['kp-secondary-drawer', { 'kp-secondary-drawer--resizing': timelineDrawerResizing }]"
         @close="closeTimeline">
         <div class="kp-drawer-shell" :class="{ 'kp-drawer-shell--resizing': timelineDrawerResizing }">
-          <KnowledgeProcessingTimeline v-if="!IS_CONTEXTDB && details.id && timelineDrawerVisible" :knowledge-id="details.id"
+          <KnowledgeProcessingTimeline v-if="details.id && timelineDrawerVisible" :knowledge-id="details.id"
             :parse-status="details.parse_status" :doc-title="details.title" show-close @close="closeTimeline" />
         </div>
       </t-drawer>

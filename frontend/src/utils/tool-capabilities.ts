@@ -55,6 +55,14 @@ export const TOOL_CAPABILITY_REQUIREMENTS: Record<string, ToolRequirement> = {
   todo_write: {},
   ask_user: {},
 
+  'knowledge.search': { anyOf: ['vector', 'keyword'], consumesFiles: true },
+  'knowledge.get_document': { anyOf: ['vector', 'keyword', 'wiki'], consumesFiles: true, auxiliary: true },
+  'knowledge.list_documents': { anyOf: ['vector', 'keyword', 'wiki'], consumesFiles: true, auxiliary: true },
+  'knowledge.wiki_search': { allOf: ['wiki'] },
+  'knowledge.list_graph_entities': { allOf: ['graph'] },
+  'knowledge.get_graph': { allOf: ['graph'] },
+  'knowledge.list_entity_chunks': { allOf: ['graph'] },
+
   // ---- RAG / chunk retrieval (need at least one chunk-indexed KB) ----
   // We use vector|keyword as the canonical "has RAG chunks" signal. FAQ KBs
   // also expose chunks, but the current UX message bucket is "RAG KB"; once

@@ -1,0 +1,532 @@
+{
+  "repository": "https://github.com/Tencent/WeKnora",
+  "commit": "cbdcebabf48c5ee2d6868b370326aa8341703f62",
+  "files": {
+    "src/components/AgentAvatar.vue": {
+      "template": "188026dc58eea4323e13b493c19f7ed64ef5f93111f6b37fe220af82ad242ad8",
+      "styles": "f52ef22a8da325f2e3b2a305f347c06b4242acbca75a3de3d7a101482edf9e3a"
+    },
+    "src/components/AgentCreateContextualGuide.vue": {
+      "template": "a98a62e9a9ea9c3b6bda8c57dbd763ff5e3b9c60437d27df53e6b90c8c9622e0",
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "src/components/AgentSelector.vue": {
+      "template": "d979db972c2179ab5fef6d333ad01ac71f5ebb44338d164e921af7fb6460d9f6",
+      "styles": "08a4e25548fe43fd07fea9a8fd5c94a18eaf2132a0ec0c462029088f3ada899d",
+      "source": "71b1656c0f6aca4d52390600138ba132e5e08609fdfc34a339b73f48093b44f5"
+    },
+    "src/components/AgentShareSettings.vue": {
+      "template": "cf73380ed42bb47419299708f31ce325847ceaf16faa58fec23aab4d94871317",
+      "styles": "91a30f3ab54a1c44cc8fedcca83db4f9180547b61336b3e3cb5a1971460c7528"
+    },
+    "src/components/AttachmentUpload.vue": {
+      "template": "dcb6465713195613fa4a4e76b9974ae097e1010041cb486b6a1d177e872a9470",
+      "styles": "325022d823757206ea76dc5c4c126ccbeab5454bf40a940b114563a17fce2b7e"
+    },
+    "src/components/ChatActionIcon.vue": {
+      "template": "3cb7ba62fad4b2338eb1978eddacb3dd920b4e4f97db0685c42dae5b8392484f",
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "src/components/ChatAttachmentPreviewDrawer.vue": {
+      "template": "f1dd1af2a86b286c587725523f67ee05c3f18ad93f037211f3e0a2b41a959eb1",
+      "styles": "17fa1b2ffcdb8b27c62b903a3491eb63286f7d83c5e9034007d08f7607c9582f"
+    },
+    "src/components/ChatCitationFloat.vue": {
+      "template": "42a3b75b4b7c70dda394de5beb6dfe5df348ee4579a6937e4d8d6360247fdba3",
+      "styles": "525b3a5dd73b718bcdbe864e844a39cdc377c6a6da903588821fb1feb3de5e1c"
+    },
+    "src/components/ChatHeader.vue": {
+      "template": "dd3879cc5379df808ad3e3fd5a15d27cd62c7661b122b410542907e3c7b3148d",
+      "styles": "f08856c20d4e4906e15c471f90fa3fe329e4b8ad76319d878ba11e25c2002971",
+      "source": "eaa437f345e4817d2567e6c25c7d5dced8a8065c453fc52067e4f204cb2fcd6a"
+    },
+    "src/components/ChatReferenceSourceView.vue": {
+      "template": "8b558c59d528ef1a09bc60a531e8ff3898a649df66031978f17bc45869caeffb",
+      "styles": "8afc1a27eb00166432c11020e2707ebf8313b5e8ec34d01f05d0857f7383381e"
+    },
+    "src/components/ChatReferencesDrawer.vue": {
+      "template": "2a14593b901b6c3c16001507262a491fbb7366d5d52be80087463c54864c461b",
+      "styles": "34f636a124bd3db70be9d5eb7bd8f6aa579b3afbd046d1c30e3cb78ea018ba6d"
+    },
+    "src/components/ChatRequestInfoButton.vue": {
+      "template": "dcc9eaf31019c26fb515821127d003cbf2c71e740118d79b14bff19df916a95f",
+      "styles": "dd9801be1f50c0d054de5d9b7aff84c83260d94d90a99e58438ebdd1a4d2aff3"
+    },
+    "src/components/ChatTimelineIcon.vue": {
+      "template": "2803a0c2dc52ec3a32df134e12ef2817cc1af5594874a0bed3ff7d7d47fb7055",
+      "styles": "680c54010ac735bae796bca981a398469f6961918deacf486a07a26f11e4ddae"
+    },
+    "src/components/ContextualGuide.vue": {
+      "template": "a25d9fa57d3356b4296733ebfb3a7e0c3d00a17a212de21e31b70b80053e0b23",
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "src/components/EmptyState.vue": {
+      "template": "a90b431cf66cb2679dc6a6225933cc58965ca598d6a775572b70a3d5f0dd3780",
+      "styles": "8bb689eaf72e4063c015b4556485d306a057076060fb77bd1a19841b8dff5e56"
+    },
+    "src/components/HostApprovalModeSelect.vue": {
+      "template": "07c3236016e95025af8aafde98e95e1fe665a202fa45fda2cf320fe9e765393c",
+      "styles": "12f6bb75089057f1665cfc03bf77c51fd5e367e1f1f6201e1f1c462d5a2f4ca0",
+      "source": "177e1f351ac35e79b34c5ea0c3a3f3ef5dd77207d5fef720c7ac3cb56080b0b9"
+    },
+    "src/components/Input-field.vue": {
+      "template": "aa5d78ed529cde17950ab830581a9de06f56d36ff8b09b291c41c141d213a0b5",
+      "styles": "678804e9e8c783ed5f1bfcb60bacb952bfe8c044c556e862eac8d681eac5890d",
+      "source": "17593805f50fb4d8730386eacf37f315aa4275dbd8c99ca2b0123f516a3c8703"
+    },
+    "src/components/KbCreateContextualGuide.vue": {
+      "template": "8eed122a52735db5ba618c781f6f459aa57e01e6a42342cbad45e1cd9c1dfee4",
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "src/components/KnowledgeBaseSelector.vue": {
+      "template": "87bc744c460ad2d773db6308d4afa837348f939979c2dac856ef9c24ae027399",
+      "styles": "dd045509d38c929cf934283668b49ed0dc6c9a7815624dd874d4ba7897ee8b55"
+    },
+    "src/components/MentionFileBrowser.vue": {
+      "template": "50b37ce2b88db138e9b360f1a56e48cb5e1e6c65f64c4b977265be66e5980de1",
+      "styles": "e0844c6c551da172f39f87b90e8e2f1984285e76ffcbe9ad245f8503554833d1"
+    },
+    "src/components/MentionSelector.vue": {
+      "template": "bc19997a89f26757ebfaa1b90d1835caa9d51404364c9736ccc0778647f9b5da",
+      "styles": "3c6294eef6647989b2dfeb10f472163372cff36a04d3918693937abfa76c8a96"
+    },
+    "src/components/ModelSelector.vue": {
+      "template": "04ef04677d1e269426413f7b1d9faca84f6758911a4b27486523a145a9b7a7eb",
+      "styles": "22987c21715b1a358eeec4688142377f064fcfe14750d45871a6aabd98f3ef5c"
+    },
+    "src/components/PanelResizeHandle.vue": {
+      "template": "08ffdd21b1cd08b459fed0876f75434cd2c2bfa86b89c82463745360594b1960",
+      "styles": "e50d44d0cf048c0a702a40c15a75f88041f45fdb6c8d468c856843e85d1ce8b2"
+    },
+    "src/components/PromptTemplateSelector.vue": {
+      "template": "0e31019746f30f418a5651dcf8dff7ea05f42ca6fa9bbe8b3f21863fd0efe589",
+      "styles": "cdbba6d1ec08484a8b51d7aab6e73249c81745a49173d4e680db8ca75b463712"
+    },
+    "src/components/ResourceCardAvatar.vue": {
+      "template": "c16a34bce740bcdad4a4fe35a7a91a4a563c5622df9c4bfb656a642c1011ef46",
+      "styles": "a6159a781d5c614b3716f84574a28340d447b113d22547f759ca37127777ef2f"
+    },
+    "src/components/ResourceListToolbar.vue": {
+      "template": "d89219f36a728d2449aec5acb63c5912291ec771f698f6b144ff2687e8337da9",
+      "styles": "fc9d8ed7abbe2afa34329514a73e25099b393415b6a33c6db3b7955c036cc77a"
+    },
+    "src/components/ResourceOriginBadge.vue": {
+      "template": "b2416195b79ca2a1c36b5bb908eac8cc9beb9010be9e87001e0586a868fa2c98",
+      "styles": "8315bbc0f098d8b5b91f5d368aabef57493553e1f624ff62af47bcd135ebd10b"
+    },
+    "src/components/ResourceSortControl.vue": {
+      "template": "e4563a88e76bb0a0e9820be29543a1d9d44a76a5cd54fd9bb3618034a7dd3e65",
+      "styles": "b32108af44d6bb48a194073179e790b0cd30330ae035c7c845b2203d52fab98b"
+    },
+    "src/components/SandboxCommandProgress.vue": {
+      "template": "c40642fa986a20b1d42ef97eee8e346e09112ea927c10fd9e044bbe0252ba7f3",
+      "styles": "4f9e3e712cf6b37bc7db6f6c183c033d87c1a3189c473a347ccb62d598248c5b"
+    },
+    "src/components/SandboxSkillsPanel.vue": {
+      "template": "9a371e6adea995731eb6903955777c84622a912f59ebe0db2c6f1ed495d8111a",
+      "styles": "dedabdec09b20d05f7539596c31263e1fc463291cfa2999bb5dd345839529f8d",
+      "source": "e7faaf2dc27a141b891e19f19b54bf8d4bf0449067e2ad8539cbbb3716a18bc8"
+    },
+    "src/components/SettingsModalShell.vue": {
+      "template": "beb94b0f193f511866d121f2869dd2478036cf94521f59c63ab3dfddca56ebc7",
+      "styles": "f93c79c1e8bc30897b06aabea4e99f134ac7f9daab287cd8d10cc392f969b1a1"
+    },
+    "src/components/ShareToSpaceOrgSelect.vue": {
+      "template": "cbb824792c9961b0677fa7e13a91639f2a24648e56d0860d9900b581ed7f12cd",
+      "styles": "2c59f2d3d4d70403c053b291c6eb2fc58a17509c14448f5768779fd3b3c00c8a"
+    },
+    "src/components/SkillInstallTimeline.vue": {
+      "template": "0db90e452e1ff5358afdaaadd58e0c307ab95e7987977d0740b99cc9bac701f3",
+      "styles": "d6dcebe0a831c14d6d4a176ac23d627e3d5fd8e949af63d50b58d06bb77df59f",
+      "source": "0dd524105c2e6d074be7bf7e518487785ee0b3431feaab3899d02d0d3eb3921f"
+    },
+    "src/components/SpaceAvatar.vue": {
+      "template": "03d1bdb01b574bd249fb441c13571a82f1187b55a1c432af437c7e5d6e19115c",
+      "styles": "aa7bf8bed6be4bfadca339d6e0da6b966ca98f59b1fa338c580fbd5336b8dc98"
+    },
+    "src/components/SpotlightGuide.vue": {
+      "template": "58d81563ee42ca50c6a3932caa9acc552a528b425db2dd27bff91b4baed5d3f6",
+      "styles": "570497c487200a1bca46c3729534be5212dc6fb9ea44d34ba7deb2aeeafc019d"
+    },
+    "src/components/TenantModelsGuide.vue": {
+      "template": "14510e60cee77d845be33330f11bd87b967f095f0914a7a1de263e49efcf3868",
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "src/components/VectorStoreBadge.vue": {
+      "template": "16b79ad67cb96127331ac40b5dc440d9c56fc1168452ef4008b3d979b7bb0f7b",
+      "styles": "25031d2cc184c8184cbe50a9be9a7c4cfe9f91a94aaa387c727747e64e30ac57"
+    },
+    "src/components/assistant/AssistantActionButton.vue": {
+      "template": "84b82411d801b43c54d1777b76525dd8c5ead8d2f5aec23363651599c2c1e7c7",
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "src/components/assistant/AssistantActionsButton.vue": {
+      "template": "3b9b9ae5924689061100bb039e9704f79afff1b217fb44b668d3e382fce18dd3",
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "src/components/assistant/AssistantButton.vue": {
+      "template": "42026c62fe64e5902e2ad586bf93703b7a979c0fc915f4d9f9adfd1a092ea94c",
+      "styles": "6732d0925b3e905d40561ae3433954df0d148ff20f71bbd35d84d7e317f703ce"
+    },
+    "src/components/assistant/AssistantCreateDialog.vue": {
+      "template": "8f5069ccac0d220fd06cbff4dcf52e8c0cc77e210031815c0a64382ba5178bf9",
+      "styles": "109070fc4183bc3ec4c90175e9ce6f0f39f2d5f95f785fae105648030bc137ef"
+    },
+    "src/components/chat/ChatQuestionMinimap.vue": {
+      "template": "fead4d85f841e2f168abd2c79ed555bad119a82ab1e6240e203111feda1c5466",
+      "styles": "77284074e4a47751ffcb830fee05be6ec4993c0672680fd5703f2d121ded0444"
+    },
+    "src/components/chat/FollowUpSuggestions.vue": {
+      "template": "85d3ac7d92ec349f10c735464c54837896ea9406b01513e84f71dd0c96a2eaf6",
+      "styles": "299dbe7c7e6fce9293c5f18bda59a316996c2a966b65ea0a452bc9f6bfca3dfe"
+    },
+    "src/components/chat/MessageTimestamp.vue": {
+      "template": "1ada12ed84b367e04419b44efe1dd9fa9d6106f7bbd1530b09a2ed20c7d7f321",
+      "styles": "65e3d1e3354e9e53877c61863f0a23bcec6d393a31ca6a193420dea4baddf8be"
+    },
+    "src/components/chat/SandboxSidePanel.vue": {
+      "template": "7b75012f2b0a6e78b9915c52dfceea080d426db9d9c3c66a11f1079b783fd3a0",
+      "styles": "4bcf0cf469556606cccf1e43c304dec096cc17b5817a9c403bbafe304f13030e",
+      "source": "70c439dfd616eb6765c1c372801dc9bd47965b6ff670ee95be56a703bcfb44d2"
+    },
+    "src/components/document-preview.vue": {
+      "template": "2ca45f5988329630bc3f7dc729262b9c92e92361486d312d7403ecf637846fe9",
+      "styles": "1dc745e3968c88e26e26893dad490fcb858b5c4bb1b7ba7d704762b2e4dfa0d0"
+    },
+    "src/components/icons/BrowserIcon.vue": {
+      "template": "15fea291d3df329a1ab93cdfaf9d4c220efa0e8befd94f82c07ee1ab3484e78e",
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "src/components/icons/ResourceIcon.vue": {
+      "template": "936d88ee6c55a4621fa40dfc84b051385f6cc4bfc3ee014e930756c4b2d83766",
+      "styles": "086d4563937ab7eb297335c4e056b0b2ef921ccea880b483b9d9da43670c3f12"
+    },
+    "src/components/mermaid-file/MermaidFilePreview.vue": {
+      "template": "e967bfdf91c3a0ac52b0197c96ebe41c62bb5dd965da6c28828c1376368b9fe6",
+      "styles": "99602b144d27950fc6eea40fdeea0e2bb22d53137a2ce7137df5965120702b83"
+    },
+    "src/components/settings/SettingDrawer.vue": {
+      "template": "7081209d6a08f436424b2c3dbee1537cd8a85efeac9f97388f3e46684cc1d3ea",
+      "styles": "19c2eb219311aa0a36559cf2f99feacbc26a9eabc09a53973db469f3c676b29b"
+    },
+    "src/components/source-preview/PdfSourceViewer.vue": {
+      "template": "7cba39f0e4c67efa389b09deb0f9d7bc0c918df0b7c54e3b3dc55dad0ac7d3d6",
+      "styles": "98043748c2345147cd9bfa2a3299fcad4b7a1215032fbe0b604f62ef085dd459"
+    },
+    "src/views/agent/AgentEditorModal.vue": {
+      "template": "f9fa72cbdd31dbe7f34fb99b26c51bcf895b7c48dad2ba9a0b49a158c012fe64",
+      "styles": "5334183afd9932430c48c8bf8aa4ee0e3cb4b6cc702766c6c05a256a0747a828",
+      "source": "7211f00829dd56a981ea95c89c1d8f3030a99e1acddd9bccd291ab1bdb9d67e0"
+    },
+    "src/views/agent/AgentList.vue": {
+      "template": "0edd792a4f7975870a24e9eff09f9fcdbd36c233cea0150637ab825c15dfe4dc",
+      "styles": "cf79f36daaf61ca16d01f77736ef5256838b161f2eb5bb18444e97a01a631c14",
+      "source": "d17d8757fe668e3079b267ecd8591e11b26c18c8f5907fc1fdcaf76ae00e23e8"
+    },
+    "src/views/chat/components/AgentStreamDisplay.vue": {
+      "template": "979059faf1c814fee55f2e92010cbf4e54432166031cb635404c1f7cce497341",
+      "styles": "fa634d317718a37172ed4e73ef7776504a3db657851ee1c77d4a6195252fd40e",
+      "source": "30327cf5fc5ee3e5e07ebe355d51a1bd6ada29ce7d5bd01e8fe657e6799d74d8",
+      "bindings": {
+        "from './WeKnoraPicturePreview.vue'": "from '@/components/picture-preview.vue'"
+      }
+    },
+    "src/views/chat/components/ArtifactFileIcon.vue": {
+      "template": "e3b5e3118d44082541cd4677e2eacbc4dd11542ad68e3befafe89bae026ed885",
+      "styles": "81a4784ac05a70616854a5a82044770b1029a5e533283271c236b2f0711720be"
+    },
+    "src/views/chat/components/AskUserCard.vue": {
+      "template": "a415462c9b95346366394299546eb977e79efa60456e53504744d5ff5ac2b204",
+      "styles": "6de6e47db0203bdb3ece63f263d3db6c915a5b7d9e310c459b7d53f9993e4185",
+      "source": "729257a5b0a5df85a2a97c67467c332e5e6f4b79c56cd61e29c8da0e564d5f6b"
+    },
+    "src/views/chat/components/BackgroundWorkChip.vue": {
+      "template": "cc60af21975450325479e311dde0e07abdc3b641b6fd799c65d7b4f42566b952",
+      "styles": "01138a4adad7f56c5b9be77d552c651b83e8ad93662315c84a2b8c1ab1867d80",
+      "source": "aa024a301ce672d75ddf8231994395aed6ea22d7cb783fd35dd1efa21f117bb7"
+    },
+    "src/views/chat/components/BackgroundWorkResults.vue": {
+      "template": "c59a6db2c2beb2e3800079975ed3f9c144cf3797ba8ec2ca8de02f43096858f6",
+      "styles": "4cb833373b00a3d74032d4d68f13d158e168685ac644d0d3cf77828f7050fb7f",
+      "source": "38208c3903f1c341a69c8177523a656576c5fb3bc7ea8edbb7d654ebd3688e98"
+    },
+    "src/views/chat/components/BrowserTaskPreview.vue": {
+      "template": "bb9c6631a74954ac8633b26fa7333cc8f9a25abe5dbedb6ee424699f6007e3d8",
+      "styles": "05c5152b715efa29d2cffda02b25e664f89985f798bc8ecc03ee12526c7d347e",
+      "source": "eef8f5a0d68ed7aca947a5dafad1485c8ac8bd6862ab0c3e1e4f3503ad1b99c3"
+    },
+    "src/views/chat/components/BrowserToolDetails.vue": {
+      "template": "02f92ef33c25abfb99e091e75a19cc8b62c39018306fe0fc008bf69899164881",
+      "styles": "6ca816aaf73bd969ed3b0419fec8e912f9751a3e80007ffcfcf5fb67c902c0f7"
+    },
+    "src/views/chat/components/ChatArtifactsDrawer.vue": {
+      "template": "81a2b5fc7f4b2985a13024e78881d1f96ff254cd57623cb8a26d60a70b35c82f",
+      "styles": "4de7e3d662ea93d9f6923af0151aa7aa7161710718523c17b5bebdc237d2006c",
+      "source": "d675e8b3c7e897c059c8ce1fd698deedf2c8c7058eeb95ebeb2fb44c5cf683ef"
+    },
+    "src/views/chat/components/ChatArtifactsPanel.vue": {
+      "template": "7a5905c087040eaaf98b2cb2e6f31286d742838690e0405b19a9b895809b3248",
+      "styles": "2ea432a8e57227e28ca30b7af8ff38b3f065797f31b12bac6cfe5af0bfd1fd0b"
+    },
+    "src/views/chat/components/ChatMemoryStep.vue": {
+      "template": "b4ade888592a064f74d7efc2cdffe6ae3733fc967067550b73d2d1cf41dc3bbe",
+      "styles": "91cb6d62a94a50b76f4313f942a0cfa70c0d444d612ecefccb1566ba9d5937b4",
+      "source": "b18fda1571fcd9ec2b9876831209860c6b560c748ed8db7c04881eeb35c1894c"
+    },
+    "src/views/chat/components/ChildAgentStream.vue": {
+      "template": "5510400161d34333b963a65ba4d345d145904c9e5752eb6e030c169fd06b67cf",
+      "styles": "e7adad70997d804b7b258263ec7fc92ccbf5a4133715d6ec2e1cc48a09feb164",
+      "source": "7fbca5fddb6bc6cacbcf73f1b277d5f14836f5eba2bf4b913b2cd878256e6185"
+    },
+    "src/views/chat/components/ChildAgentTabBar.vue": {
+      "template": "09098f4988a7c48988c79207e02ddfd6c2343e03609cb8cd06a7cd248328d6dc",
+      "styles": "ca24ea6154d66641c2eb6b1c4ad745cb22d5be3fe37883870499941f41723941",
+      "source": "a4b9f5ccd568c948e8d784a7e8707097deeb1256fadc699e9bcc874c0518b221"
+    },
+    "src/views/chat/components/CollaborationTasks.vue": {
+      "template": "edf60a07998dace5b903fde5cd11a9e1ef0679c4f7cbf71c9af88976fd7bc430",
+      "styles": "b377cf516d8532f6c9596b1bfb5fd0c82036bb71893db8ae02e21e47d1974a19"
+    },
+    "src/views/chat/components/HostApprovalCard.vue": {
+      "template": "2b276046da696bb124e58215c4c8f978478b4999ee83f7e795f6065c4254be4d",
+      "styles": "5e1a3388729a558085d562811b58692b876abdc7f641e6be771101b0f01b140e",
+      "source": "fdba7420ff2be2a09e45966e0bec905034b5d5ad86ac9e99a8812fccd8938ffe"
+    },
+    "src/views/chat/components/HostReviewRecord.vue": {
+      "template": "ecde1b3c47a7f60e5c2b4e309ad27a3edb14c7f7c48260188acdf9d316e26666",
+      "styles": "e9072a2c7656e7ff329e7df0e9e7cebe333c93354739c57c90e45c3efce769c9"
+    },
+    "src/views/chat/components/McpOAuthCard.vue": {
+      "template": "c2f6793ee61c4b2483004277e2b6b510bcd076983bd6ad323892e3c106cf8bdd",
+      "styles": "1ffa9d01da73664b7e515c73cffb7228d8873db06299fd7df6ac254cc9787376",
+      "source": "deb9d222b3885c1599ce5cc52ced8e2570ae752074b8a6bdff9a10c41abb88f5"
+    },
+    "src/views/chat/components/OpenPageCard.vue": {
+      "template": "ce1c4c83843a1612e225f976df5725c082d8755afb293c0a35e61d16031ceb2d",
+      "styles": "515853a78c7cb93c16594f03f68a65de99ec0b3ad675d1b810c4aac7b2ff4c14"
+    },
+    "src/views/chat/components/PageEditCard.vue": {
+      "template": "1ff21cf1701d4f5573652c48af3093fe1b5871086c0ba1c8ce982afea55600ce",
+      "styles": "13a33add3e63e6cd17597871d5cd517471de67976ddb828f183d962f36feaa68"
+    },
+    "src/views/chat/components/PendingPromptDock.vue": {
+      "template": "13d44a9aa56d35f34fcd5fd75e39646558093d66a24f635511e5988dbc1191ca",
+      "styles": "e310dde643fb281378e56768ab63d6087b7f1dd8626dc75abf1aa03ce64ee971",
+      "source": "13a06d0b117d29664aca35117832ce81744b1004c01594454939c7f0f2ff08ac"
+    },
+    "src/views/chat/components/ProgressUpdates.vue": {
+      "template": "5b24f8bb181dca3f67a36687fc5d777c4308975b430715243721876019084215",
+      "styles": "f4d17a88e6ef7c1dbded168559797e897b5f2e0ddb29b2321db6ad1fe9163355"
+    },
+    "src/views/chat/components/RagPipelineProgress.vue": {
+      "template": "fc4845c43ea7ce91a8bc7ebf58b634a23d2a4a56a57e103e769683b955061235",
+      "styles": "b034e768ca75af87bf2099030d92263c22e200cbee2e23c2c930ceb24b771340",
+      "source": "ef5a810989f9308396c8567942acb86a4327fb95869a3900fe1b3841dc7ba57e"
+    },
+    "src/views/chat/components/SandboxDesktop.vue": {
+      "template": "6f4ae3a117faba0eb4ab486aef9db20c6b27ecb0d892c45e2d38f7b1b507e15f",
+      "styles": "8720f51e29ffa03ba4df5fd963d824dd40f6d8e69ea0ad52cb09cede0eb5db48",
+      "source": "8f3fd50f32a44e3e227fc4c2241c854f689bf43ade505e5bbfeef5cafc6aa14a"
+    },
+    "src/views/chat/components/SandboxTerminal.vue": {
+      "template": "ef0d31a04dd5bdcd12755fc37e6bc8aba9a8403caf4818d7e1ef80f6e9af30b5",
+      "styles": "06ba0cadca8dded2d1b57877e3ce8a8814d7cce9c7c638671bf99cb31fa7dba3",
+      "source": "f5eafec4e44a6d850ccc232c21838971cc4c35488d9ece10c41d061f9e2b948e"
+    },
+    "src/views/chat/components/SecureFormCard.vue": {
+      "template": "49d459f33904d9210132d83f14e5c95722ce34784d45d8a9adbc047750de8810",
+      "styles": "389f0344d8c928ff722a1493e13299d80c89229d0cd2ed40717144abba4b36e2",
+      "source": "a4f96d3a176479db359b5297d6632d49f10be4f751021e2ef5f7430fe672ef72"
+    },
+    "src/views/chat/components/ToolApprovalCard.vue": {
+      "template": "05bc25f5a8b6953beb305671c02aa800245ff5e201d376bb140bd6778cfbe3d3",
+      "styles": "af4df9adfec60551d04667e125db0ae91ec5c8bc3400e07d85f3e8df01971cc8",
+      "source": "87cfaee19d5a49df0febad3f5a73d522de871b034c059f5d4f7eea1ec198e05f"
+    },
+    "src/views/chat/components/ToolResultRenderer.vue": {
+      "template": "081918de517e7c43c7b3eefc27f103c64cdd0520e205d69e0e86fff980cb2301",
+      "styles": "281c61948cb3ef8671a204ea576884e8207445d5c2cbb8f5403bf796dcb7a29c",
+      "source": "3aec935756e38b2136523277f00d6827e6a60ddc759ee3949c966f2beda8ddbb",
+      "bindings": {
+        "from './tool-results/WeKnoraGraphQueryResults.vue'": "from './tool-results/GraphQueryResults.vue'"
+      }
+    },
+    "src/views/chat/components/botmsg.vue": {
+      "template": "447fb3fe69300ec7f0187ad7c2dcbf39fdbb3eee530429a141be9d6925aed370",
+      "styles": "7b565b5e730d458ad731ea2b38e41b32aa43da39e8e8d064ad24af70a643300e",
+      "source": "0b0b7ffbba038b624deea444dd5d5268d7d89c800a081d0d0af977836e590ac4",
+      "bindings": {
+        "from './WeKnoraPicturePreview.vue'": "from '@/components/picture-preview.vue'"
+      }
+    },
+    "src/views/chat/components/deepThink.vue": {
+      "template": "131385e55e748fa6cd06b4f512b8265b1246911cf8b99bcbb1a20b66b5039a0a",
+      "styles": "fe5fb84da879c3a4699807304a356002c4ee9b900a965ed84f59770406a4c587"
+    },
+    "src/views/chat/components/docInfo.vue": {
+      "template": "1e3dd764f80a38873ab471aa633bc8ed1cb8833893daaaf50b35018d2687b8b6",
+      "styles": "f948cb630f556a2b5f7252fe972ef73827528fb3d68a206e11f28f5b35184f8b"
+    },
+    "src/views/chat/components/tool-results/CatalogValue.vue": {
+      "template": "45ea2cdac3aa2d44b28e64ddee508797eb81fcc9b353cfc3fa2e12042542daad",
+      "styles": "aac77db92da3816e82192060ce9c73fffa1141c8b1c6c5eada4a6fbe91e284d9"
+    },
+    "src/views/chat/components/tool-results/ChunkDetail.vue": {
+      "template": "b550eee8cc7dcaaf0c4eb696f49751d07f590c6bff8585c02b459eff4a82812a",
+      "styles": "b00cbf416b62b53b501d5cfcfa7b2848b51fd367ce9816188f9ce3bc1c9ea37b"
+    },
+    "src/views/chat/components/tool-results/ContentPopup.vue": {
+      "template": "e96a02edbad9d469f7dd6957b3786f94518e4457fc98f40c3a44fcb1193edfa9",
+      "styles": "90eadd242b4ab032cb9ef352ebb0cb357d613e361ad4421ca6e81410bf999b9b"
+    },
+    "src/views/chat/components/tool-results/DatabaseQuery.vue": {
+      "template": "d62e47d477f92188741bbaca5aa13abdad225428298c0906c73214d50aaf2278",
+      "styles": "1443d2483f9b8a212b272c804269a770d0f7828c0ba3f740502a8815a09154c1"
+    },
+    "src/views/chat/components/tool-results/DocMarkdown.vue": {
+      "template": "59cc0c5f61e83c069fc5f57e04fcff7df75ee06691ccb44b86c5767fd9d5f5d6",
+      "styles": "ce7274e016deb962609859db711bbabeb48882776fad7ecae4387ff8b480b448"
+    },
+    "src/views/chat/components/tool-results/DocumentInfo.vue": {
+      "template": "77d8cf73d02eeee00a2b5a0bfe25d01ae1602cb93ce278fad19056d58f94ecb7",
+      "styles": "78601c77d597d771749f96a2ba350002889333f72a79ae825cc691bf339ccff3"
+    },
+    "src/views/chat/components/tool-results/GrepResults.vue": {
+      "template": "22d686a58bc196d279734944d83d352d0dedacb92dc6496575d7c58131181826",
+      "styles": "8773c7c754fd38c51730fa2f7a7c3a6a75627e23e4868550a5b57b50643fd578"
+    },
+    "src/views/chat/components/tool-results/ImageViewResult.vue": {
+      "template": "8c137ba46a64ffe5f94c373e0c71497f7dd00139549021799eefadb241d40a57",
+      "styles": "68cb2f180e1ce0fbc5e88d29ab190d520f0411f2caf255cfda534e63488ead0e"
+    },
+    "src/views/chat/components/tool-results/KnowledgeBaseList.vue": {
+      "template": "e7adc779fcef9f86d34a7e73b3e1b157aafe9c4926614b2bb78841a1018c71d4",
+      "styles": "edc4516338b684ebb469016fd05e60d16f872cb20165fae52dcc70eb621173ed"
+    },
+    "src/views/chat/components/tool-results/KnowledgeChunksList.vue": {
+      "template": "2e56b2cbb2cf93f97709e6202afbd3f4e6e6605a2b0473b2bf1bb3fa74e84f22",
+      "styles": "ce7fcd1774355a7378ddbd1cfed7e8e1ba6ea96796bebcfafa2fcf0cfc758b45"
+    },
+    "src/views/chat/components/tool-results/McpToolResult.vue": {
+      "template": "9513e751de9295b193cafd82b1bab54473952f74db40e37ac3347eb4f22482b7",
+      "styles": "c92456b1814be15853946f5eda4ea7dcf59d08920274de2c96aac880b36c5235",
+      "source": "48fd52e274bf173fedf2cf33103123589a996c123c7621aa31bc630505165f35"
+    },
+    "src/views/chat/components/tool-results/OperationsResult.vue": {
+      "template": "e81503615a0da5164e627d559bb154517250110173871c7258bdd0cebb89d4a6",
+      "styles": "e5cfe572f62d76986e523e727ca2e53b4203eb7df373773321fcb2ae9f29ad2d"
+    },
+    "src/views/chat/components/tool-results/PlanDisplay.vue": {
+      "template": "1b5e9c64398decc0fdb000de9c51c2594c832007d27252a6b2fc38c77ea72b0c",
+      "styles": "c3d8d06c7c8e7e84e9144438b1a4bc97316865b4e3730ff65b45c968597f0ac5"
+    },
+    "src/views/chat/components/tool-results/ReadSkillResult.vue": {
+      "template": "23127296281cdc8c6aed65e0f9262deeeb41bb24f1bdf52ce20c5494068f7e98",
+      "styles": "5d460be30fdd15513eeac6dd910df457bde2604c55c3be0b9208a2164d8e8f8d"
+    },
+    "src/views/chat/components/tool-results/RelatedChunks.vue": {
+      "template": "96df8621a65d825b58f3276d3e1049a09f08e5b9ffd28038c595a1557c262a15",
+      "styles": "9b778561892bc1094b872021ed8d0eeb0dc1dd833145420a1a5c8f70bd7d6976"
+    },
+    "src/views/chat/components/tool-results/ResultRow.vue": {
+      "template": "792c1c6d380547f235a9da8e5f090105469e7e4c827d9fd21f7c82ace5e4f7b2",
+      "styles": "113de2a9c443e8287f51bd5fb9d11ac8024f96d0e53a1a32d1ed046976696163"
+    },
+    "src/views/chat/components/tool-results/SandboxFilesResult.vue": {
+      "template": "f7f1fc11eeb8e9a07102b96b6dab100260606d11fc3623c604a00ad713a0fd5e",
+      "styles": "fe0f080f533e1daa38f963809e360ac2c09e2d0edb73b6c967508ce04ddb3fed"
+    },
+    "src/views/chat/components/tool-results/SearchResults.vue": {
+      "template": "65e17b9922d63724c290ef5942a0999de0cb6f123cd85e7e52c1488f7d507ea2",
+      "styles": "6ab3728ae5dfe024cd66537c858d08b33298f2e5e568fb09f1daaef76b4374b7"
+    },
+    "src/views/chat/components/tool-results/ShellExecResult.vue": {
+      "template": "0c7743446fd415aadc8d5e91ec9448cf8d4e3f75074cfd950f3a342b42cd8f88",
+      "styles": "bb36cd7f00347ea47b37644196097c174ee1f579ce2028c82e559c2586f8c062",
+      "source": "6672cce41bdd389c7585c8a6251c0712e4ada961dab24d635c0568aa15de9e1b"
+    },
+    "src/views/chat/components/tool-results/ThinkingDisplay.vue": {
+      "template": "d6c47e4122fd53a3f2d6bb4a7aead98db12b1255a5cd1f1c9dbafb570ed5a6a3",
+      "styles": "b97429ec11eb2278d8c0803d434815013bd47e30224482c78e7058e9e0538806"
+    },
+    "src/views/chat/components/tool-results/WeKnoraDocResult.vue": {
+      "template": "fce7361c807b1ae4d9d8d73ea6970705003f0a3e05b8baa23802edb4a9c955fc",
+      "styles": "1716f3236efa9676c1a2990a16e2fd01938ae0e5b9b2523a1080c69eb56a50c9"
+    },
+    "src/views/chat/components/tool-results/WebFetchResults.vue": {
+      "template": "544c6df2f657039a5e9b0c4b98882abad8e2e4ff56120f59bf03508ba6ac9714",
+      "styles": "1b12244733cc95092daad78717ab9823dac3f62a8ec0f78c964110387055a93d"
+    },
+    "src/views/chat/components/tool-results/WebSearchResults.vue": {
+      "template": "cf0a921094e147806a18a3dfa21e94a659c7be418f2df6cfa774f00b1f2f7549",
+      "styles": "60e889fc14b50152710a2d23ba2f643e7fd2c1e27742660fc5c8b3dca09d3c11"
+    },
+    "src/views/chat/components/tool-results/WikiEditResult.vue": {
+      "template": "4b1d1619970dba51938c4f35cce0bb2a166ec34c20946625db28bd15aa7b5717",
+      "styles": "876e2b28e6f348babca6ad94969795c47e4ed8d8eb1a2fcfd29c59372d813a9d"
+    },
+    "src/views/chat/components/tool-results/WriteSandboxFileResult.vue": {
+      "template": "52237cd635c82957f2a6ba74e5eb61e58aec078794e280c1e79775a652325b63",
+      "styles": "07b8c9b480e32ab541398149db8e80d7b3211211857721d871fb17ab6a38bf95"
+    },
+    "src/views/chat/components/usermsg.vue": {
+      "template": "0ef2f38c4ab2103857df056dd4f5293e78ba946cd949bc010208e44c4e75d227",
+      "styles": "4d3593c680b8696f7c7dc9b6b62aef195b7eec70e4740e7e3580cb871628a853",
+      "source": "93859331a0c69ee1f45d4dd6a2818cdebbe53f3f5ab1901dd24f36c1bb5d6164",
+      "bindings": {
+        "from './WeKnoraPicturePreview.vue'": "from '@/components/picture-preview.vue'"
+      }
+    },
+    "src/views/chat/index.vue": {
+      "template": "9f4e3e6f7a59f66a0af79b2318c119762d4b201c2d37b784623cd8bea4a26ea7",
+      "styles": "a803f9f5dd107429f450d80d915a8ca71702386df673ab2fbd0f0c53774ee57f",
+      "source": "e7d8a0af79bce39a6d323bf86d25d15cab0a2ff0ba3ac6886dc689d4a8ac07c5"
+    },
+    "src/views/creatChat/creatChat.vue": {
+      "template": "d4f9dbef7b2e11c805c15c36a2c9f5fe967d2926b9ae7da8ab49110359b16c67",
+      "styles": "3bd0c818cc0b8679b1edf5439105003e28194701ac4d43deeac62cb7c17d1564",
+      "source": "182ab29121799f844f5e25267caa88a2b9ebd472cd2f878d3153106a59d361d9"
+    },
+    "src/views/chat/components/WeKnoraPicturePreview.vue": {
+      "upstream_path": "src/components/picture-preview.vue",
+      "template": "b35d5a6a7f3da82e90b2168d68567b2d0b7b9d45bb3074f66422775e2a20889f",
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "source": "7c57d91c2debf270d472472b1437ff479869c83d157ac3abe336c49ccd4cd8e8"
+    },
+    "src/views/chat/components/tool-results/WeKnoraGraphQueryResults.vue": {
+      "upstream_path": "src/views/chat/components/tool-results/GraphQueryResults.vue",
+      "template": "db8f1e4e4ac5f2ec2c71bc4a59110b57dc8bdcf1427447b93e4976ff949c7230",
+      "styles": "f986aba11e149c75eef38dd9167530032e67b83efcfc87dcb240872b0dc56f5f",
+      "source": "bfea3b0e95a584a522a0e7d422039d1111655159406c471bbd13e234220526da"
+    }
+  },
+  "dependencies": {
+    "src/assets/dropdown-menu.less": "230c4bd2fe7e51cf68e1105ad2a0db690d30bf829d8ef9282371aeb15572e260",
+    "src/assets/theme/tdesign-overrides.less": "d6a9431f211a71e98faea105b2f32a7a13482cbdb104280cbee1e7188ddb4d03",
+    "src/assets/theme/theme.css": "0d84afeace3d1414a8348cc8527ccd1089dae796a3e60b4591a02a35bf3ac657",
+    "src/components/css/artifact-file-icon.less": "c37f2e98335b20a1c64c01b244548239249ac8ad610ec5f49cc384abaf3513fd",
+    "src/components/css/artifact-filter-tabs.less": "679748defe6e89f30ff597a90a1a3347bc66c0b741224ebee30ed149053e49ea",
+    "src/components/css/assistant-page-fill.less": "3416fe05cd5d52901f1133f5cc960f0875147c50f35f2e81816f8fcca3e96231",
+    "src/components/css/channel-panel-list.less": "6424c2f3b40a4450fa2d85d676ae0f704912564cbefe61ead354c78767c9ede0",
+    "src/components/css/chat-citations.less": "03ed10d323d235f2c2422e4d70473477fec5af506e3ca7888b246aa12ee0c0ea",
+    "src/components/css/chat-hljs-dark.less": "c7ae367d6441e7a7162ce287fd2a4a4adad069d025ba8ea9cff1959596a5b1bb",
+    "src/components/css/chat-hljs.less": "157681d6c54e0aadab6818596f2c2516ebac6f35b13c9d3a7b1a441998000b77",
+    "src/components/css/chat-markdown.less": "c63e7c6e66715285ff5709b0e9084711e4b56be1fddcf310e0b9d3cb8277ca68",
+    "src/components/css/chat-message-shared.less": "69fd74718c199f0626dfe7377cc169347fd0b7bbc2b23139c92986ccecaabb9f",
+    "src/components/css/chat-resource-chips.less": "10d41bc243d36760bd8d847b84af2401da018b07106df4f53438ac186910281d",
+    "src/components/css/chat-scrollbar.less": "80ac90a92673f106fd9d3c9cb4255a9d1d3848dcd730484cf00b833d7b7dcd32",
+    "src/components/css/chat-timeline-loading.less": "9467c280492161cef53ba3923e338833754588b926fe5c5d357bba2174a7b3ff",
+    "src/components/css/chat-timeline-theme.less": "811ab8cce2879fe255c86c18fc1e699127f179da32d931614ba6c37110775bae",
+    "src/components/css/markdown.less": "af485b50cf2ebb4445bc4dc1848b151eccf38241eebcbcb6bb075dfaa6a50ec9",
+    "src/components/css/provider-card.less": "ede190451abd155d1d674e8f4d474891c5ea65947f914ad6045e405b25fc011c",
+    "src/components/css/resource-card.less": "a8f8a1ef8c7bd3d1baeb2426908138102dc2d96cee09b450c67db3daeac80e5b",
+    "src/components/css/settings-section.less": "b48608b107f9358eb6313c0af12d30ed846372307ac8234043b9ebd145ceb37b",
+    "src/components/css/settings-table.less": "9d3be0c6a525209122272ad86bfdb4b6bfb1e1bb2b651fbe98cb3694365967a9",
+    "src/components/css/suggested-questions.less": "3e6e8388b3ae3bcf9b56c881f16ebe1f1d09ecbf06e03078c5270f38c59570c8",
+    "src/composables/useFont.ts": "1a05bea75f2f82621223e357e475c8486fec3cf6f1eac39fd996430066d84181",
+    "src/composables/useTheme.ts": "da8b69a4407e52dc9d99c63b2b168567c4215b6d7c4753d5f2b78ccb1a4491d7",
+    "src/main.ts": "bd132d2494e1a3075c7bfbd26d64a3fd720c8a448507b428238bdebedba660fe",
+    "src/views/chat/components/agent-interaction-card.less": "25f978fc83a77eaf5560d5e49850da65eb066387b3a6b0b00888484f04c69016",
+    "src/views/chat/components/tool-results/tool-results.less": "fb03aa8737aade86b91c53743c70cc42ec00f96fb0f74bd17f959ee8692dbf8f"
+  }
+}

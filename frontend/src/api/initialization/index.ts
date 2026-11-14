@@ -475,7 +475,7 @@ export function testMultimodalFunction(testData: {
 
         // 跨空间访问请求头：直接附，避免 short-circuit "selectedTenantId
         // === defaultTenantId 时不附" 在某些边角下让 header 静默丢失。
-        // 与 utils/request.ts、api/chat/streame.ts 行为一致。
+        // 与 utils/request.ts 行为一致。
         const selectedTenantId = localStorage.getItem('weknora_selected_tenant_id');
         if (selectedTenantId) {
             headers['X-Tenant-ID'] = selectedTenantId;

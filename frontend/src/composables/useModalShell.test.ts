@@ -22,11 +22,12 @@ function fixture() {
   const ui = vue.reactive({ showSettingsModal: false })
   const resources = {
     agentTypePresets: [], promptTemplates: null, storageStatus: [], skillCatalog: [],
+    agentTools: { tools: [], default_tools: [], switch_managed_tools: [] },
     parserEngines: [
       { Name: 'builtin', Available: true, FileTypes: ['pdf', 'xlsx'] },
       { Name: 'anydoc', Available: true, FileTypes: ['pdf', 'xlsx'] },
     ],
-    async prefetchAgentEditorDeps() {}, async ensureSkills() {}, async ensureSkillCatalog() {},
+    async prefetchAgentEditorDeps() {}, async ensureAgentTools() {}, async ensureSkills() {}, async ensureSkillCatalog() {},
     async ensureParserEngines(_force = false) {},
   }
   const chat = {
@@ -35,7 +36,9 @@ function fixture() {
     async ensureModels() {}, async ensureKnowledgeBases() {},
     async ensureWebSearchProviders() {}, async ensureSandboxConfigs() {},
   }
+  const skills = { listSkills: async (): Promise<{ data: any[] }> => ({ data: [] }) }
   const modules: Record<string, any> = {
+    '@/config/contextdb': { IS_CONTEXTDB: false },
     vue,
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key, locale: vue.ref('en') }) },
     'vue-router': { useRouter: () => ({}) },
@@ -55,7 +58,7 @@ function fixture() {
     '@/api/agent': { listIMChannels: async () => ({ data: [] }) },
     '@/api/assistant': { ASSISTANT_ACCESS_LEVELS: ['read_only', 'confirm', 'auto_write'] },
     '@/api/embed': { listEmbedChannels: async () => ({ data: [] }) },
-    '@/api/skill': {},
+    '@/api/skill': skills,
     '@/api/system': { isNamedSandboxBackend: () => true },
     '@/utils/clipboard': { copyWithToast() {} },
   }
@@ -92,7 +95,7 @@ function fixture() {
     app.mount({})
     return { vm: instance.value, unmount: () => { app.unmount(); assert.deepEqual(errors, []) } }
   }
-  return { mount, dialogs, resources, chat, ui, warnings, emit: modules['@/utils/assistantDataChange'].emitAssistantDataChange }
+  return { mount, dialogs, resources, skills, chat, ui, warnings, emit: modules['@/utils/assistantDataChange'].emitAssistantDataChange }
 }
 
 async function settle() {
@@ -164,11 +167,28 @@ for (const mode of ['edit', 'create'] as const) {
   })
 }
 
+test('loading saved agents preserves retired configuration values without re-enabling their controls', async () => {
+  const f = fixture()
+  const legacy = { memory_enabled: false, web_search_enabled: true, history_turns: 17, multi_turn_enabled: false }
+  const props = vue.reactive({
+    visible: false, mode: 'edit', agent: { id: 'agent', name: 'Original',
+      config: { model_id: 'model', agent_mode: 'quick-answer', ...legacy } },
+  })
+  const { vm, unmount } = f.mount('../views/agent/AgentEditorModal.vue', props)
+  try {
+    props.visible = true
+    await settle()
+    for (const [key, value] of Object.entries(legacy)) assert.equal(vm.formData.config[key], value, key)
+    assert.equal(vm.modalShell.isDirty(), false)
+    assert.deepEqual(props.agent.config, { model_id: 'model', agent_mode: 'quick-answer', ...legacy })
+  } finally { unmount() }
+})
+
 test('closing during initialization does not warn or let a stale load replace the next baseline', async () => {
   const f = fixture()
   let release!: () => void
   const pending = new Promise<void>(resolve => { release = resolve })
-  f.resources.ensureSkills = () => pending
+  f.resources.prefetchAgentEditorDeps = async () => { await pending }
   const props = vue.reactive({
     visible: false, mode: 'edit', agent: { id: 'agent', name: 'Original', config: { model_id: 'model' } },
     'onUpdate:visible': (value: boolean) => { props.visible = value },
@@ -182,7 +202,7 @@ test('closing during initialization does not warn or let a stale load replace th
     assert.equal(props.visible, false)
     assert.equal(f.dialogs.length, 0)
     await settle()
-    f.resources.ensureSkills = async () => {}
+    f.resources.prefetchAgentEditorDeps = async () => {}
     props.visible = true
     await settle()
     vm.formData.name = 'Keep this edit'

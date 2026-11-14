@@ -26,6 +26,12 @@
                     @render-complete-change="emit('render-complete-change', $event)" />
             </div>
             <template v-else>
+                <!-- A plain answer has no timeline to put the memory row on, so
+                     it gets the standalone row. Agent turns render theirs inside
+                     the agent timeline instead, next to the steps it belongs
+                     with. -->
+                <RagPipelineProgress v-if="!session.isAgentMode && session.used_memories?.length"
+                    :session="session" :embedded-mode="embeddedMode" memory-only />
                 <docInfo v-if="session.knowledge_references?.length" :session="session"></docInfo>
                 <AgentStreamDisplay :session="session" :session-id="sessionId" :user-query="userQuery"
                     v-if="session.isAgentMode" :follow-up-loading="followUpLoading"
@@ -80,7 +86,7 @@
                     :title="$t('agent.copy')">
                     <ChatActionIcon name="copy" />
                 </t-button>
-                <t-button v-if="!IS_CONTEXTDB" size="small" variant="outline" shape="round" @click.stop="handleAddToKnowledge"
+                <t-button size="small" variant="outline" shape="round" @click.stop="handleAddToKnowledge"
                     :title="$t('agent.addToKnowledgeBase')">
                     <ChatActionIcon name="bookmark-add" />
                 </t-button>
@@ -140,7 +146,6 @@
     </div>
 </template>
 <script setup>
-import { IS_CONTEXTDB } from '@/config/contextdb';
 import { onMounted, onBeforeUnmount, watch, computed, ref, reactive, nextTick, onUpdated } from 'vue';
 import 'katex/dist/katex.min.css';
 import docInfo from './docInfo.vue';
@@ -151,7 +156,7 @@ import ChatActionIcon from '@/components/ChatActionIcon.vue';
 import AssistantActionsButton from '@/components/assistant/AssistantActionsButton.vue';
 import ChatRequestInfoButton from '@/components/ChatRequestInfoButton.vue';
 import ChatCitationFloat from '@/components/ChatCitationFloat.vue';
-import picturePreview from '@/components/picture-preview.vue';
+import picturePreview from './WeKnoraPicturePreview.vue';
 import ChatArtifactsDrawer from './ChatArtifactsDrawer.vue';
 import { isCollectingSkillArtifacts } from '@/utils/skillArtifacts';
 import { useArtifactArriveMotion } from '@/composables/useArtifactArriveMotion';
@@ -454,7 +459,6 @@ const renderedHTML = computed(() => {
         sanitizeHtml: sanitizeMarkdownHTML,
         streaming: !props.session?.is_completed,
         knowledgeReferences: props.session?.knowledge_references,
-        exactKnowledgeReferences: IS_CONTEXTDB,
     });
 });
 

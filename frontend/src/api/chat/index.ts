@@ -15,6 +15,7 @@ export interface CreateSessionRequest {
   description?: string;
   project_dir?: string;
   kind?: SessionKind;
+  agent_config?: Record<string, unknown>;
 }
 
 export async function createSessions(data: CreateSessionRequest = {}) {

@@ -6,14 +6,6 @@ import { effectScope, nextTick, ref, watch } from 'vue'
 
 const source = readFileSync(new URL('./AgentEditorModal.vue', import.meta.url), 'utf8')
 
-test('agent settings remove long-term memory and strip its retired field from old configs', () => {
-  assert.doesNotMatch(source, /memoryEnabled|memory_enabled:\s*true|v-model="formData.config.memory_enabled"/)
-  assert.match(source, /delete agentData\.config\.memory_enabled/)
-  const agentData={config:{memory_enabled:true,multi_turn_enabled:true,history_turns:5}}
-  new Function('agentData',source.match(/delete agentData\.config\.memory_enabled;/)[0])(agentData)
-  assert.deepEqual(agentData.config,{multi_turn_enabled:true,history_turns:5})
-})
-
 test('editing an agent closes the editor after a successful save', () => {
   assert.match(
     source,

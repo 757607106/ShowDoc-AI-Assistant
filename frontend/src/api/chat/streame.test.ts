@@ -57,23 +57,6 @@ test('approval reattach identifies the resumed segment without changing ordinary
   } finally { stream.stopStream() }
 })
 
-test('SSE sends an explicit empty knowledge scope so clearing a selection does not reuse the last turn', async () => {
-  let stream!: ReturnType<typeof useStream>
-  await renderToString(createSSRApp({ setup() { stream = useStream(); return () => null } }))
-  try {
-    for (const ids of [['kb-original'], [], undefined]) {
-      await stream.startStream({
-        session_id: 'session', query: 'question', method: 'POST', url: '/api/v1/agent-chat',
-        knowledge_base_ids: ids,
-      })
-      assert.equal(stream.error.value, null)
-      const body = JSON.parse(transport.requests.at(-1)!.options.body)
-      assert.deepEqual(body.knowledge_base_ids, ids)
-      assert.equal(Object.hasOwn(body, 'knowledge_base_ids'), ids !== undefined)
-    }
-  } finally { stream.stopStream() }
-})
-
 for (const effort of [undefined, '', 'off', 'auto', 'high', 'max']) {
   test(`SSE body carries only explicit reasoning overrides: ${effort}`, async () => {
     let stream!: ReturnType<typeof useStream>

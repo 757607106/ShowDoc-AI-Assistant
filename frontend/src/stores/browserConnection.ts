@@ -1,4 +1,3 @@
-import { IS_CONTEXTDB } from '@/config/contextdb'
 import { defineStore } from 'pinia'
 import { get } from '@/utils/request'
 
@@ -39,14 +38,12 @@ export const useBrowserConnectionStore = defineStore('browserConnection', {
       this.loaded = true
     },
     async refresh() {
-      if (IS_CONTEXTDB) {this.enabled=false;this.loaded=true;return}
       const result = await get<{ data: BrowserAccountStatus }>('/api/v1/me/browser', {
         signal: pollController?.signal,
       })
       this.apply(result.data)
     },
     watchStatus() {
-      if (IS_CONTEXTDB) return
       this.subscribers += 1
       if (this.subscribers !== 1) return
       pollController = new AbortController()
@@ -57,7 +54,6 @@ export const useBrowserConnectionStore = defineStore('browserConnection', {
       void this.poll()
     },
     unwatchStatus() {
-      if (IS_CONTEXTDB) return
       this.subscribers = Math.max(0, this.subscribers - 1)
       if (this.subscribers !== 0) return
       if (visibilityHandler) {

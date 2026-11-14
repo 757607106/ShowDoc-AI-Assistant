@@ -23,7 +23,7 @@ const list = ref<HTMLElement>();
 const query = ref('');
 const composing = ref(false);
 const active = ref(0);
-const crumbs = computed(() => folderBreadcrumbs(state.path));
+const crumbs = computed(() => folderBreadcrumbs(state.path, state.tree?.folders));
 const kbRows = computed(() => props.knowledgeBases.filter(kb => kb.name.toLowerCase().includes(query.value.trim().toLowerCase())));
 const rows = computed(() => !state.kb
   ? kbRows.value.map(kb => ({ key: kb.id, name: kb.name, detail: kb.orgName || '', icon: 'folder', disabled: '', action: () => openKb(kb) }))
@@ -32,7 +32,8 @@ const rows = computed(() => !state.kb
       detail: t('mentionBrowser.folderCount', { count: folder.total_count }), icon: 'folder', disabled: '', action: () => navigate(folder.path) })),
     ...state.items.map(file => {
       const disabled = fileDisabledReason(file, props.supportedFileTypes, props.selectedFileIds);
-      return { key: file.id, name: file.name, detail: disabled ? t(`mentionBrowser.${disabled}`) : `${file.kbName} / ${file.folderPath || t('mentionBrowser.root')}`,
+      const folderLabel = folderBreadcrumbs(file.folderPath, state.tree?.folders).map(crumb => crumb.name).join('/');
+      return { key: file.id, name: file.name, detail: disabled ? t(`mentionBrowser.${disabled}`) : `${file.kbName} / ${folderLabel || t('mentionBrowser.root')}`,
         icon: 'file', disabled, action: () => selectFile(file) };
     }),
   ]);

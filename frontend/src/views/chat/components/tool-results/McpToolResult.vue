@@ -171,7 +171,7 @@ const statusLabel = (status: string) => {
 .mcp-item__name {
   flex: 1;
   min-width: 0;
-  font: var(--app-text-sm)/1.5 var(--app-font-family-mono, monospace);
+  font: 12px/1.5 var(--app-font-family-mono, monospace);
   font-weight: 600;
   color: var(--td-text-color-primary);
   overflow: hidden;
@@ -211,7 +211,7 @@ const statusLabel = (status: string) => {
   margin-bottom: 6px;
 }
 .mcp-define__head code {
-  font: var(--app-text-sm)/1.5 var(--app-font-family-mono, monospace);
+  font: 12px/1.5 var(--app-font-family-mono, monospace);
   font-weight: 600;
 }
 .mcp-define__head .mcp-server { font-weight: 500; color: var(--td-text-color-secondary); }
@@ -256,7 +256,7 @@ const statusLabel = (status: string) => {
 .mcp-parameter p { margin: 4px 0 0; color: var(--td-text-color-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
 .mcp-definition { margin-top: 10px; }
 .mcp-definition summary { cursor: pointer; color: var(--td-text-color-secondary); }
-pre { margin: 8px 0 0; padding: 10px 12px; background: var(--td-bg-color-secondarycontainer); border-radius: var(--app-radius-sm); font: var(--app-text-sm)/1.6 var(--app-font-family-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+pre { margin: 8px 0 0; padding: 10px 12px; background: var(--td-bg-color-secondarycontainer); border-radius: var(--app-radius-sm); font: 12px/1.6 var(--app-font-family-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
 .mcp-error { display: flex; align-items: flex-start; gap: 8px; color: var(--td-error-color); }
 .mcp-error pre { margin: 0; flex: 1; min-width: 0; }
 </style>

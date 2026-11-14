@@ -32,6 +32,7 @@ export interface QuestionSuggestionConfig {
 }
 
 export interface CustomAgentConfig {
+  retrieval_provider?: 'contextdb';
   // ===== 基础设置 =====
   agent_mode?: 'quick-answer' | 'smart-reasoning';  // 运行模式：quick-answer=RAG模式, smart-reasoning=ReAct Agent模式
   // 智能推理模式下的类型预设，用于一键应用"系统提示词 + 工具 + KB 兼容性"组合
@@ -56,7 +57,7 @@ export interface CustomAgentConfig {
   // ===== Agent模式设置 =====
   max_iterations?: number;          // 最大迭代次数；-1 表示不限制
   llm_call_timeout?: number;        // LLM调用超时时间（秒）
-  allowed_tools?: string[] | null;  // 允许的工具；null/未设置 = 后端默认工具，[] = 不使用内置工具
+  allowed_tools?: string[] | null;  // 可选业务工具；null/未设置 = 后端默认项，[] = 不使用可选项，官方固定能力不受此字段控制
   reflection_enabled?: boolean;     // 是否启用反思
   // MCP服务选择模式：all=全部启用的MCP服务, selected=指定服务, none=不使用MCP
   mcp_selection_mode?: 'all' | 'selected' | 'none';
@@ -116,6 +117,12 @@ export interface CustomAgentConfig {
   // ===== 多轮对话设置 =====
   multi_turn_enabled?: boolean;     // 是否启用多轮对话
   history_turns?: number;           // 保留历史轮数
+
+  // ===== 长期记忆 =====
+  // 该智能体是否可以读取用户的长期记忆。
+  // 缺省（旧数据）等同于 true：这是一个只能"关"的开关，空间设置关闭时
+  // 这里打开也不会生效。
+  memory_enabled?: boolean;
 
   // ===== 检索策略设置 =====
   embedding_top_k?: number;         // 向量召回TopK

@@ -62,7 +62,7 @@
         </div>
     </div>
 
-    <ContextualGuide v-if="!IS_CONTEXTDB" tour="chat" :when="showChatContextualGuide" />
+    <ContextualGuide tour="chat" :when="showChatContextualGuide" />
 
     <!-- 知识库编辑器（创建/编辑统一组件） -->
     <KnowledgeBaseEditorModal :visible="uiStore.showKBEditorModal" :mode="uiStore.kbEditorMode"
@@ -70,7 +70,6 @@
         @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess" />
 </template>
 <script setup lang="ts">
-import {IS_CONTEXTDB} from '@/config/contextdb'
 import { ref, watch, onMounted, nextTick, computed } from 'vue';
 import ContextualGuide from '@/components/ContextualGuide.vue';
 import InputField from '@/components/Input-field.vue';
@@ -176,7 +175,6 @@ const onQuestionsEntered = () => {
 };
 
 const fetchSuggestedQuestions = async (force = false) => {
-    if (IS_CONTEXTDB) {sqLoading.value=false;sqInitialLoad.value=false;return}
     const agentId = settingsStore.selectedAgentId;
     const params = settingsStore.getSuggestedQuestionsParams();
     const requestKey = JSON.stringify([agentId, params]);

@@ -159,7 +159,7 @@ import ChunkDetail from './tool-results/ChunkDetail.vue';
 import RelatedChunks from './tool-results/RelatedChunks.vue';
 import KnowledgeBaseList from './tool-results/KnowledgeBaseList.vue';
 import DocumentInfo from './tool-results/DocumentInfo.vue';
-import GraphQueryResults from './tool-results/GraphQueryResults.vue';
+import GraphQueryResults from './tool-results/WeKnoraGraphQueryResults.vue';
 import ThinkingDisplay from './tool-results/ThinkingDisplay.vue';
 import PlanDisplay from './tool-results/PlanDisplay.vue';
 import DatabaseQuery from './tool-results/DatabaseQuery.vue';

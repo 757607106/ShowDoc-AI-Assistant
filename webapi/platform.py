@@ -20,6 +20,8 @@ DISABLED = ('organizations', 'integrations.im', 'integrations.embed', 'integrati
 def deployment_capabilities():
     values = {key: {'supported': False, 'reason': '当前平台未启用此功能'} for key in DISABLED}
     values['agents'] = {'supported': True}
+    for key in ('settings.mcp', 'settings.sandbox', 'settings.sandbox.state'):
+        values[key] = {'supported': True}
     return jsonify(success=True, data={'edition': 'contextdb', 'capabilities': values})
 
 
@@ -37,15 +39,6 @@ def initialization_status():
                                        'need_initialization': not configured})
 
 
-@platform_bp.route('/api/v1/models')
-def models():
-    from agent.graph import build_model
-    model = build_model()
-    return jsonify(success=True, data=[{'id': 'agent-main', 'name': model.model_name,
-                                        'type': 'KnowledgeQA', 'source': 'remote', 'is_default': True,
-                                        'parameters': {'model_name': model.model_name}}])
-
-
 @platform_bp.route('/api/v1/tenants')
 @platform_bp.route('/api/v1/tenants/all')
 @platform_bp.route('/api/v1/tenants/search')
@@ -56,26 +49,6 @@ def tenants():
 @platform_bp.route('/api/v1/tenants/1')
 def tenant():
     return jsonify(success=True, data=_identity(g.user)['tenant'])
-
-
-@platform_bp.route('/api/v1/tenants/kv/default-settings')
-def default_settings():
-    return jsonify(success=True, data={'summary_model_id': 'agent-main', 'agent_enabled': True})
-
-
-@platform_bp.route('/api/v1/agents')
-@platform_bp.route('/api/v1/agents/builtin')
-def agents():
-    return jsonify(success=True, data=[{'id': 'platform-agent', 'name': '企业知识助手',
-        'description': '', 'is_builtin': True,
-        'config': {'model_id': 'agent-main', 'agent_mode': 'smart-reasoning', 'web_search_enabled': False}}])
-
-
-@platform_bp.route('/api/v1/agents/platform-agent')
-def builtin_agent():
-    return jsonify(success=True, data={'id': 'platform-agent', 'name': '企业知识助手', 'is_builtin': True,
-        'config': {'model_id': 'agent-main', 'agent_mode': 'smart-reasoning', 'web_search_enabled': False,
-                   'file_upload_enabled': False, 'image_upload_enabled': False}})
 
 
 @platform_bp.route('/api/v1/user/favorites', methods=['GET', 'POST'])

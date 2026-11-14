@@ -83,13 +83,13 @@ export function buildUploadFileName(
  * Breadcrumb entries for a folder path, from the top level down to the leaf.
  * The root has no crumbs of its own — callers render it as the leading item.
  */
-export function folderBreadcrumbs(path: string): Array<{ name: string; path: string }> {
+export function folderBreadcrumbs(path: string, folders?: KnowledgeFolderNode[]): Array<{ name: string; path: string }> {
   if (!path) return []
   const segments = path.split('/')
-  return segments.map((name, index) => ({
-    name,
-    path: segments.slice(0, index + 1).join('/'),
-  }))
+  return segments.map((name, index) => {
+    const nodePath = segments.slice(0, index + 1).join('/')
+    return { name: folders ? findFolderNode(folders, nodePath)?.name || name : name, path: nodePath }
+  })
 }
 
 /**

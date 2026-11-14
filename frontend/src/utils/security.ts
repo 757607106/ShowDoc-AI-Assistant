@@ -15,6 +15,7 @@ import {
   buildProtectedFileRequest,
   isProtectedFileProxyPath,
   isProviderFileURL,
+  isSessionAttachmentPreviewPath,
   PROVIDER_SCHEME_PATTERN,
   resolveProtectedFileAccess,
   type ProtectedFileAccessContext,
@@ -264,6 +265,7 @@ function decodeProviderURL(raw: string): string {
 
 function providerSourceFromImageSrc(src: string): string | null {
   const decodedSrc = decodeProviderURL(src);
+  if (isSessionAttachmentPreviewPath(decodedSrc)) return decodedSrc;
   if (isProviderFileURL(decodedSrc)) {
     return decodedSrc;
   }
@@ -614,7 +616,7 @@ export async function hydrateProtectedFileImages(
   ensureProtectedResourceCardClicks();
 
   const images = root.querySelectorAll<HTMLImageElement>(
-    'img[data-protected-src], img[src^="resource://"], img[src^="storage://"], img[src^="local://"], img[src^="minio://"], img[src^="cos://"], img[src^="tos://"], img[src^="s3://"], img[src^="oss://"], img[src^="ks3://"], img[src^="obs://"]',
+    'img[data-protected-src], img[src^="/api/v1/sessions/"], img[src^="resource://"], img[src^="storage://"], img[src^="local://"], img[src^="minio://"], img[src^="cos://"], img[src^="tos://"], img[src^="s3://"], img[src^="oss://"], img[src^="ks3://"], img[src^="obs://"]',
   );
   if (!images.length) {
     return;

@@ -29,7 +29,6 @@ function fixture(
     queue?: (id: string) => Promise<any>
     embedded?: boolean
     stream?: () => Promise<void>
-    contextdb?: boolean
   } = {},
 ) {
   let change!: (value: { chatid: string }[]) => Promise<void>
@@ -43,7 +42,6 @@ function fixture(
     errors: any[] = [],
     sent: any[] = []
   const context: Record<string, any> = {
-    IS_CONTEXTDB: options.contextdb ?? false,
     ref,
     computed,
     historyHasMoreAfterAttempt,
@@ -335,29 +333,6 @@ test('current detail retains a new-chat draft and embedded detail skips global s
   await embedded.change('B')
   assert.deepEqual(embedded.hydrated, [])
   assert.deepEqual(embedded.calls, [])
-})
-
-test('ContextDB session scopes restore from native config while an empty delayed create response preserves the first draft', async () => {
-  const held=deferred()
-  const f=fixture({contextdb:true,session:()=>held.promise})
-  const selected=ref(['kb-from-route'])
-  f.context.useSettingsStoreInstance.hydrateSessionInputState=(state:any,preserveDraft:boolean)=>{
-    f.hydrated.push([state,preserveDraft])
-    if(state&&!preserveDraft)selected.value=[...state.knowledge_base_ids]
-  }
-  f.context.firstQuery.value='first question'
-  const loading=f.page.loadSessionAndHydrate('A')
-  // The mount consumes firstQuery while getSession is still pending.
-  f.context.firstQuery.value=''
-  held.resolve({data:{id:'A',agent_config:{agent_enabled:true,knowledge_base_ids:[]}}})
-  await loading
-  assert.deepEqual(selected.value,['kb-from-route'])
-  assert.deepEqual(f.hydrated,[[{agent_enabled:true,knowledge_base_ids:[]},true]])
-
-  const restored=fixture({contextdb:true,session:async id=>({data:{id,agent_config:{agent_enabled:true,knowledge_base_ids:id==='A'?['saved-kb']:[]}}})})
-  await restored.page.loadSessionAndHydrate('A')
-  await restored.change('B')
-  assert.deepEqual(restored.hydrated,[[{agent_enabled:true,knowledge_base_ids:['saved-kb']},false],[{agent_enabled:true,knowledge_base_ids:[]},false]])
 })
 
 test('a send waiting for old detail hydration cannot continue in the next visit', async () => {

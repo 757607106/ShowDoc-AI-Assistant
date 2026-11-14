@@ -944,7 +944,7 @@ export interface UserSandbox {
 }
 
 /** Sandbox backends managed as named workspace configurations. */
-export const NAMED_SANDBOX_BACKEND_TYPES = ['cube', 'e2b', 'docker'] as const
+export const NAMED_SANDBOX_BACKEND_TYPES = ['cube', 'e2b', 'docker', 'state'] as const
 
 export function isNamedSandboxBackend(type: string): boolean {
   return (NAMED_SANDBOX_BACKEND_TYPES as readonly string[]).includes(type)

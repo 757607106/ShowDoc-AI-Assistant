@@ -48,6 +48,7 @@ export function canAccessToolboxSection(
     isSupported: (capability?: DeploymentCapabilityKey) => boolean
   },
 ): boolean {
+  if (section === 'browserconnection') return false
   if (!access.currentTenantRole && !access.canAccessAllTenants) return false
   return (access.canAccessAllTenants || access.hasRole(SETTINGS_SECTION_MIN_ROLE[section] ?? 'viewer'))
     && access.isSupported(SETTINGS_SECTION_CAPABILITY[section])

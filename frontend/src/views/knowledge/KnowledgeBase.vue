@@ -2760,7 +2760,7 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
                   @batch-tag="handleBatchTag" @download="handleBatchDownload" @select-loaded="toggleSelectAll(true)"
                   @move-to-folder="(path: string) => moveKnowledgeIntoFolder(Array.from(selectedIds), path)">
                   <template #assistant>
-                    <AssistantActionsButton v-if="!IS_CONTEXTDB && selectedIds.size" :label="$t('assistant.actions.processSelected')"
+                    <AssistantActionsButton v-if="selectedIds.size" :label="$t('assistant.actions.processSelected')"
                       :actions="selectedDocumentAssistantActions"
                       :disabled="batchDeleting || batchReparsing || batchTagging || batchDownloading" />
                   </template>

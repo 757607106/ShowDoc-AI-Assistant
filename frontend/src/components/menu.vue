@@ -7,7 +7,7 @@
                 <sup v-if="isLiteEdition" class="lite-badge">Lite</sup>
             </div>
             <div class="logo_actions">
-                <t-tooltip v-if="!IS_CONTEXTDB && assistantStore.entry === 'sidebar'" :content="assistantName" placement="bottom">
+                <t-tooltip v-if="assistantStore.entry === 'sidebar'" :content="assistantName" placement="bottom">
                     <AssistantButton data-guide="assistant-entry" icon-only :icon-size="18" :label="assistantName"
                         :active="assistantStore.visible" @click="assistantStore.toggle()" />
                 </t-tooltip>
@@ -81,7 +81,7 @@
                         </div>
                     </div>
                 </t-tooltip>
-                <t-tooltip v-if="!IS_CONTEXTDB && assistantStore.entry === 'sidebar'" :content="assistantName" placement="right">
+                <t-tooltip v-if="assistantStore.entry === 'sidebar'" :content="assistantName" placement="right">
                     <AssistantButton data-guide="assistant-entry" class="assistant-sidebar-entry" icon-only :icon-size="18"
                         :label="assistantName" :active="assistantStore.visible" @click="assistantStore.toggle()" />
                 </t-tooltip>
@@ -170,8 +170,6 @@
                                 <div class="session-list-row session-list-row--flat">
                                     <div class="session-list-row__body">
                                         <SessionSidebarRow :item="subitem" :batch-mode="batchMode"
-                                            :running="Boolean(sessionActivityEntries[subitem.id])"
-                                            :unread="Boolean(sessionUnread[subitem.id])"
                                             :active-path="currentSecondpath" :selected-ids="batchSelectedIds"
                                             :menu-options="buildSessionMenuOptions(subitem)"
                                             @navigate="gotopage(subitem.path)"
@@ -275,7 +273,6 @@ import {
 import { logout as logoutApi } from '@/api/auth';
 import { useMenuStore } from '@/stores/menu';
 import { useSettingsStore } from '@/stores/settings';
-import { useSessionActivityStore } from '@/stores/sessionActivity';
 import { useAuthStore } from '@/stores/auth';
 import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities';
 import { TOOLBOX_ITEMS, canAccessToolboxSection } from '@/config/toolbox';
@@ -322,9 +319,6 @@ const platformLogo = (p: string): string => (p ? PLATFORM_LOGO[p] || '' : '');
 
 const { t } = useI18n();
 const usemenuStore = useMenuStore();
-const sessionActivity = useSessionActivityStore();
-const { entries: sessionActivityEntries, unread: sessionUnread } = storeToRefs(sessionActivity);
-let sessionActivityTimer: ReturnType<typeof setInterval> | undefined;
 const authStore = useAuthStore();
 const deploymentCapabilities = useDeploymentCapabilitiesStore();
 const toolboxPreview = computed(() => TOOLBOX_ITEMS.filter((item) => canAccessToolboxSection(item.key, {
@@ -1066,7 +1060,6 @@ const loadSessionOriginMeta = async () => {
 const handleSessionMutation = (event: Event) => {
     const detail = (event as CustomEvent<SessionMutationDetail>).detail;
     if (!detail?.sessionId) return;
-    if (detail.removed || detail.messagesCleared) sessionActivity.dismiss(detail.sessionId);
     if (detail.patch) {
         updateSessionInBuckets(detail.sessionId, {
             ...detail.patch,
@@ -1083,9 +1076,6 @@ const handleSessionMutation = (event: Event) => {
 };
 
 onMounted(async () => {
-    sessionActivity.restore();
-    void sessionActivity.refresh();
-    sessionActivityTimer = setInterval(() => { void sessionActivity.refresh(); }, 5000);
     const routeName = typeof route.name === 'string' ? route.name : (route.name ? String(route.name) : '')
     currentpath.value = routeName;
     if (route.params.chatid) {
@@ -1118,9 +1108,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-    clearInterval(sessionActivityTimer);
     clearTimeout(forkRevealTimer);
-    sessionActivity.clear();
     window.removeEventListener(SESSION_MUTATION_EVENT, handleSessionMutation);
 });
 

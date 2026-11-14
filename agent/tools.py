@@ -63,7 +63,7 @@ def scoped_arguments(arguments, knowledge_base_ids, properties):
     return args
 
 
-async def load_knowledge_mcp_tools(*, api_key, role='viewer', owner_id=None, knowledge_base_ids=()):
+async def load_knowledge_mcp_tools(*, api_key, role='viewer', owner_id=None, knowledge_base_ids=(), agent_config=None):
     """Discover official schemas; connector tools are outside this platform's knowledge scope."""
     if not knowledge_base_ids:
         return []
@@ -71,6 +71,9 @@ async def load_knowledge_mcp_tools(*, api_key, role='viewer', owner_id=None, kno
     from langchain_mcp_adapters.client import MultiServerMCPClient
     schemas, annotations, allowed = {}, {}, set()
     ownership_client = ContextDBClient(api_key=api_key)
+    config = agent_config or {}
+    document_bases = config.get('_document_bases', {})
+    whole_bases = set(config.get('_whole_knowledge_bases', knowledge_base_ids))
     async def authorize(request, handler):
         if request.name not in allowed:
             raise StoreError('该工具未获当前会话授权', 403)
@@ -87,6 +90,26 @@ async def load_knowledge_mcp_tools(*, api_key, role='viewer', owner_id=None, kno
                 raise StoreError('当前账号没有知识库管理权限', 403)
         arguments = scoped_arguments(request.args, knowledge_base_ids, schemas.get(request.name, {}))
         properties = schemas[request.name]
+        requested_bases = set(arguments.get('knowledge_base_ids') or [arguments.get('knowledge_base_id')]) - {None}
+        restricted = requested_bases - whole_bases
+        if restricted:
+            if requested_bases & whole_bases:
+                raise StoreError('文档范围和整库范围请分别调用工具，避免扩大检索范围', 400)
+            scoped_docs = [document_id for document_id, kb_id in document_bases.items() if kb_id in restricted]
+            if 'document_ids' in properties:
+                supplied = arguments.get('document_ids') or scoped_docs
+                if not isinstance(supplied, list) or not supplied or not set(supplied).issubset(scoped_docs):
+                    raise StoreError('工具请求超出所选文档范围', 403)
+                arguments['document_ids'] = supplied
+            elif 'document_id' in properties:
+                supplied = arguments.get('document_id')
+                if not supplied and len(scoped_docs) == 1:
+                    supplied = scoped_docs[0]
+                if supplied not in scoped_docs:
+                    raise StoreError('请指定当前范围内的文档', 403)
+                arguments['document_id'] = supplied
+            else:
+                raise StoreError('该官方工具无法限定所选文档范围', 403)
         document_ids = []
         for field in ('document_id', 'document_ids'):
             value = arguments.get(field)
@@ -102,6 +125,10 @@ async def load_knowledge_mcp_tools(*, api_key, role='viewer', owner_id=None, kno
             detail = await asyncio.to_thread(ownership_client.get_document, None, document_id)
             if not isinstance(detail, dict) or detail.get('knowledge_base_id') not in knowledge_base_ids:
                 raise StoreError('文档不属于当前选择的知识库或无法验证归属', 403)
+            if detail['knowledge_base_id'] not in whole_bases and document_id not in document_bases:
+                raise StoreError('文档不属于本轮所选文档范围', 403)
+        if config.get('access_level') == 'read_only' and not annotations.get(request.name, {}).get('readOnlyHint'):
+            raise StoreError('当前会话仅允许读取知识库', 403)
         return await handler(request.override(args=arguments))
     client = MultiServerMCPClient({'contextdb': {
         'transport': 'streamable_http',
@@ -113,6 +140,10 @@ async def load_knowledge_mcp_tools(*, api_key, role='viewer', owner_id=None, kno
     for candidate in discovered:
         if not candidate.name.startswith('knowledge.'):
             continue
+        if agent_config is not None:
+            from agent.config import allowed_knowledge_tools
+            if candidate.name not in allowed_knowledge_tools(config):
+                continue
         schema = candidate.args_schema
         if isinstance(schema, type):
             schema = schema.model_json_schema()
@@ -121,12 +152,12 @@ async def load_knowledge_mcp_tools(*, api_key, role='viewer', owner_id=None, kno
             continue
         annotations[candidate.name] = candidate.metadata or {}
         read_only = (candidate.metadata or {}).get('readOnlyHint') is True
-        if role == 'viewer' and not read_only:
+        if (role == 'viewer' or config.get('access_level') == 'read_only') and not read_only:
             continue
         if role != 'admin' and candidate.name in ('knowledge.create_base', 'knowledge.delete_base', 'knowledge.update_base'):
             continue
         tools.append(candidate)
         allowed.add(candidate.name)
-    if not any(candidate.name == 'knowledge.search' for candidate in tools):
+    if (agent_config is None or 'knowledge.search' in allowed_knowledge_tools(config)) and not any(candidate.name == 'knowledge.search' for candidate in tools):
         raise RuntimeError('ContextDB MCP 未提供可用的 knowledge.search；知识访问已停止')
     return tools

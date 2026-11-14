@@ -46,6 +46,15 @@ function selectDefaults(store: ReturnType<typeof useSettingsStore>) {
   store.selectKnowledgeBases(['default-kb'])
 }
 
+test('the retired platform agent selection resolves to the restored smart-reasoning agent', () => {
+  const store = useSettingsStore(createPinia())
+  store.settings.selectedAgentId = 'platform-agent'
+  assert.equal(store.selectedAgentId, 'builtin-smart-reasoning')
+  assert.equal(store.getSelectedAgentId(), 'builtin-smart-reasoning')
+  store.settings.selectedAgentId = 'custom-agent'
+  assert.equal(store.selectedAgentId, 'custom-agent')
+})
+
 test('a new chat clears prior KB and file mentions while keeping unrelated composer settings', () => {
   const store = useSettingsStore(createPinia())
   selectDefaults(store)

@@ -45,14 +45,6 @@ test('locale bundles expose the same translation keys', () => {
   assert.deepEqual(mismatches, [], mismatches.slice(0, 20).join('\n'))
 })
 
-test('locales remove long-term memory features while retaining sandbox memory limits', () => {
-  for(const [name,keys] of Object.entries(localeKeysByName)) {
-    assert.deepEqual([...keys].filter(key=>/^(memorySettings\.|memoryWorkspaceSettings\.|chat\.memory|assistant\.settingsPages\.(memory|mymemory)\.)/.test(key)),[],name)
-    for(const key of ['agent.editor.memoryEnabled','agentEditor.desc.memoryEnabled','modelSettings.usage.longTermMemory','modelSettings.usage.bindings.extract_model'])assert.equal(keys.has(key),false,`${name}: ${key}`)
-    assert.equal(keys.has('settings.sandbox.dockerMemoryLimit'),true,name)
-  }
-})
-
 test('critical runtime i18n trees are present', () => {
   const en = localeKeysByName['en-US']
   const missing = CRITICAL_LOCALE_KEYS.filter((key) => !en.has(key))

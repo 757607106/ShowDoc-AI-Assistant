@@ -3,6 +3,7 @@
     <div class="section-header">
       <h2>{{ t('defaultSettings.title') }}</h2>
       <p class="section-description">{{ t('defaultSettings.description') }}</p>
+      <p v-if="IS_CONTEXTDB" class="section-description">知识库的嵌入与重排由 ContextDB 管理。</p>
     </div>
 
     <div class="intro">
@@ -72,6 +73,7 @@
 </template>
 
 <script setup lang="ts">
+import { IS_CONTEXTDB } from '@/config/contextdb'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -109,7 +111,7 @@ const modelSlots: ModelSlot[] = [
   { field: 'rerank_model_id', key: 'rerank', type: 'Rerank' },
   { field: 'vlm_model_id', key: 'vlm', type: 'VLLM' },
   { field: 'asr_model_id', key: 'asr', type: 'ASR' },
-]
+].filter(slot => !IS_CONTEXTDB || !['embedding_model_id', 'rerank_model_id'].includes(slot.field)) as ModelSlot[]
 
 const { t } = useI18n()
 const authStore = useAuthStore()

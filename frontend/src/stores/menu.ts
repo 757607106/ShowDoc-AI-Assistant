@@ -34,6 +34,7 @@ export const useMenuStore = defineStore('menuStore', () => {
     // Artifacts only exist where skills run in a sandbox.
     { title: '', titleKey: 'menu.artifacts', icon: 'artifact', path: 'artifacts', requiredCapability: 'settings.sandbox' },
     { title: '', titleKey: 'menu.agents', icon: 'agent', path: 'agents', requiredCapability: 'agents' },
+    { title: '', titleKey: 'toolbox.title', icon: 'toolbox', path: 'toolbox' },
     { title: '添加资料', icon: 'automation', path: 'collect' },
     { title: '资料任务', icon: 'automation', path: 'tasks' },
     { title: '提交记录', icon: 'automation', path: 'releases' },
@@ -45,6 +46,7 @@ export const useMenuStore = defineStore('menuStore', () => {
   ])
 
   const isFirstSession = ref(false)
+  const firstSessionId = ref('')
   const firstQuery = ref('')
   const firstMentionedItems = ref<any[]>([])
   const firstModelId = ref('')
@@ -157,6 +159,7 @@ export const useMenuStore = defineStore('menuStore', () => {
     menuArr,
     visibleMenuArr,
     isFirstSession,
+    firstSessionId,
     firstQuery,
     firstMentionedItems,
     firstModelId,

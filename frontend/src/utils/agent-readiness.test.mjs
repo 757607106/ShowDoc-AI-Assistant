@@ -17,10 +17,11 @@ test('does not treat an unrelated built-in chat model as agent configuration', (
 })
 
 test('official managed retrieval needs a chat model but no local rerank model', () => {
-  const options = { isAgentMode: true, isSharedAgent: false, managedRetrieval: true }
+  const options = { isAgentMode: true, isSharedAgent: false }
   const models = [{ id: 'chat', type: 'KnowledgeQA' }]
-  assert.deepEqual(getAgentNotReadyReasonKeys({ model_id: 'chat' }, models, options), [])
-  assert.deepEqual(getAgentNotReadyReasonKeys({}, models, options), ['summary_model'])
+  assert.deepEqual(getAgentNotReadyReasonKeys({ model_id: 'chat', retrieval_provider: 'contextdb' }, models, options), [])
+  assert.deepEqual(getAgentNotReadyReasonKeys({ retrieval_provider: 'contextdb' }, models, options), ['summary_model'])
+  assert.deepEqual(getAgentNotReadyReasonKeys({ model_id: 'missing', retrieval_provider: 'contextdb' }, models, options), ['summary_model'])
 })
 
 test('accepts the chat model explicitly configured on the agent', () => {

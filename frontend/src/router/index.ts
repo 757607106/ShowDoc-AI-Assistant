@@ -1,3 +1,4 @@
+import { IS_CONTEXTDB } from '@/config/contextdb'
 import { createRouter, createWebHistory } from 'vue-router'
 import { defineComponent } from 'vue'
 import type { RouteLocationNormalized } from 'vue-router'

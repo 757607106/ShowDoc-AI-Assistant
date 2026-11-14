@@ -111,22 +111,6 @@ function setup(t: TestContext, mode: 'ordinary' | 'quick-timeline' | 'agent') {
 }
 
 for (const mode of ['ordinary', 'quick-timeline', 'agent'] as const) {
-  test(`${mode}: retired memory events leave the answer untouched and knowledge references still work`, async t => {
-    const h = setup(t, mode)
-    const before = JSON.stringify(h.message)
-    h.send('memory_recalled', 'retired content', true, { memories: [{ id: 'old', content: 'old recall' }] })
-    assert.equal(JSON.stringify(h.message), before)
-    assert.equal(h.message.used_memories, undefined)
-    assert.equal(h.isReplying.value, true)
-    h.send('answer', '知识库答案', false, { event_id: 'answer' })
-    h.send('references', '', false, { references: [{ knowledge_id: 'doc', content: '官方文档内容' }] })
-    h.send('complete', '', true)
-    assert.equal(h.message.content, '知识库答案')
-    assert.equal(h.message.is_completed, true)
-    assert.equal(h.message.knowledge_references[0].knowledge_id, 'doc')
-    assert.equal(h.message.used_memories, undefined)
-  })
-
   test(`${mode}: answer.done → persistence → complete retries the image exactly once`, async t => {
     const h = setup(t, mode)
     h.send('answer', h.answer, false, { event_id: 'answer' })

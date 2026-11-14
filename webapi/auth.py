@@ -15,11 +15,13 @@ from governance.store import StoreError
 from integrations.contextdb import ContextDBClient
 
 auth_bp = Blueprint('auth', __name__)
+DEFAULT_BROWSER_SEARCH_INSTRUCTIONS = 'Default search engine: Bing.\nSearch URL: https://www.bing.com/search?q={query}'
 PUBLIC_PATHS = {
     '/api/health', '/api/v1/auth/login', '/api/v1/auth/refresh',
     '/api/v1/auth/auto-setup', '/api/v1/auth/oidc/config',
     '/api/v1/auth/registration-config',
     '/api/v1/auth/config',
+    '/api/v1/mcp-oauth/callback',
 }
 
 
@@ -67,28 +69,46 @@ def create_user(email, username, password, role='viewer', api_key=None):
     return uid
 
 
+def validate_access_token(token, *, secret_key=None):
+    """Validate the same platform session from Flask or an ASGI request."""
+    secret_key = secret_key or os.getenv('FLASK_SECRET_KEY')
+    if not secret_key:
+        raise StoreError('FLASK_SECRET_KEY 未配置', 503)
+    try:
+        claims = URLSafeTimedSerializer(secret_key, salt='platform-access').loads(token, max_age=8 * 3600)
+    except (BadSignature, SignatureExpired, TypeError):
+        raise StoreError('登录已失效，请重新登录', 401) from None
+    if not isinstance(claims, dict) or not isinstance(claims.get('session'), str) or not claims['session']:
+        raise StoreError('登录已失效，请重新登录', 401)
+    with connection() as conn:
+        row = conn.execute('SELECT u.* FROM platform_users u JOIN platform_tokens t ON t.owner_id=u.id WHERE t.id=%s AND t.expires_at>now() AND u.active', (claims['session'],)).fetchone()
+    if row is None:
+        raise StoreError('登录已失效，请重新登录', 401)
+    return row, claims['session']
+
+
 def require_login():
     if not request.path.startswith(('/api', '/entries', '/tasks', '/task_status', '/download', '/showdoc')):
         return None
     if request.path in PUBLIC_PATHS:
         return None
     token = request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
-    try:
-        claims = URLSafeTimedSerializer(current_app.secret_key, salt='platform-access').loads(token, max_age=8 * 3600)
-    except (BadSignature, SignatureExpired):
-        raise StoreError('登录已失效，请重新登录', 401)
-    with connection() as conn:
-        row = conn.execute('SELECT u.* FROM platform_users u JOIN platform_tokens t ON t.owner_id=u.id WHERE t.id=%s AND t.expires_at>now() AND u.active', (claims['session'],)).fetchone()
-    if row is None:
-        raise StoreError('登录已失效，请重新登录', 401)
+    row, session_id = validate_access_token(token, secret_key=current_app.secret_key)
     g.user = row
-    g.auth_session = claims['session']
+    g.auth_session = session_id
     if request.path.startswith('/showdoc/') and row['role'] != 'admin':
         raise StoreError('服务器 ShowDoc 登录凭据仅限平台管理员使用；采集可传入自己的 user_token', 403)
     if request.method not in ('GET', 'HEAD', 'OPTIONS') and row['role'] == 'viewer' and not request.path.startswith(('/api/v1/auth/', '/api/v1/user/favorites')):
         read_posts = ('/search', '/chat', '/query', '/load')
         batch_download = request.method == 'POST' and re.fullmatch(r'/api/v1/knowledge-bases/[^/]+/knowledge/batch-download', request.path)
-        if not batch_download and not request.path.endswith(read_posts) and '/sessions' not in request.path and not request.path.startswith(('/api/v1/agent-chat/', '/api/v1/knowledge-chat/')):
+        revoke_grant = request.method == 'DELETE' and request.path.startswith('/api/v1/agent/grants/')
+        personal = request.path.startswith(('/api/v1/me/env-vars/', '/api/v1/memory/', '/api/v1/agent/mcp-oauth-resolutions/'))
+        oauth = bool(re.fullmatch(r'/api/v1/mcp-services/[^/]+/oauth/(authorize-url|token)', request.path))
+        metadata = re.fullmatch(r'/api/v1/mcp-services/([^/]+)/metadata/refresh', request.path)
+        if metadata and request.method == 'POST':
+            from agent.registry import record
+            oauth = record('mcp', metadata[1], row['id']).get('auth_config', {}).get('auth_type') == 'oauth'
+        if not batch_download and not revoke_grant and not personal and not oauth and not request.path.endswith(read_posts) and '/sessions' not in request.path and not request.path.startswith(('/api/v1/agent-chat/', '/api/v1/knowledge-chat/', '/api/v1/agent/prompts/', '/api/v1/agent/tool-approvals/')):
             raise StoreError('当前账号为只读账号', 403)
     if request.method not in ('GET', 'HEAD', 'OPTIONS'):
         with connection() as conn:
@@ -142,13 +162,30 @@ def login():
 
 @auth_bp.route('/api/v1/auth/me')
 def me():
-    return jsonify(success=True, data=_identity(g.user))
+    return jsonify(success=True, data={**_identity(g.user),
+        'preference_defaults': {'browser_search_instructions': DEFAULT_BROWSER_SEARCH_INSTRUCTIONS}})
 
 
 @auth_bp.route('/api/v1/auth/logout', methods=['POST'])
 def logout():
     with connection() as conn:
         conn.execute('DELETE FROM platform_tokens WHERE id=%s', (g.auth_session,))
+    return jsonify(success=True)
+
+
+@auth_bp.post('/api/v1/auth/change-password')
+def change_password():
+    body = request.get_json(silent=True) or {}
+    password = body.get('new_password')
+    if not isinstance(password, str) or len(password) < 12 or len(password) > 1024:
+        raise StoreError('新密码长度须为12至1024位', 400)
+    with connection() as conn:
+        row = conn.execute('SELECT password_hash FROM platform_users WHERE id=%s FOR UPDATE', (g.user['id'],)).fetchone()
+        if not check_password_hash(row['password_hash'], str(body.get('old_password', ''))):
+            raise StoreError('当前密码错误', 400)
+        conn.execute('UPDATE platform_users SET password_hash=%s,updated_at=now() WHERE id=%s',
+                     (generate_password_hash(password), g.user['id']))
+        conn.execute('DELETE FROM platform_tokens WHERE owner_id=%s', (g.user['id'],))
     return jsonify(success=True)
 
 
@@ -202,9 +239,18 @@ def preferences():
     body = request.get_json(silent=True)
     if not isinstance(body, dict) or len(str(body)) > 32000:
         raise StoreError('偏好设置格式或大小无效', 400)
+    if 'browser_search_instructions' in body:
+        value = body['browser_search_instructions']
+        if value is None:
+            body.pop('browser_search_instructions')
+        else:
+            if not isinstance(value, str) or len(value) > 4000:
+                raise StoreError('浏览器搜索指令须为不超过 4000 字符的文本', 400)
+            value = value.strip()
+            body['browser_search_instructions'] = None if not value or value == DEFAULT_BROWSER_SEARCH_INSTRUCTIONS else value
     with connection() as conn:
         row = conn.execute('UPDATE platform_users SET preferences=preferences || %s,updated_at=now() WHERE id=%s RETURNING preferences', (Jsonb(body), user_id())).fetchone()
-    return jsonify(success=True, data=row)
+    return jsonify(success=True, data=row['preferences'])
 
 
 @auth_bp.route('/api/platform/users/<uid>', methods=['PATCH'])

@@ -1918,7 +1918,9 @@ export default {
       fallbackStrategy: '當無法從知識庫找到相關內容時的處理方式',
       fallbackResponse: '當無法回答時返回的固定文字',
       fallbackPrompt: '當無法從知識庫找到答案時，引導模型生成回覆的提示語'
-    },
+    ,
+  memoryEnabled: '允許該智慧代理讀取並補充你的長期記憶。關閉後，與它的對話既不會讀取記憶，也不會新增記憶。空間或個人設定關閉時，這裡開啟也不會生效',
+},
     selection: {
       all: '全部',
       selected: '指定',
@@ -2997,7 +2999,20 @@ export default {
         q2: '需要安裝哪個技能？',
         q3: '連上之後能在 Claw 裡做什麼？',
       },
-    },
+
+  mymemory: {
+        description: '我可以幫你檢視個人記憶、說明它們會用在哪些對話，以及怎樣增刪。',
+        q1: '這裡保存了哪些我的個人記憶？',
+        q2: '怎樣新增或刪除一條記憶？',
+        q3: '這些記憶會用在哪些對話裡？',
+      },
+  memory: {
+        description: '我可以區分工作區記憶和個人記憶，並說明怎樣讓智慧代理記住空間約定。',
+        q1: '工作區記憶和我的個人記憶有什麼不同？',
+        q2: '現在啟用了哪些記憶規則？',
+        q3: '怎樣讓智慧代理記住這個空間的約定？',
+      },
+},
     startFailed: '啟動助手失敗，請重試',
     askAboutDocument: '問 {name}',
     chooseAction: "選擇一項功能，或直接輸入你的需求。",
@@ -3824,7 +3839,9 @@ export default {
         follow_up_model: '追問模型',
         unknown: '其他模型設定'
       }
-    },
+    ,
+  longTermMemory: '長期記憶',
+},
     debug: {
       reasoningEffort: '思考強度',
       reasoningEffortDesc: '按模型目錄上報的等級傳送 reasoning_effort',
@@ -5372,7 +5389,13 @@ export default {
     attachmentUploadFailed: '附件上傳失敗',
     attachmentParseFailed: '附件解析失敗',
     attachmentStillProcessing: '附件 {name} 仍在解析，請稍候'
-  },
+  ,
+  memoryUsedCount: '本次使用了 {count} 條記憶',
+  memoryForget: '刪除這條記憶',
+  memoryForgotten: '已刪除這條記憶',
+  memoryForgetFailed: '刪除失敗',
+  memoryHint: '這些是助手在回答時看到的長期記憶，刪除後不會再被使用。',
+},
   knowledgeEditor: {
     titleCreate: '新建知識庫',
     titleEdit: '知識庫設定',
@@ -8170,7 +8193,9 @@ export default {
       sandboxNoConfigs: '當前空間還沒有沙箱，技能指令碼不會執行。',
       skillsInfoTitle: '技能與沙箱如何聯動？',
       skillsInfoContent: '技能是預裝的專業知識模組，指令碼在所選沙箱中隔離執行。可用清單來自該沙箱已安裝的技能；同一會話的沙箱一旦建立，後續附件、產物與銷毀都會鎖定在建立時那份設定上，改沙箱只影響之後新建的會話。'
-    },
+    ,
+  memoryEnabled: '長期記憶',
+},
     messages: {
       created: '已建立智慧代理',
       updated: '智慧代理已更新',
@@ -9305,5 +9330,182 @@ export default {
       },
       description: '先觀察圖片特徵並進行圖片描述，再根據圖片特徵決定是否呼叫 OCR 對圖片進行辨識，以節省模型呼叫次數並提升解析速度。當辨識到圖片為可校正的文件或標籤頁照片時，會在辨識前自動擺正並裁切頁面，以提升 OCR 準確率；若校正失敗則直接使用原圖。',
     },
+  },
+
+  memorySettings: {
+    title: '我的記憶',
+    description: '這裡是助手跨會話記住的關於你的內容。你可以隨時查看、修改和刪除，刪除後不會再被使用。',
+    workspaceDisabled: '當前空間尚未開啟長期記憶，管理員開啟後這裡的開關才會生效。',
+    enableLabel: '為我啟用長期記憶',
+    enableDescription: '關閉後助手不再讀取或新增你的記憶，已有記憶會保留，重新開啟即可繼續使用。',
+    agentDisabledHint: '單個智慧代理也可以單獨關閉長期記憶。被關閉的智慧代理在對話中既不會讀取你的記憶，也不會新增記憶；換用其他智慧代理不受影響。',
+    usage: {
+      title: '記憶何時會被使用',
+      iconHint: '查看哪些記憶會在對話裡被使用',
+      intro: '僅「生效中」會進入對話。',
+      rows: {
+        alwaysOn: {
+          label: '每輪都會帶上',
+          text: '個人資料、偏好，以及明確說「記住」的內容'
+        },
+        situational: {
+          label: '相關時才用',
+          text: '事實、在辦事項'
+        },
+        interest: {
+          label: '理解常問方向',
+          text: '長期追蹤，不一定每輪都引用'
+        },
+        tracking: {
+          label: '先觀察再記住',
+          text: '常問方向會先計數，達到次數後才成為長期追蹤'
+        },
+        documents: {
+          label: '常用資料',
+          text: '反覆用來回答你的文件，檢索時會稍稍優先'
+        },
+        pending: {
+          label: '確認後才生效',
+          text: '待確認的推斷'
+        },
+        inactive: {
+          label: '不再使用',
+          text: '已被更新、已歸檔'
+        }
+      }
+    },
+    listTitle: '記憶清單',
+    listCount: '共 {count} 條',
+    statusActive: '生效中',
+    statusSuperseded: '已被更新',
+    statusArchived: '已歸檔',
+    statusPending: '待確認',
+    statusTracking: '觀察中',
+    statusDocuments: '常用資料',
+    confirmGuess: '是的',
+    rejectGuess: '不是',
+    pendingHint: '這些是系統從你的提問裡推斷出來的，確認之前不會被使用。',
+    trackingHint: '這些是你反覆問到、但還沒達到「長期追蹤」次數的主題。記下來之前不會進入對話。',
+    documentsHint: '這些文件在回答裡反覆出現，檢索會稍微偏向它們。停止跟蹤後不再加權，再被引用兩次會重新出現。',
+    supersededHint: '這些內容已被更新的記憶替代，不會再進入對話，只作為變更記錄保留。',
+    archivedHint: '已歸檔的記憶不會再進入對話。超出每人上限後，較少用到的條目會被自動收起。',
+    pendingEmptyTitle: '沒有待確認的推斷',
+    pendingEmptyDescription: '當系統從你的提問裡推斷出關於你的資訊時，會先放在這裡等你確認。',
+    trackingEmptyTitle: '沒有正在觀察的主題',
+    trackingEmptyDescription: '自動提煉開啟後，系統會先統計你常問的方向，達到次數後再記為長期追蹤。',
+    documentsEmptyTitle: '還沒有常用資料',
+    documentsEmptyDescription: '同一份文件被回答引用兩次以上，就會出現在這裡。',
+    supersededEmptyTitle: '還沒有被更新的記憶',
+    supersededEmptyDescription: '同一主題被新說法覆蓋時，舊內容會留在這裡。在本頁直接編輯是原地改寫，不會產生這條記錄。',
+    archivedEmptyTitle: '還沒有歸檔的記憶',
+    archivedEmptyDescription: '生效中超過上限（預設 200 條）時，較少用到的會自動收起；帶過期時間的事項到期後也會進來。',
+    documentsHits: '已引用 {hits} 次',
+    untitledDocument: '未命名文件',
+    openDocument: '打開文件',
+    openDocumentUnavailable: '無法打開：缺少知識庫資訊',
+    stopTrackingDocument: '停止跟蹤',
+    stopTrackingDocumentConfirm: '停止用這份文件做個性化檢索？之後再被引用兩次會重新出現。',
+    stopTrackingDocumentSuccess: '已停止跟蹤這份資料',
+    stopTrackingDocumentFailed: '停止跟蹤失敗',
+    trackingProgress: '已問 {hits} 次，滿 {threshold} 次後記為長期追蹤',
+    trackingReady: '已達到次數，可以記為長期追蹤',
+    trackingAliases: '也問過：{aliases}',
+    promoteTopic: '記為追蹤',
+    dismissTopic: '不再跟蹤',
+    dismissTopicConfirm: '停止跟蹤這個主題？之後再問到也不會自動記為長期追蹤。',
+    promoteSuccess: '已記為長期追蹤',
+    promoteFailed: '記為關註失敗',
+    dismissSuccess: '已停止跟蹤這個主題',
+    dismissFailed: '停止跟蹤失敗',
+    confirmSuccess: '已確認',
+    confirmFailed: '確認失敗',
+    rejectSuccess: '已否決，不會再次推斷',
+    rejectFailed: '否決失敗',
+    export: '匯出',
+    consolidate: '整理',
+    consolidateConfirm: '合併意思接近的條目，舊內容會留在「已被更新」。確定整理？',
+    consolidateSuccess: '整理完成：合併 {merged} 組，到期歸檔 {expired} 條，過期事項降權 {demoted} 條',
+    consolidateNothing: '沒有發現需要整理的內容',
+    consolidateTooFewItems: '記憶還太少，暫時沒有整理的必要',
+    consolidateNoCandidates: '沒有發現意思相近的記憶，無需合併',
+    consolidateModelDeclined: '模型看過了，這些記憶說的不是同一件事，未做合併',
+    consolidateTooSoon: '剛整理過，請稍後再試',
+    consolidateModelUnavailable: '模型不可用，為避免誤合併，本次沒有改動任何記憶',
+    consolidateFailed: '整理失敗',
+    clear: '清空',
+    clearConfirm: '將永久刪除你的全部記憶、正在觀察的主題和常用資料，此操作不可復原。確定繼續嗎？',
+    deleteConfirm: '永久刪除這條記憶？',
+    add: '新增',
+    addPlaceholder: '用一句話寫下你希望助手記住的事',
+    addTitle: '新增記憶',
+    addKindLabel: '類型',
+    addContentLabel: '內容',
+    emptyTitle: '還沒有記憶',
+    emptyDescription: '在對話裡說「記住：……」，或者在上面直接新增一條。',
+    kinds: {
+      profile: '個人資料',
+      preference: '偏好',
+      fact: '事實',
+      task: '在辦事項',
+      interest: '長期追蹤'
+    },
+    kindHints: {
+      profile: '之後每輪對話都會帶上',
+      preference: '之後每輪對話都會帶上',
+      fact: '只在問題相關時才會用到',
+      task: '只在問題相關時才會用到',
+      interest: '用來理解你常問的方向，不一定每輪都引用'
+    },
+    origins: {
+      explicit: '你要求記住',
+      extracted: '自動提煉',
+      manual: '手動新增'
+    },
+    toasts: {
+      enabled: '已為你開啟長期記憶',
+      disabled: '已關閉長期記憶',
+      added: '已新增',
+      updated: '已更新',
+      deleted: '已刪除',
+      cleared: '已刪除 {count} 條記憶',
+      saveFailed: '操作失敗：{message}'
+    }
+  },
+  memoryWorkspaceSettings: {
+    title: '長期記憶',
+    description: '讓助手跨會話記住成員說過的個人資料、偏好、事實與在辦事項。',
+    introTitle: '預設關閉，需要你顯式開啟',
+    introDescription: '長期記憶會保留成員在對話中說過的內容，因此預設不開啟。開啟後每位成員的記憶彼此隔離，成員可以在「我的記憶」裡隨時查看、修改、刪除或整體關閉。生效中的個人資料與偏好會進入之後的每一輪對話；事實和在辦事項只在相關問題時召回。',
+    enableLabel: '在本空間啟用長期記憶',
+    enableDescription: '關閉後本空間的所有會話都不會讀取或寫入記憶。',
+    writeModeLabel: '記憶寫入方式',
+    writeModeDescription: '決定什麼內容會被記住。',
+    writeModeExplicit: '僅顯式記錄',
+    writeModeAuto: '自動提煉',
+    writeModeExplicitHint: '只記錄成員明確說「記住：……」的內容，以及在記憶頁手動新增的條目，不額外呼叫模型。',
+    writeModeAutoHint: '在此基礎上，會話結束後在後台呼叫一次模型，從成員自己說過的話裡提煉值得長期保留的內容。',
+    extractModelLabel: '提煉模型',
+    extractModelDescription: '留空則使用該次會話所用的模型。',
+    extractDelayLabel: '挖掘延遲',
+    extractDelayDescription: '一輪對話結束後等待多久再挖掘。等一等可以讓一次模型呼叫覆蓋使用者連著發的幾條訊息。',
+    extractMinIntervalLabel: '兩次挖掘的最小間隔',
+    extractMinIntervalDescription: '同一個人兩次挖掘之間至少間隔多久，用來控制成本。間隔內產生的訊息不會被丟棄，會順延到下一次挖掘一併處理。',
+    vectorRecallLabel: '按語義召回記憶',
+    vectorRecallDescription: '除了字面比對，再按含義比對。使用者換個說法之後，原來那條記憶仍然能被找到──而多數記憶遲早會被換說法。每輪問答多一次向量呼叫，超時會自動退回字面比對。',
+    embeddingModelLabel: '記憶 Embedding 模型',
+    embeddingModelDescription: '語義召回只使用這一個模型，與各知識庫綁定的 Embedding 無關。不選則只按字面比對。換模型後，新寫入立刻用新模型；舊記憶在補上新向量之前，語義召回找不到它們，只靠字面比對。',
+    conditioningLabel: '讓記憶參與檢索',
+    conditioningDescription: '開啟後，記憶會參與查詢改寫和文件排序，而不只是附加到回答提示裡。這是記憶在知識庫產品裡真正起作用的地方。',
+    interestThresholdLabel: '成為長期追蹤的次數',
+    interestThresholdDescription: '同一個主題被問到這麼多次後，才會作為長期關註記下來。設為 1 會把每個免洗問題都記下來，通常太吵。',
+    instructionsLabel: '自定義挖掘規則',
+    instructionsDescription: '追加到挖掘提示語裡的空間規則，用來表達產品猜不到的策略，例如「永遠不要記錄客戶姓名」。',
+    instructionsPlaceholder: '一行一條規則，例如：永遠不要記錄客戶姓名',
+    maxItemsLabel: '每人記憶上限',
+    maxItemsDescription: '超出後按重要度與使用時間歸檔最低的若干條，歸檔的記憶仍可在「我的記憶」裡檢視。',
+    toasts: {
+      saveSuccess: '長期記憶設定已儲存',
+      saveFailed: '儲存失敗：{message}'
+    }
   },
 }

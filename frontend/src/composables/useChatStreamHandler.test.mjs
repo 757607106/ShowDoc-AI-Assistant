@@ -244,7 +244,7 @@ const buildReconstruct = () => {
   const block = source.slice(helperStart, end)
   return vm.runInNewContext(
     ts.transpile(`(() => { ${block}; return reconstructEventStreamFromSteps })()`),
-    { markRaw: (v) => v, steerStepEvents: () => [], t: (key) => key },
+    { markRaw: (v) => v, steerStepEvents: () => [] },
   )
 }
 

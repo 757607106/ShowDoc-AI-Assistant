@@ -21,7 +21,7 @@ const catalog: AgentToolCatalog = {
     { name: 'wiki_delete_page', label: '删除Wiki', description: 'd', group: 'wiki_edit', danger: true, requirement: { all_of: ['wiki'] } },
   ],
   default_tools: ['search_knowledge', 'read_document', 'search_conversations'],
-  switch_managed_tools: ['web_search'],
+  switch_managed_tools: ['web_search', 'search_memory'],
 }
 
 const noKb: ScopeCapabilities = { vector: false, keyword: false, wiki: false, graph: false, faq: false }
@@ -53,17 +53,18 @@ test('a missing capability blocks ticking a tool but never unticking it', () => 
 })
 
 test('stored names the catalog does not offer stay visible and removable', () => {
-  const stored = ['search_knowledge', 'web_search', 'none', 'none']
+  const stored = ['search_knowledge', 'web_search', 'none', 'search_memory', 'none']
   const extras = storedExtraTools(catalog, stored, stored)
   assert.deepEqual(extras, [
     { value: 'web_search', kind: 'switch_managed', disabled: false },
     { value: 'none', kind: 'unrecognized', disabled: false },
+    { value: 'search_memory', kind: 'switch_managed', disabled: false },
   ])
 
   // Unticking keeps the entry on screen, but it cannot be ticked again.
   const afterUntick = storedExtraTools(catalog, stored, ['search_knowledge'])
   assert.deepEqual(afterUntick.map((e) => [e.value, e.disabled]), [
-    ['web_search', true], ['none', true],
+    ['web_search', true], ['none', true], ['search_memory', true],
   ])
 })
 

@@ -85,10 +85,10 @@ test('one composer action switches between stop and send', () => {
 // teardown that hands leftovers to a follow-up run. Queueing on a quick-answer
 // turn would park the message until it expired, so the composer keeps its old
 // stop-only behaviour there.
-test('mid-run send is limited to supported agent sessions', () => {
+test('mid-run send is limited to agent sessions', () => {
   const chatView = readFileSync(
     new URL('../views/chat/index.vue', import.meta.url), 'utf8')
-  assert.match(chatView, /:canSteer="!IS_CONTEXTDB && isAgentStreamSession\(\)"/)
+  assert.match(chatView, /:canSteer="isAgentStreamSession\(\)"/)
 
   const fnStart = inputField.indexOf('const createSession = async')
   const fnEnd = inputField.indexOf('const updateAgentModeDropdownPosition =', fnStart)

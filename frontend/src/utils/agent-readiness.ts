@@ -48,10 +48,10 @@ export function agentRequiresRerankModel(
 export function getAgentNotReadyReasonKeys(
   config: Pick<
     CustomAgentConfig,
-    'model_id' | 'rerank_model_id' | 'kb_selection_mode' | 'allowed_tools' | 'agent_mode'
+    'model_id' | 'rerank_model_id' | 'kb_selection_mode' | 'allowed_tools' | 'agent_mode' | 'retrieval_provider'
   > | undefined,
   models: Pick<ModelConfig, 'id' | 'type'>[],
-  options: { isAgentMode: boolean; isSharedAgent: boolean; managedRetrieval?: boolean },
+  options: { isAgentMode: boolean; isSharedAgent: boolean },
 ): AgentNotReadyReasonKey[] {
   const reasons: AgentNotReadyReasonKey[] = []
 
@@ -59,7 +59,7 @@ export function getAgentNotReadyReasonKeys(
     reasons.push('summary_model')
   }
 
-  if (!options.managedRetrieval && options.isAgentMode && agentRequiresRerankModel(config)) {
+  if (config?.retrieval_provider !== 'contextdb' && options.isAgentMode && agentRequiresRerankModel(config)) {
     const rerankModelID = config?.rerank_model_id?.trim()
     const rerankExists = !!rerankModelID && (
       options.isSharedAgent

@@ -13,7 +13,6 @@
             <div class="action-title">
               <ChatTimelineIcon class="action-title-icon" name="agent" />
               <span class="action-name tree-root-summary" v-html="intermediateStepsSummaryHtml"></span>
-              <span v-if="wasUserStopped" class="action-summary">{{ t('input.messages.stopSuccess') }}</span>
               <div class="action-show-icon">
                 <ChatTimelineIcon width="14" height="14" :name="showIntermediateSteps ? 'chevron-down' : 'chevron-right'" />
               </div>
@@ -23,6 +22,14 @@
       </div>
       <!-- Tree children (intermediate steps) -->
       <div v-if="showIntermediateSteps" class="tree-children">
+        <ChatMemoryStep
+          v-if="hasMemory"
+          :memories="memoryItems"
+          :expanded="memoryExpanded"
+          :forgetting-id="memoryForgettingId"
+          @toggle="toggleMemory"
+          @forget="forgetMemory"
+        />
         <template v-for="(event, index) in visibleIntermediateEvents" :key="getEventKey(event, index)">
           <div v-if="event && event.type" class="tree-child"
             :class="{ 'tree-child-last': !isSegmentDone && index === visibleIntermediateEvents.length - 1, 'tree-child-progress': event.type === 'child_task' }">
@@ -274,7 +281,6 @@
                     <div v-if="isEventExpanded(event.tool_call_id) && !event.pending && hasExpandableResults(event)"
                     class="action-details">
                     <BrowserToolDetails v-if="event.tool_name === 'local_browser'" :event="event" />
-                    <ContextDBToolResult v-else-if="IS_CONTEXTDB && contextdbToolLabel(event.tool_name)" :output="event.output ?? event.error" />
                     <div v-else-if="resolveToolDisplayType(event)" class="tool-result-wrapper">
                       <ToolResultRenderer :display-type="resolveToolDisplayType(event)" :tool-data="event.tool_data"
                         :output="toolResultOutput(event)" :arguments="event.arguments" :success="event.success" />
@@ -310,22 +316,24 @@
       </div>
     </div>
 
-    <div v-if="wasUserStopped && !shouldShowCollapsedSteps" class="tool-event agent-step-done" role="status" aria-live="polite">
-      <div class="action-card">
-        <div class="action-header no-results">
-          <div class="action-title">
-            <ChatTimelineIcon class="action-title-icon" name="check-circle" />
-            <span class="action-name">{{ t('input.messages.stopSuccess') }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Event Stream (non-tree mode: before answer starts, or answer events) -->
-    <div v-if="displayEvents.length > 0 || showAgentActivityIndicator || childActivity"
+    <div v-if="displayEvents.length > 0 || showMemoryRow || showAgentActivityIndicator || childActivity"
       class="streaming-steps-container" :class="{
         'is-streaming-timeline': showStreamingTimeline
       }">
+      <!-- Recalled memory leads the timeline: it is what the turn knew before it
+           started, so it belongs on the same line as the steps that follow it
+           rather than in a card of its own above them. -->
+      <ChatMemoryStep
+        v-if="showMemoryRow"
+        class="event-item"
+        :memories="memoryItems"
+        :expanded="memoryExpanded"
+        :is-last="memoryIsLast"
+        :forgetting-id="memoryForgettingId"
+        @toggle="toggleMemory"
+        @forget="forgetMemory"
+      />
       <div v-if="earlierStepsCount > 0" class="event-item tree-child earlier-steps-node">
         <div class="tree-branch"></div>
         <div class="tree-child-content">
@@ -539,7 +547,7 @@
                   :title="$t('agent.copy')" :aria-label="$t('agent.copy')">
                   <ChatActionIcon name="copy" />
                 </t-button>
-                <t-button v-if="!IS_CONTEXTDB && !embeddedMode" size="small" variant="outline" shape="round" @click.stop="handleAddToKnowledge(event)"
+                <t-button v-if="!embeddedMode" size="small" variant="outline" shape="round" @click.stop="handleAddToKnowledge(event)"
                   :title="$t('agent.addToKnowledgeBase')">
                   <ChatActionIcon name="bookmark-add" />
                 </t-button>
@@ -685,7 +693,6 @@
                 <div v-if="isEventExpanded(event.tool_call_id) && !event.pending && hasExpandableResults(event)"
                   class="action-details">
                   <BrowserToolDetails v-if="event.tool_name === 'local_browser'" :event="event" />
-                  <ContextDBToolResult v-else-if="IS_CONTEXTDB && contextdbToolLabel(event.tool_name)" :output="event.output ?? event.error" />
                     <div v-else-if="resolveToolDisplayType(event)" class="tool-result-wrapper">
                     <ToolResultRenderer :display-type="resolveToolDisplayType(event)" :tool-data="event.tool_data"
                       :output="toolResultOutput(event)" :arguments="event.arguments" :success="event.success" />
@@ -753,12 +760,12 @@
         <t-link
           theme="primary"
           hover="color"
-          :href="wikiPageHref"
+          :href="wikiGraphHref"
           target="_blank"
           rel="noopener noreferrer"
         >
-          <template #prefixIcon><t-icon name="book-open" /></template>
-          打开 Wiki 页面
+          <template #prefixIcon><t-icon name="chart-bubble" /></template>
+          {{ $t('knowledgeEditor.wikiBrowser.viewInGraph') }}
         </t-link>
       </div>
       <div ref="wikiDrawerBodyRef" class="wiki-reader-body" v-html="wikiDrawerContent" @click="handleWikiDrawerClick">
@@ -776,9 +783,6 @@
 </template>
 
 <script setup lang="ts">
-import { IS_CONTEXTDB } from '@/config/contextdb';
-import { contextdbToolLabel } from '@/utils/platformPresentation';
-import ContextDBToolResult from './tool-results/ContextDBToolResult.vue';
 import { readDocumentReferences } from '@/utils/readDocumentReferences';
 import { isAssistantTurnComplete } from '@/utils/steerStreamFork';
 import { isAwaitingInput } from '@/composables/useChatStreamHandler';
@@ -812,12 +816,14 @@ import HostReviewRecord from './HostReviewRecord.vue';
 import { isHostApprovalEvent, isModelReview } from './hostApproval';
 import ChatRequestInfoButton from '@/components/ChatRequestInfoButton.vue';
 import ChatCitationFloat from '@/components/ChatCitationFloat.vue';
-import picturePreview from '@/components/picture-preview.vue';
+import picturePreview from './WeKnoraPicturePreview.vue';
 import ChatArtifactsDrawer from './ChatArtifactsDrawer.vue';
 import { isCollectingSkillArtifacts } from '@/utils/skillArtifacts';
 import { useArtifactArriveMotion } from '@/composables/useArtifactArriveMotion';
 import { useChatSandboxPanel } from '@/composables/useChatSandboxPanel';
 import { persistedAssistantId } from '@/utils/steerStreamFork';
+import ChatMemoryStep from './ChatMemoryStep.vue';
+import { useChatMemoryRow, type UsedMemory } from '@/composables/useChatMemoryRow';
 import { countGrepDocuments, groupGrepChunkResults } from '@/utils/grepResultsGroup';
 import { getKnowledgeChunksSummaryHtml } from '@/utils/knowledgeChunksDisplay';
 import { getAttachmentParsingSummaryHtml } from '@/utils/attachmentParsingDisplay';
@@ -826,7 +832,7 @@ import { useChatReferencesDrawer } from '@/composables/useChatReferencesDrawer';
 import { mergeDocumentReferences, type KnowledgeReferenceLike, type ReferenceHighlightTarget } from '@/utils/referenceSources';
 import { resolveCitationChunkId } from '@/utils/citationMarkdown';
 import { citationAnchorText } from '@/utils/citationAnchor';
-import { getWikiPageByReference, type WikiPage } from '@/api/contextdbWiki';
+import { getWikiPage, type WikiPage } from '@/api/wiki';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useUIStore } from '@/stores/ui';
 import { useSettingsStore } from '@/stores/settings';
@@ -971,7 +977,6 @@ const TOOL_NAME_KEYS: Record<string, string> = {
 
 const getLocalizedToolName = (toolName?: string | null): string => {
   if (!toolName) return t('agent.toolFallback');
-  if (IS_CONTEXTDB && contextdbToolLabel(toolName)) return contextdbToolLabel(toolName)!;
   const key = TOOL_NAME_KEYS[toolName];
   if (key) return t(key);
 
@@ -1084,7 +1089,7 @@ function getTypeLabel(type: string): string {
 
 const wikiDrawerContent = computed(() => {
   if (!wikiDrawerPage.value) return '';
-  const content = wikiDrawerPage.value.published === true ? wikiDrawerPage.value.content || '' : '';
+  const content = wikiDrawerPage.value.content || '';
 
   // Pre-process wiki links [[slug|name]] to custom HTML tags for the drawer
   let preprocessed = content.replace(/\[\[([^\]]+)\]\]/g, (_, inner: string) => {
@@ -1115,8 +1120,8 @@ const openWikiDrawer = async (kbId: string, slug: string) => {
   if (!kbId || !slug) return;
   try {
     currentWikiKbId.value = kbId;
-    wikiDrawerPage.value = await getWikiPageByReference(kbId, slug);
-    if (wikiDrawerPage.value.published !== true) MessagePlugin.warning('该页面当前没有可读的正式正文');
+    const res = await getWikiPage(kbId, slug);
+    wikiDrawerPage.value = (res as any).data || res as any;
     wikiDrawerVisible.value = true;
   } catch (e) {
     console.error(`Failed to load page ${slug}:`, e);
@@ -1124,11 +1129,11 @@ const openWikiDrawer = async (kbId: string, slug: string) => {
   }
 };
 
-const wikiPageHref = computed(() => {
-  if (!currentWikiKbId.value || !wikiDrawerPage.value?.page_id) return '';
+const wikiGraphHref = computed(() => {
+  if (!currentWikiKbId.value || !wikiDrawerPage.value?.slug) return '';
   return router.resolve({
     path: `/platform/knowledge-bases/${currentWikiKbId.value}`,
-    query: { tab: 'wiki', wikiPageId: wikiDrawerPage.value.page_id },
+    query: { tab: 'graph', slug: wikiDrawerPage.value.slug },
   }).href;
 });
 
@@ -1292,6 +1297,15 @@ const showRequestInfo = computed(
   () => !props.embeddedMode && !!(props.session?.request_id || props.session?.id),
 );
 
+const {
+  memoryItems,
+  hasMemory,
+  expanded: memoryExpanded,
+  forgettingId: memoryForgettingId,
+  toggle: toggleMemory,
+  forget: forgetMemory,
+} = useChatMemoryRow(() => props.session?.used_memories as UsedMemory[] | undefined);
+
 const resolveAssistantMessageId = (session?: SessionData) =>
   String(session?.assistant_message_id || session?.id || '').trim();
 
@@ -1393,7 +1407,6 @@ const getReferencesForDrawer = (
     ? refsOverride
     : props.session?.knowledge_references;
   if (messageReferences?.length) return messageReferences;
-  if (IS_CONTEXTDB) return [];
 
   // Agent answers can already contain citation tags before the aggregated
   // knowledge_references event is emitted (and some restored conversations do
@@ -2118,6 +2131,19 @@ const shouldShowCollapsedSteps = computed(() => {
   return hasSteps && timelineCompleted.value;
 });
 
+// Once the steps collapse, the memory row travels with them into the tree —
+// showing it here as well would leave two rows saying the same thing. In
+// quick-answer mode the pipeline component owns the timeline and its memory row.
+const showMemoryRow = computed(
+  () => !props.ragMode && hasMemory.value && !shouldShowCollapsedSteps.value,
+);
+
+// Memory leads the timeline, so it is only the last node while nothing has
+// followed it yet — and a lone node has no trunk line to draw below it.
+const memoryIsLast = computed(
+  () => lastStreamingTimelineEventIndex.value === -1 && !showAgentActivityIndicator.value && !childActivity.value,
+);
+
 // Check if event is a "deep thinking" type (either streaming thinking or thinking tool call)
 const isThinkingLikeEvent = (event: any): boolean => {
   if (event.type === 'thinking') return true;
@@ -2698,9 +2724,7 @@ const onRootClick = (e: Event) => {
         rawChunkId,
         { doc: title, kbId },
         getReferencesForDrawer(),
-        IS_CONTEXTDB,
-      );
-    if (!chunkId) return;
+      ) || rawChunkId;
     if (openReferencesDrawer({
       chunkId,
       documentTitle: title,
@@ -2795,9 +2819,7 @@ const onRootKeydown = (e: KeyboardEvent) => {
           rawChunkId,
           { doc: title, kbId },
           getReferencesForDrawer(),
-          IS_CONTEXTDB,
-        );
-      if (!chunkId) return;
+        ) || rawChunkId;
       if (openReferencesDrawer({
         chunkId,
         documentTitle: title,
@@ -2944,7 +2966,6 @@ const renderAgentMarkdown = (
     sanitizeHtml: sanitizeMarkdownHTML,
     streaming: !isSegmentDone.value,
     knowledgeReferences: getReferencesForDrawer(),
-    exactKnowledgeReferences: IS_CONTEXTDB,
     cachedMermaidSvgHtml: streamingMermaidSvgCache.value,
     prepareMarkdown: prepareAgentMarkdown,
     injectCachedMermaidSvg,
@@ -4381,7 +4402,10 @@ const handleAddToKnowledge = (answerEvent: any) => {
 }
 </style>
 
-<!-- The drawer is attached to body and needs global styles. -->
+<!-- Inlined @import instead of <style src>: plugin-vue 6.0.6 keys unscoped
+     src-style descriptors by the imported file path, so two SFCs sharing the
+     same src style (this file and WikiBrowser.vue) overwrite each other's
+     descriptor during the build and crash with "reading 'scoped'". -->
 <style lang="less">
 @import "@/components/css/wiki-graph-drawer.less";
 </style>

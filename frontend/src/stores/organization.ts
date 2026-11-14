@@ -1,4 +1,3 @@
-import { IS_CONTEXTDB } from '@/config/contextdb'
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type {
@@ -124,7 +123,6 @@ export const useOrganizationStore = defineStore('organization', () => {
   )
 
   async function fetchOrganizations(options?: { force?: boolean }) {
-    if (IS_CONTEXTDB) return []
     return organizationsRequest.fetch(options?.force ?? false)
   }
 
@@ -460,7 +458,6 @@ export const useOrganizationStore = defineStore('organization', () => {
   )
 
   async function fetchSharedKnowledgeBases(options?: { force?: boolean }) {
-    if (IS_CONTEXTDB) return []
     await sharedKnowledgeBasesRequest.fetch(options?.force ?? false)
     return sharedKnowledgeBases.value
   }
@@ -496,7 +493,6 @@ export const useOrganizationStore = defineStore('organization', () => {
   )
 
   async function fetchSharedAgents(options?: { force?: boolean }) {
-    if (IS_CONTEXTDB) return []
     const locale = getCurrentLanguage()
     const force = options?.force ?? false
     // 飞行中的请求是用另一种语言发起的：不能复用它，排在它后面再发一次。

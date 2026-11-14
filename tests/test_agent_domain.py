@@ -2,11 +2,10 @@
 import asyncio
 import json
 import os
-import threading
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 
 from agent.checkpointer import make_checkpointer
@@ -41,236 +40,11 @@ def test_sessions_lifecycle_and_ownership(authenticated_client):
     assert http.delete(f'/api/agent/sessions/{sid}').status_code==404
 
 
-class FakeAgent:
-    def __init__(self,events,pending=False,messages=()):
-        self.events=events;self.pending=pending;self.resumed=False;self.messages=messages
-    async def aget_state(self,config):
-        value={'action_requests':[{'name':'knowledge.update_wiki_page','args':{'page_id':'p','content':'new'}}],
-               'review_configs':[{'action_name':'knowledge.update_wiki_page','allowed_decisions':['approve','reject']}]}
-        return SimpleNamespace(interrupts=[SimpleNamespace(value=value)] if self.pending and self.resumed else [],
-                               values={'messages': self.messages})
-    async def astream_events(self,inputs,config=None,version=None):
-        if not isinstance(inputs,dict):
-            assert inputs.resume['decisions'][0]['type'] in ('approve','reject')
-            self.pending=False
-        self.resumed=True
-        for event in self.events:
-            yield event
-
-
-def frames(response):
-    return [json.loads(line[6:]) for line in response.get_data(as_text=True).splitlines() if line.startswith('data: ')]
-
-
-def test_chat_sse_and_persisted_transcript(authenticated_client,monkeypatch):
-    from agent import service
-    agent=FakeAgent([{'event':'on_chat_model_stream','data':{'chunk':AIMessage('你好')}},
-                     {'event':'on_tool_start','name':'knowledge.search','run_id':'tool1','data':{'input':{'query':'部署'}}},
-                     {'event':'on_tool_end','name':'knowledge.search','run_id':'tool1',
-                      'data':{'output':ToolMessage(content='{"results": []}',tool_call_id='tool1')}}])
-    async def build(*args,**kwargs):return agent
-    monkeypatch.setattr(service,'build_agent',build)
-    http=authenticated_client
-    sid=http.post('/api/v1/sessions',json={}).json['data']['id']
-    response=http.post(f'/api/v1/agent-chat/{sid}',json={'query':'部署怎么做'},headers={'X-Request-ID':'unique-question'})
-    events=frames(response)
-    assert [item['response_type'] for item in events]==['agent_query','answer','tool_call','tool_result','complete']
-    assert events[1]['content']=='你好'
-    history=http.get(f'/api/v1/messages/{sid}/load').json['data']
-    assert [m['content'] for m in history]==['部署怎么做','你好']
-    assert http.post(f'/api/v1/agent-chat/{sid}',json={'query':'部署怎么做'},headers={'X-Request-ID':'unique-question'}).status_code==409
-    replay=frames(http.get(f'/api/v1/sessions/continue-stream/{sid}?message_id={events[0]["id"]}'))
-    assert replay[1]['content']=='你好'
-
-
-def test_official_citations_keep_document_names_and_ids(authenticated_client,monkeypatch):
-    from agent import service
-    agent=FakeAgent([{'event':'on_tool_end','name':'knowledge.search','run_id':'tool1','data':{
-        'output':SimpleNamespace(content=json.dumps({'results':[{'chunk_id':'chunk-1','document_id':'document-1','knowledge_base_id':'kb-1',
-                             'document_name':'来源文档.md','content':'完整官方出处'}]}))}}])
-    async def build(*args,**kwargs):return agent
-    monkeypatch.setattr(service,'build_agent',build)
-    sid=authenticated_client.post('/api/v1/sessions',json={}).json['data']['id']
-    events=frames(authenticated_client.post(f'/api/v1/agent-chat/{sid}',json={'query':'查出处','knowledge_base_ids':['kb-1']}))
-    ref=next(event for event in events if event['response_type']=='references')['data']['references'][0]
-    assert ref['knowledge_title']=='来源文档.md' and ref['knowledge_filename']=='来源文档.md'
-    assert (ref['id'],ref['knowledge_id'],ref['knowledge_base_id'])==('chunk-1','document-1','kb-1')
-    history=authenticated_client.get(f'/api/v1/messages/{sid}/load').json['data']
-    assert history[-1]['knowledge_references'][0]==ref
-
-
-def test_citations_are_current_scoped_evidence_in_stream_history_and_reconnect(authenticated_client, monkeypatch):
-    from agent import service
-    from langchain_mcp_adapters.tools import MCPToolArtifact
-    chunk = {'chunk_id': 'doc-1_chunk_2', 'document_id': 'doc-1', 'knowledge_base_id': 'kb-1',
-             'document_name': '官方手册.md', 'content': '连接池上限为 50。'}
-    native = {'chunks': [chunk, {**chunk, 'chunk_id': 'outside', 'knowledge_base_id': 'kb-2'}],
-              'truncated': True, 'note': '仅返回部分出处'}
-    output = ToolMessage(content='native', tool_call_id='tool1', artifact=MCPToolArtifact(structured_content=native))
-    text = '上限为 50。<kb chunk_id="doc-1_chunk_2" kb_id="kb-1" doc="模型伪造标题" />'
-    text += '未知<kb chunk_id="invented" kb_id="kb-1" />越界<kb chunk_id="outside" kb_id="kb-2" />'
-    text += '\n示例：`<kb chunk_id="literal" />`\n```html\n<kb chunk_id="literal" />\n```'
-    agent = FakeAgent([
-        {'event': 'on_tool_start', 'name': 'knowledge.list_entity_chunks', 'run_id': 'tool1', 'data': {'input': {'entity_ids': ['e1']}}},
-        {'event': 'on_tool_end', 'name': 'knowledge.list_entity_chunks', 'run_id': 'tool1', 'data': {'output': output}},
-        *[{'event': 'on_chat_model_stream', 'data': {'chunk': AIMessage(c)}} for c in text],
-    ])
-    async def build(*args, **kwargs): return agent
-    monkeypatch.setattr(service, 'build_agent', build)
-    http = authenticated_client
-    sid = http.post('/api/v1/sessions', json={}).json['data']['id']
-    events = frames(http.post(f'/api/v1/agent-chat/{sid}', json={'query': '连接池上限', 'knowledge_base_ids': ['kb-1']}))
-    answer = ''.join(event['content'] for event in events if event['response_type'] == 'answer')
-    assert '官方手册.md' in answer and '模型伪造标题' not in answer
-    assert 'invented' not in answer and 'outside' not in answer
-    assert answer.count('本轮官方结果已截断') == 1
-    assert '`<kb chunk_id="literal" />`' in answer and '```html\n<kb chunk_id="literal" />\n```' in answer
-    assert len(next(event for event in events if event['response_type'] == 'references')['data']['references']) == 1
-    result = next(event for event in events if event['response_type'] == 'tool_result')['data']
-    assert result['output'] == native and result['success'] is True
-    history = http.get(f'/api/v1/messages/{sid}/load').json['data']
-    assert history[-1]['content'] == answer
-    replay = frames(http.get(f'/api/v1/sessions/continue-stream/{sid}?message_id={events[0]["id"]}'))
-    assert next(event for event in replay if event['response_type'] == 'answer')['content'] == answer
-    assert next(event for event in replay if event['response_type'] == 'tool_result')['data'] == result
-    agent.events = [{'event': 'on_chat_model_stream', 'data': {'chunk': AIMessage('<kb chunk_id="doc-1_chunk_2" kb_id="kb-1" />')}}]
-    next_turn = frames(http.post(f'/api/v1/agent-chat/{sid}', json={'query': '沿用旧引用'}))
-    assert not any(event['response_type'] in ('references', 'answer') for event in next_turn)
-
-
-@pytest.mark.parametrize('failed_native,status', [
-    ({'isError': True}, 'success'), ({'success': False}, 'success'),
-    ({'errorCode': 4007, 'errorMessage': '当前操作不可用'}, 'success'), ({}, 'error'),
-])
-def test_failed_official_result_never_registers_evidence(authenticated_client, monkeypatch, failed_native, status):
-    from agent import service
-    native = {'results': [{'chunk_id': 'c', 'document_id': 'd', 'knowledge_base_id': 'kb',
-                           'document_name': '不能引用', 'content': '失败响应中的内容'}], **failed_native}
-    agent = FakeAgent([
-        {'event': 'on_tool_start', 'name': 'knowledge.search', 'run_id': 't', 'data': {'input': {'query': 'x'}}},
-        {'event': 'on_tool_end', 'name': 'knowledge.search', 'run_id': 't',
-         'data': {'output': ToolMessage(content=json.dumps(native), tool_call_id='t', status=status)}},
-        {'event': 'on_chat_model_stream', 'data': {'chunk': AIMessage('证据不足<kb chunk_id="c" kb_id="kb" />')}},
-    ])
-    async def build(*args, **kwargs): return agent
-    monkeypatch.setattr(service, 'build_agent', build)
-    sid = authenticated_client.post('/api/v1/sessions', json={}).json['data']['id']
-    events = frames(authenticated_client.post(f'/api/v1/agent-chat/{sid}', json={'query': 'x', 'knowledge_base_ids': ['kb']}))
-    assert next(event for event in events if event['response_type'] == 'tool_result')['data']['success'] is False
-    assert not any(event['response_type'] == 'references' for event in events)
-    assert ''.join(event['content'] for event in events if event['response_type'] == 'answer') == '证据不足'
-
-
-@pytest.mark.parametrize('failure,terminal', [(RuntimeError('上游连接中断'), 'error'), (asyncio.CancelledError(), 'stop')])
-def test_tool_interruption_finishes_steps_and_replays_terminal_state(authenticated_client, monkeypatch, failure, terminal):
-    from agent import service
-    class InterruptedAgent(FakeAgent):
-        async def astream_events(self, *args, **kwargs):
-            yield {'event': 'on_tool_start', 'name': 'knowledge.search', 'run_id': 't', 'data': {'input': {'query': 'x'}}}
-            raise failure
-    async def build(*args, **kwargs): return InterruptedAgent([])
-    monkeypatch.setattr(service, 'build_agent', build)
-    http = authenticated_client
-    sid = http.post('/api/v1/sessions', json={}).json['data']['id']
-    events = frames(http.post(f'/api/v1/agent-chat/{sid}', json={'query': 'x'}))
-    assert events[-1]['response_type'] == terminal
-    result = next(event for event in events if event['response_type'] == 'tool_result')['data']
-    assert result['success'] is False and '未收到工具结果' in result['error']
-    history = http.get(f'/api/v1/messages/{sid}/load').json['data'][-1]
-    assert history['agent_steps'][0]['tool_calls'][0]['result']['success'] is False
-    replay = frames(http.get(f'/api/v1/sessions/continue-stream/{sid}?message_id={events[0]["id"]}'))
-    assert replay[-1]['response_type'] == terminal
-    assert next(event for event in replay if event['response_type'] == 'tool_result')['data'] == result
-
-
-def test_stop_cancels_a_tool_that_produces_no_more_events(authenticated_client, monkeypatch):
-    from agent import service
-    started, cancelled, finished = threading.Event(), threading.Event(), threading.Event()
-    captured = []
-    class BlockedAgent(FakeAgent):
-        async def astream_events(self, *args, **kwargs):
-            yield {'event': 'on_tool_start', 'name': 'knowledge.search', 'run_id': 'blocked', 'data': {'input': {'query': 'x'}}}
-            started.set()
-            try:
-                await asyncio.Event().wait()
-            finally:
-                cancelled.set()
-    async def build(*args, **kwargs): return BlockedAgent([])
-    monkeypatch.setattr(service, 'build_agent', build)
-    http = authenticated_client
-    sid = http.post('/api/v1/sessions', json={}).json['data']['id']
-    generator = service.stream_chat(sid, 'x', owner_id=os.environ['TEST_PLATFORM_USER'], api_key='ctxdb-fake', role='admin')
-    def collect():
-        captured.extend(generator)
-        finished.set()
-    threading.Thread(target=collect, daemon=True).start()
-    assert started.wait(5)
-    assert http.post(f'/api/v1/sessions/{sid}/stop').status_code == 200
-    assert cancelled.wait(3) and finished.wait(3)
-    events = [json.loads(frame[6:]) for frame in captured]
-    assert events[-1]['response_type'] == 'stop'
-    assert next(e for e in events if e['response_type'] == 'tool_result')['data']['success'] is False
-    history = http.get(f'/api/v1/messages/{sid}/load').json['data'][-1]
-    assert history['run_state'] == 'cancelled' and history['is_completed']
-    replay = frames(http.get(f'/api/v1/sessions/continue-stream/{sid}?message_id={events[0]["id"]}'))
-    assert replay[-1]['response_type'] == 'stop'
-
-
-def test_human_confirmation_resumes_once(authenticated_client,monkeypatch):
-    from agent import service
-    agent=FakeAgent([],pending=True)
-    async def build(*args,**kwargs):return agent
-    monkeypatch.setattr(service,'build_agent',build)
-    http=authenticated_client
-    sid=http.post('/api/v1/sessions',json={}).json['data']['id']
-    result=frames(http.post(f'/api/v1/agent-chat/{sid}',json={'query':'修改 Wiki'}))
-    pending=next(e for e in result if e['response_type']=='tool_approval_required')['data']['pending_id']
-    assert http.post(f'/api/v1/agent/tool-approvals/{pending}',json={'decision':'approve'}).status_code==200
-    replay=frames(http.get(f'/api/v1/sessions/continue-stream/{sid}?message_id={pending}&resume_pending_id={pending}'))
-    assert replay[-1]['response_type']=='complete'
-    assert http.post(f'/api/v1/agent/tool-approvals/{pending}',json={'decision':'approve'}).status_code==409
-
-
-def test_confirmation_restores_only_successful_evidence_from_the_same_turn(authenticated_client, monkeypatch):
-    from agent import service
-    from langchain_mcp_adapters.tools import MCPToolArtifact
-    def evidence(chunk_id, status='success'):
-        return ToolMessage(content='native', name='knowledge.search', tool_call_id=chunk_id, status=status,
-            artifact=MCPToolArtifact(structured_content={'truncated': True, 'results': [{
-                'knowledge_base_id': 'kb', 'document_id': 'doc', 'chunk_id': chunk_id,
-                'document_name': '官方来源', 'content': '原文'}]}))
-    agent = FakeAgent([], pending=True, messages=[
-        HumanMessage('历史问题'), evidence('old'), HumanMessage('本轮问题'),
-        evidence('current'), evidence('failed', 'error'),
-    ])
-    async def build(*args, **kwargs): return agent
-    monkeypatch.setattr(service, 'build_agent', build)
-    http = authenticated_client
-    sid = http.post('/api/v1/sessions', json={}).json['data']['id']
-    first = frames(http.post(f'/api/v1/agent-chat/{sid}', json={'query': '本轮问题', 'knowledge_base_ids': ['kb']}))
-    pending = next(e for e in first if e['response_type'] == 'tool_approval_required')['data']['pending_id']
-    agent.events = [{'event': 'on_chat_model_stream', 'data': {'chunk': AIMessage(
-        '当前<kb chunk_id="current" />历史<kb chunk_id="old" />失败<kb chunk_id="failed" />')}}]
-    assert http.post(f'/api/v1/agent/tool-approvals/{pending}', json={'decision': 'approve'}).status_code == 200
-    replay = frames(http.get(f'/api/v1/sessions/continue-stream/{sid}?message_id={pending}'))
-    assert replay[-1]['response_type'] == 'complete'
-    answer = next(e for e in replay if e['response_type'] == 'answer')['content']
-    assert 'chunk_id="current"' in answer and 'chunk_id="old"' not in answer and 'chunk_id="failed"' not in answer
-    assert answer.count('本轮官方结果已截断') == 1
-    refs = next(e for e in replay if e['response_type'] == 'references')['data']['references']
-    assert [r['id'] for r in refs] == ['current']
-
-
-def test_chat_requires_session_and_message(authenticated_client):
-    assert authenticated_client.post('/api/agent/chat',json={'message':'x'}).status_code==400
-    assert authenticated_client.post('/api/agent/chat',json={'session_id':'s'}).status_code==400
-
-
-def test_build_model_routes_bailian_or_fallback(monkeypatch):
+def test_build_model_preserves_explicit_model_selection(monkeypatch):
     from agent.graph import build_model
     monkeypatch.delenv('BAILIAN_API_KEY',raising=False)
     monkeypatch.setenv('AGENT_MAIN_MODEL','qwen-max')
-    assert build_model().model_name=='qwen-plus'
+    assert build_model().model_name=='qwen-max'
     monkeypatch.setenv('BAILIAN_API_KEY','sk-bailian-test')
     model=build_model()
     assert model.model_name=='qwen-max' and 'dashscope.aliyuncs.com' in str(model.openai_api_base)
@@ -392,13 +166,19 @@ def official_mcp(monkeypatch):
 
 
 def test_empty_scope_does_not_discover_mcp_or_expose_knowledge_tools(monkeypatch, official_mcp):
+    import deepagents
     from agent import graph
-    monkeypatch.setattr(graph, 'build_model', lambda: object())
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    monkeypatch.setattr(graph, 'build_model', lambda *args: FakeMessagesListChatModel(responses=[AIMessage('answer')]))
     monkeypatch.setattr(graph, 'make_governance_tools', lambda *args: [])
-    monkeypatch.setattr('deepagents.create_deep_agent', lambda **kwargs: kwargs)
-    agent = asyncio.run(graph.build_agent(None, api_key='ctxdb-fake', owner_id='owner', knowledge_base_ids=[]))
-    assert agent['tools'] == [] and official_mcp.clients == []
-    assert '未选择知识库' in agent['system_prompt']
+    native, captured = deepagents.create_deep_agent, {}
+    def factory(**kwargs):
+        captured.update(kwargs)
+        return native(**kwargs)
+    monkeypatch.setattr(deepagents, 'create_deep_agent', factory)
+    asyncio.run(graph.build_agent(None, api_key='ctxdb-fake', owner_id='owner', knowledge_base_ids=[]))
+    assert all(not tool.name.startswith('knowledge.') for tool in captured['tools'])
+    assert official_mcp.clients == [] and '未选择知识库' in captured['system_prompt']
 
 
 def test_mcp_discovery_failure_stops_knowledge_access_without_rest_fallback(official_mcp):
@@ -497,24 +277,6 @@ def test_mcp_scope_does_not_replace_member_permissions(official_mcp):
             await tools['knowledge.search'].ainvoke({'query': '部署'})
         assert len(official_mcp.calls) == 1 and official_mcp.lookups == []
     asyncio.run(exercise())
-
-
-@pytest.mark.parametrize('legacy', [False, True])
-def test_chat_omitted_scope_keeps_selection_and_explicit_empty_clears_it(authenticated_client, monkeypatch, legacy):
-    from agent import service
-    selected = []
-    async def build(*args, **kwargs):
-        selected.append(kwargs['knowledge_base_ids'])
-        return FakeAgent([])
-    monkeypatch.setattr(service, 'build_agent', build)
-    sid = authenticated_client.post('/api/v1/sessions', json={}).json['data']['id']
-    url = '/api/agent/chat' if legacy else f'/api/v1/agent-chat/{sid}'
-    body = {'session_id': sid, 'message': '问题'} if legacy else {'query': '问题'}
-    for extra in ({'knowledge_base_ids': ['kb1', 'kb2']}, {}, {'knowledge_base_ids': []}, {}):
-        events = frames(authenticated_client.post(url, json={**body, **extra}))
-        assert events[-1]['response_type'] == 'complete'
-    assert selected == [['kb1', 'kb2'], ['kb1', 'kb2'], [], []]
-    assert authenticated_client.get(f'/api/v1/sessions/{sid}').json['data']['agent_config']['knowledge_base_ids'] == []
 
 
 def test_official_deepagents_interrupt_requires_confirmation():

@@ -49,7 +49,7 @@ def isolate_contextdb(monkeypatch, request, tmp_path):
     monkeypatch.setenv('CONTEXTDB_GOVERNANCE_KB', '_test_governance')
     monkeypatch.setenv('GOVERNANCE_DATA_DIR', str(tmp_path / 'data'))
     monkeypatch.setattr('governance.store.ContextDBClient', FakeContextDBClient)
-    uses_database = any(word in request.module.__name__ for word in ('governance_store', 'contextdb_sync', 'agent_domain', 'task_api', 'knowledge_api', 'platform', 'data_integrity_regression'))
+    uses_database = any(word in request.module.__name__ for word in ('governance_store', 'contextdb_sync', 'agent_domain', 'agent_configuration', 'agent_interactions', 'agent_runtime', 'agent_registry', 'task_api', 'knowledge_api', 'platform', 'data_integrity_regression'))
     if not uses_database:
         monkeypatch.delenv('DATABASE_URL', raising=False)
         yield

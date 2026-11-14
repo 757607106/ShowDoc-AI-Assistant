@@ -1,10 +1,9 @@
 <template>
-  <AssistantButton v-if="assistant.pageAccess && !IS_CONTEXTDB" :label="label" :icon-only="iconOnly" :disabled="disabled"
+  <AssistantButton v-if="assistant.pageAccess" :label="label" :icon-only="iconOnly" :disabled="disabled"
     @click.stop="openAssistant" />
 </template>
 
 <script setup lang="ts">
-import {IS_CONTEXTDB} from '@/config/contextdb'
 import { nextTick } from 'vue'
 import { useAssistantStore, type AssistantContextAction, type AssistantPageSelection } from '@/stores/assistant'
 import AssistantButton from './AssistantButton.vue'

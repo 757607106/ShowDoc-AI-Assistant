@@ -61,6 +61,7 @@ export interface MCPService {
 }
 
 export interface MCPTool {
+  readOnlyHint?: boolean
   name: string
   description: string
   inputSchema: Record<string, any>

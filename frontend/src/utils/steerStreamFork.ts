@@ -254,6 +254,7 @@ export function expandSteerForksInHistory(messages: ChatMessage[]): ChatMessage[
             assistant_message_id: persistedId,
           }
       segment.agentEventStream = markRaw(buckets[s])
+      if (s > 0) segment.used_memories = undefined
       if (isLast) {
         segment.content = original.content
         segment.artifacts = original.artifacts

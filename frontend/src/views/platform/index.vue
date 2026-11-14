@@ -4,11 +4,9 @@
         <div v-if="isRouterAlive" class="platform-route-outlet">
             <RouterView />
         </div>
-        <!-- WeKnora 助手：停靠时作为布局右栏挤压页面，悬浮时浮在页面上；都不加遮罩，
-             跨页面保留会话，从侧栏、右侧边缘按钮或命令面板唤出（设置里可选） -->
-        <AssistantPanel v-if="!IS_CONTEXTDB" />
-        <AssistantLauncher v-if="!IS_CONTEXTDB" />
-        <AssistantPageBridge v-if="!IS_CONTEXTDB" />
+        <!-- Assistant entry points open the official harness composer. -->
+        <AssistantLauncher />
+        <AssistantPageBridge />
         <div class="upload-mask" v-show="ismask">
             <UploadMask></UploadMask>
         </div>
@@ -30,7 +28,8 @@ import { useRoute, useRouter } from 'vue-router'
 import UploadMask from '@/components/upload-mask.vue'
 import Settings from '@/views/settings/ContextDBSettings.vue'
 import GlobalCommandPalette from '@/components/GlobalCommandPalette.vue'
-import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
+import { useAssistantStore } from '@/stores/assistant'
+import { useMenuStore } from '@/stores/menu'
 import AssistantLauncher from '@/components/assistant/AssistantLauncher.vue'
 import AssistantPageBridge from '@/components/assistant/AssistantPageBridge.vue'
 import UploadTasksPanel from '@/components/upload-tasks/UploadTasksPanel.vue'
@@ -47,6 +46,17 @@ const route = useRoute();
 const router = useRouter();
 const commandPaletteStore = useCommandPaletteStore();
 const uiStore = useUIStore();
+const assistant = useAssistantStore();
+const menu = useMenuStore();
+assistant.close();
+watch(() => assistant.visible, (visible) => {
+    if (!visible) return;
+    const request = assistant.takePendingRequest();
+    const query = request?.query || assistant.pageSelection?.text;
+    if (query) menu.setPrefillQuery(query);
+    assistant.close();
+    void router.push('/platform/creatChat');
+});
 let ismask = ref(false)
 const { t } = useI18n();
 

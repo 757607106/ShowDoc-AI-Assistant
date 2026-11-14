@@ -644,4 +644,6 @@ def showdoc_get_project_detail(item_id):
 
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=8000, debug=False)
+    import uvicorn
+    from asgi import create_app
+    uvicorn.run(create_app(app), host='127.0.0.1', port=8000)

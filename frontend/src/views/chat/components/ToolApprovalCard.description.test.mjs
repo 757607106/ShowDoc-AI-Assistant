@@ -12,7 +12,6 @@ const evaluate = (description, serviceName = 'docs-mcp', delegatedTask = '') => 
   descriptionCode + '\n;({ descriptionParts, question, compactDescription, hasLongDescription, argumentSummary })',
   {
     props: { description, serviceName, delegatedTask },
-    IS_CONTEXTDB: false,
     argsText: { value: '{"period":2,"limit":3}' },
     computed: fn => ({ value: fn() }),
     isOperation: { value: serviceName === 'WeKnora' },

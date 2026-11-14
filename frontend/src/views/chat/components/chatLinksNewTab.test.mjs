@@ -24,7 +24,7 @@ test('reference document links open in a new tab', () => {
 test('wiki drawer navigation and citation fallbacks open in a new tab', () => {
   assert.match(
     agentStream,
-    /:href="wikiPageHref"[\s\S]*?target="_blank"[\s\S]*?rel="noopener noreferrer"/,
+    /:href="wikiGraphHref"[\s\S]*?target="_blank"[\s\S]*?rel="noopener noreferrer"/,
   )
   assert.match(agentStream, /window\.open\(href, '_blank', 'noopener,noreferrer'\)/)
   assert.doesNotMatch(agentStream, /router\.push\(/)

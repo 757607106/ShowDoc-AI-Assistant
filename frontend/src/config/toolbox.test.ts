@@ -33,7 +33,11 @@ test('toolbox preserves role and deployment gates, including workspace switches'
   for (const role of ['viewer', 'contributor']) {
     assert.equal(canAccessToolboxSection('skills', access(role)), false)
     assert.equal(canAccessToolboxSection('mcp', access(role)), false)
-    assert.equal(canAccessToolboxSection('browserconnection', access(role)), true)
+    assert.equal(canAccessToolboxSection('browserconnection', access(role)), false)
+  }
+  for (const role of roles) {
+    assert.equal(canAccessToolboxSection('browserconnection', access(role)), false)
+    assert.equal(canAccessToolboxSection('browserconnection', access(role, [], true)), false)
   }
   assert.equal(canAccessToolboxSection('skills', access('admin')), true)
   assert.equal(canAccessToolboxSection('skills', access('owner', ['settings.sandbox'])), false)

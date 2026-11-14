@@ -1,0 +1,479 @@
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": [
+        "cooperate",
+        "observe",
+        "snapshot",
+        "screenshot",
+        "navigate",
+        "navigate_back",
+        "navigate_forward",
+        "reload",
+        "click",
+        "fill",
+        "press",
+        "hover",
+        "wheel",
+        "scroll_to",
+        "focus",
+        "blur",
+        "select",
+        "tab_list",
+        "tab_create",
+        "tab_select",
+        "tab_close",
+        "tab_borrow",
+        "tab_return",
+        "get_html",
+        "evaluate",
+        "console",
+        "network",
+        "wait_for_navigation",
+        "wait_ms",
+        "window_resize",
+        "emulate",
+        "request_help"
+      ]
+    },
+    "keep_open": {
+      "type": "boolean",
+      "description": "Keep this task open after the turn for a deliverable or human step. Default false."
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "sync",
+        "status",
+        "wait"
+      ],
+      "description": "Required: sync returns evidence/receipts, status inspects, wait awaits hand-back (max 25000 ms)."
+    },
+    "control_policy": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "target",
+        "strict"
+      ],
+      "description": "Sync only: auto selects target for a new session, otherwise keeps its policy."
+    },
+    "context_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Actual context_id from sync. Required for page actions; never invent or silently refresh."
+    },
+    "observation_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Sync's single-use receipt, also required for scripts/navigation/untargeted actions."
+    },
+    "depends_on": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Strict policy only: refs/selectors for decision regions. Use expect with target policy."
+    },
+    "expect": {
+      "type": "array",
+      "maxItems": 16,
+      "description": "Observed facts that must still hold before input. Values are literal, including whitespace.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "pattern": "\\S"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "text",
+              "value",
+              "checked",
+              "exists",
+              "attribute"
+            ]
+          },
+          "equals": {
+            "type": [
+              "string",
+              "boolean",
+              "null"
+            ]
+          },
+          "attribute": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "target",
+          "field",
+          "equals"
+        ],
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "properties": {
+              "field": {
+                "enum": [
+                  "text",
+                  "value"
+                ]
+              },
+              "equals": {
+                "type": "string"
+              }
+            },
+            "not": {
+              "required": [
+                "attribute"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "field": {
+                "enum": [
+                  "checked",
+                  "exists"
+                ]
+              },
+              "equals": {
+                "type": "boolean"
+              }
+            },
+            "not": {
+              "required": [
+                "attribute"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "field": {
+                "const": "attribute"
+              },
+              "equals": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "attribute"
+            ]
+          }
+        ]
+      }
+    },
+    "debug_surfaces": {
+      "type": "boolean"
+    },
+    "max_depth": {
+      "type": "integer",
+      "minimum": 0.0
+    },
+    "probe_hover": {
+      "type": "boolean",
+      "description": "For observe: opt in for hover-only content. Moves the cursor and can take seconds."
+    },
+    "tab_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Required for tab_select/close/borrow/return; otherwise defaults to the current task tab."
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 1.0
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required for navigate; optional initial URL for tab_create."
+    },
+    "wait_until": {
+      "type": "string",
+      "enum": [
+        "load",
+        "domcontentloaded",
+        "networkidle",
+        "commit"
+      ],
+      "description": "Navigation wait state; default domcontentloaded. Use load/networkidle only when needed."
+    },
+    "hard": {
+      "type": "boolean"
+    },
+    "button": {
+      "type": "string",
+      "enum": [
+        "left",
+        "middle",
+        "right"
+      ]
+    },
+    "click_count": {
+      "type": "integer",
+      "minimum": 1.0
+    },
+    "modifiers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "alt",
+          "ctrl",
+          "meta",
+          "shift"
+        ]
+      }
+    },
+    "ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fresh page ref; omit selector when set. Optional screenshot element crop."
+    },
+    "selector": {
+      "type": "string",
+      "minLength": 1,
+      "description": "CSS selector, alternative to ref."
+    },
+    "clear_before": {
+      "type": "boolean"
+    },
+    "value": {
+      "type": "string",
+      "description": "Required for fill. Empty string clears the field."
+    },
+    "hold_ms": {
+      "type": "integer",
+      "minimum": 0.0
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required for press: a key or shortcut such as Enter, Escape, Ctrl+A. Use fill with value to enter text, not press."
+    },
+    "settle_ms": {
+      "type": "integer",
+      "minimum": 0.0
+    },
+    "delta_x": {
+      "type": "number"
+    },
+    "delta_y": {
+      "type": "number"
+    },
+    "values": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Required for select: native select option value attributes, not visible labels. For custom dropdowns use click/observe. Empty clears a multiple selection."
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "user",
+        "agent",
+        "all"
+      ]
+    },
+    "active": {
+      "type": "boolean",
+      "description": "Omit this field: the extension's task display setting controls tab activation."
+    },
+    "index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "confirm": {
+      "type": "boolean",
+      "description": "Borrowing always requires explicit user approval."
+    },
+    "max_bytes": {
+      "type": "integer",
+      "minimum": 0.0,
+      "description": "For get_html: limit returned HTML bytes."
+    },
+    "await_promise": {
+      "type": "boolean"
+    },
+    "expression": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required for evaluate: JavaScript evaluated as a script, not a function body. Use an expression such as document.title, or wrap statements and return in an IIFE: (() => { return document.title; })(). A top-level return is a syntax error. Use only for a specific gap after observation; return bounded JSON-serializable values, not DOM nodes. Inspect result ok/error."
+    },
+    "return_by_value": {
+      "type": "boolean"
+    },
+    "include_stack": {
+      "type": "boolean"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1.0
+    },
+    "max_text_chars": {
+      "type": "integer",
+      "minimum": 1.0,
+      "description": "Maximum characters of text to return. For observe and snapshot this bounds the rendered page; for console and network it bounds each entry."
+    },
+    "since": {
+      "type": "integer",
+      "minimum": 0.0
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0.0,
+      "maximum": 10000,
+      "description": "Required for wait_ms; integer milliseconds, 0 to 10000."
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 7680,
+      "description": "Required with width for window_resize."
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 7680,
+      "description": "Required with height for window_resize."
+    },
+    "off": {
+      "type": "boolean",
+      "description": "For emulate: true clears overrides; mutually exclusive with overrides."
+    },
+    "overrides": {
+      "type": "object",
+      "properties": {
+        "accept_language": {
+          "type": "string"
+        },
+        "device_scale_factor": {
+          "type": "number"
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0.0
+        },
+        "max_touch_points": {
+          "type": "integer",
+          "minimum": 0.0
+        },
+        "mobile": {
+          "type": "boolean"
+        },
+        "touch": {
+          "type": "boolean"
+        },
+        "user_agent": {
+          "type": "string"
+        },
+        "user_agent_metadata": {
+          "type": "object",
+          "properties": {
+            "architecture": {
+              "type": "string"
+            },
+            "brands": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "brand",
+                  "version"
+                ],
+                "properties": {
+                  "brand": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "full_version": {
+              "type": "string"
+            },
+            "mobile": {
+              "type": "boolean"
+            },
+            "model": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "platform_version": {
+              "type": "string"
+            }
+          }
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 0.0
+        }
+      },
+      "description": "For emulate: required unless off is true."
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required for request_help. Explain the step the user should complete."
+    },
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "method"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "cooperate"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "timeout_ms": {
+            "maximum": 25000
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

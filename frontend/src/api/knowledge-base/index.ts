@@ -547,6 +547,9 @@ export interface ListKnowledgeFilesParams {
 }
 
 export function listKnowledgeFiles(kbId: string, params: ListKnowledgeFilesParams, options?: KnowledgeReadOptions) {
+  if (params.folder_path !== undefined || params.tag_ids) {
+    return get(withKnowledgeReadContext(`/api/v1/knowledge-bases/${kbId}/knowledge`, options), { params, signal: options?.signal });
+  }
   return contextdb.listDocuments(kbId, params);
 }
 

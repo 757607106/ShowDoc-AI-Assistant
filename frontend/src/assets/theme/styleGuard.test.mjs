@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createHash } from 'node:crypto'
 
 /**
  * 样式守卫（棘轮）：统计 views/ components/ assets/ 里绕过设计令牌或和 TDesign 打架的写法，
@@ -18,6 +19,7 @@ const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SCAN_DIRS = ['views', 'components', 'assets']
 const EXTS = new Set(['.vue', '.less', '.css'])
 const EXEMPT_FILES = new Set(['assets/theme/theme.css'])
+const officialUI = JSON.parse(readFileSync(join(SRC_ROOT, '..', 'UPSTREAM-AGENT-UI.json'), 'utf8')).files
 
 const RULES = [
   {
@@ -48,7 +50,7 @@ const RULES = [
     name: 'font-size-literal',
     why: '字号请用 var(--app-text-2xs … 4xl)（10~24px），简写写成 font: var(--app-text-sm)/1.5 …；图标尺寸用 t-icon 的 size 属性',
     pattern: /\bfont(?:-size)?\s*:\s*\d+(?:\.\d+)?px/g,
-    baseline: 33,
+    baseline: 28,
   },
   {
     name: 'motion-literal',
@@ -110,7 +112,12 @@ const sources = (() => {
   for (const dir of SCAN_DIRS) {
     for (const file of walk(join(SRC_ROOT, dir))) {
       const rel = relative(SRC_ROOT, file).replaceAll('\\', '/')
-      if (!EXEMPT_FILES.has(rel)) list.push({ rel, text: stripComments(readFileSync(file, 'utf8')) })
+      if (!EXEMPT_FILES.has(rel)) {
+        const source = readFileSync(file, 'utf8')
+        const officialHash = officialUI[`src/${rel}`]?.source
+        const pinnedOfficial = officialHash && createHash('sha256').update(source).digest('hex') === officialHash
+        list.push({ rel, text: stripComments(source), pinnedOfficial })
+      }
     }
   }
   return list
@@ -118,7 +125,9 @@ const sources = (() => {
 
 function findMatches(rule) {
   const hits = []
-  for (const { rel, text } of sources) {
+  for (const { rel, text, pinnedOfficial } of sources) {
+    // Exact upstream typography is independently enforced by official-agent-ui.test.ts.
+    if (rule.name === 'font-size-literal' && pinnedOfficial) continue
     for (const m of text.matchAll(rule.pattern)) {
       const line = text.slice(0, m.index).split('\n').length
       const snippet = text.split('\n')[line - 1].trim().slice(0, 100)

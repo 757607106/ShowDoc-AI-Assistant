@@ -19,7 +19,7 @@ test('streamed responses do not mount a hidden Wiki drawer that steals composer 
 
 test('steer seals animation while keeping the preceding timeline open without completion', () => {
   const stateBlock = source.slice(source.indexOf('const isConversationDone ='), source.indexOf('const streamingMermaidSvgCache ='))
-  const collapseBlock = source.slice(source.indexOf('const shouldShowCollapsedSteps ='), source.indexOf('const isThinkingLikeEvent ='))
+  const collapseBlock = source.slice(source.indexOf('const shouldShowCollapsedSteps ='), source.indexOf('// Once the steps collapse'))
   const props = reactive({ ragMode: false, session: { steerForked: true, is_completed: true } })
   const state = vm.runInNewContext(`${stateBlock}\n${collapseBlock}\n({ isConversationDone, isSegmentDone, shouldShowCollapsedSteps })`, {
     props, computed, isAssistantTurnComplete, intermediateStepsCount: { value: 2 },
@@ -105,7 +105,7 @@ test('tool rows use line icon names instead of legacy asset masks', () => {
 
 test('rag mode delegates pre-answer loading to pipeline and adds no row after answer starts', () => {
   assert.match(source, /if \(props\.ragMode \|\| hasAnswerStarted\.value\) return false/)
-  assert.match(source, /v-if="displayEvents\.length > 0 \|\| showAgentActivityIndicator \|\| childActivity"/)
+  assert.match(source, /v-if="displayEvents\.length > 0 \|\| showMemoryRow \|\| showAgentActivityIndicator \|\| childActivity"/)
   assert.doesNotMatch(source, /ChatActivityIndicator/)
 })
 
@@ -130,6 +130,22 @@ test('only the collapsed root summary shows an expand chevron', () => {
   assert.match(source, /showIntermediateSteps \? 'chevron-down' : 'chevron-right'/)
   assert.doesNotMatch(source, /isEventExpanded\(event\.tool_call_id\) \? 'chevron/)
   assert.doesNotMatch(source, /isEventExpanded\(event\.event_id\) \? 'chevron/)
+})
+
+// Recalled memory is one more thing the turn did before answering, so it rides
+// the same timeline as the steps instead of sitting in a card above them. It has
+// to travel into the collapsed tree with them, and appear exactly once.
+test('recalled memory rides the agent timeline as its leading row', () => {
+  const template = source.split('<script')[0]
+  assert.equal((template.match(/<ChatMemoryStep/g) || []).length, 2)
+  assert.match(template, /<div v-if="showIntermediateSteps" class="tree-children">\s*\n\s*<ChatMemoryStep/)
+  assert.match(template, /<ChatMemoryStep\s*\n\s*v-if="showMemoryRow"/)
+  assert.match(template, /<ChatMemoryStep[\s\S]*?:is-last="memoryIsLast"/)
+  assert.match(source, /!props\.ragMode && hasMemory\.value && !shouldShowCollapsedSteps\.value/)
+  assert.match(
+    source,
+    /const memoryIsLast = computed\([\s\S]*lastStreamingTimelineEventIndex\.value === -1/,
+  )
 })
 
 test('pending tool rows do not render an extra axis dot', () => {

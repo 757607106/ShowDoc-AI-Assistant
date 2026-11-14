@@ -245,22 +245,8 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
     return undefined
   }
 
-  const settlePendingTools = (message: ChatMessage, error: string, canceled = false) => {
-    const turnId = persistedAssistantId(message)
-    for (const row of messagesList) {
-      if (row !== message && (!turnId || row.role !== 'assistant' || persistedAssistantId(row) !== turnId)) continue
-      for (const event of (row.agentEventStream as ChatMessage[] | undefined) || []) {
-        if (event.type === 'tool_call' && event.pending) {
-          Object.assign(event, { pending: false, success: false, error, canceled })
-        }
-      }
-      ;(row._pendingToolCalls as Map<string, ChatMessage> | undefined)?.clear()
-    }
-  }
-
   const markAssistantStopped = (message: ChatMessage) => {
     if (!message) return
-    settlePendingTools(message, t('agentStream.collaboration.status.cancelled'), true)
     message.run_state = ''
     message.is_completed = true
     if (message.isAgentMode) {
@@ -317,7 +303,7 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
         row.run_state = ''
         for (const e of (row.agentEventStream as ChatMessage[] | undefined) || []) {
           if (isPromptCard(e) && !e.resolved) Object.assign(e, { resolved: true, canceled: true })
-          if (e.pending && e.type !== 'tool_call') Object.assign(e, { pending: false, canceled: true })
+          if (e.pending) Object.assign(e, { pending: false, canceled: true })
         }
       }
       markAssistantStopped(target)
@@ -397,6 +383,26 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
     if (created) onAgentChunkBound?.(message, true)
     emitMessageUpdated(message, data)
     log('[References] Saved to message, count:', refs.length)
+    return message
+  }
+
+  // Records which long-term memories the answer saw. Unlike references this
+  // never creates a message shell: memory arrives before the first token, and
+  // an empty bubble that only says "3 memories" would be worse than waiting
+  // for the answer's own placeholder.
+  const applyUsedMemories = (data: ChatMessage) => {
+    const payload = (data.data ?? {}) as Record<string, unknown>
+    const memories = (payload.memories ?? data.memories) as unknown
+    if (!Array.isArray(memories) || memories.length === 0) return undefined
+
+    const message = resolveActiveAssistantMessage(data)
+    if (!message) {
+      log('[Memory] No assistant message to attach memories to')
+      return undefined
+    }
+    message.used_memories = memories.slice()
+    emitMessageUpdated(message, data)
+    log('[Memory] Saved to message, count:', memories.length)
     return message
   }
 
@@ -581,9 +587,9 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
               tool_name: target?.name || toolCall.name,
               arguments: target?.args || toolCall.args,
               pending: false,
-              success: result ? result.success !== false : isCompleted ? false : undefined,
+              success: result?.success !== false,
               output: result?.output || '',
-              error: result?.error || (!result && isCompleted ? t('agentStream.collaboration.status.interrupted') : undefined),
+              error: result?.error || undefined,
               timestamp: stepTimestamp || undefined,
               duration: toolCall.duration,
               duration_ms: toolCall.duration,
@@ -682,10 +688,10 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
         item._pendingToolCalls = markRaw(new Map())
       }
 
-      if ((Array.isArray(item.agent_steps) && item.agent_steps.length > 0) || item.run_state === 'cancelled') {
+      if (item.agent_steps && Array.isArray(item.agent_steps) && item.agent_steps.length > 0) {
         item.isAgentMode = true
         const restoredEvents = reconstructEventStreamFromSteps(
-          (item.agent_steps || []) as unknown[],
+          item.agent_steps as unknown[],
           String(item.content || ''),
           Boolean(item.is_completed),
           Boolean(item.is_fallback),
@@ -704,12 +710,6 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
           .filter((e) => e.type !== 'agent_complete')
 
         item.agentEventStream = willContinueStream ? awaitingEvents : markRaw(awaitingEvents)
-        item.is_completed = true
-      }
-      if (item.run_state === 'cancelled') {
-        const events = (item.agentEventStream as ChatMessage[]).filter((e) => e.type !== 'agent_complete')
-        if (!events.some((e) => e.type === 'stop')) events.push({ type: 'stop', reason: 'user_requested' })
-        item.agentEventStream = markRaw(events)
         item.is_completed = true
       }
       const promptCards = [
@@ -1311,12 +1311,11 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
       }
       break
       case 'tool_result':
-      case 'tool_error':
       case 'error': {
         if (dataPayload) {
           const toolCallId = dataPayload.tool_call_id as string | undefined
           const toolName = dataPayload.tool_name as string | undefined
-          const success = responseType === 'tool_result' && dataPayload.success !== false
+          const success = responseType !== 'error' && dataPayload.success !== false
           if (responseType === 'tool_result' && dataPayload.success === true && toolName
             && DATA_CHANGE_TOOLS.has(toolName)) {
             emitAssistantDataChange(dataPayload.data_change)
@@ -1363,7 +1362,6 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
           }
           if (responseType === 'error' && !toolName) {
             const errorMsg = String(data.content || t('chat.processError'))
-            settlePendingTools(message, errorMsg)
             message.content = errorMsg
             message.is_completed = true
             isReplying.value = false
@@ -1375,7 +1373,6 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
           }
         } else if (responseType === 'error') {
           const errorMsg = String(data.content || t('chat.processError'))
-          settlePendingTools(message, errorMsg)
           message.content = errorMsg
           message.is_completed = true
           isReplying.value = false
@@ -1542,7 +1539,6 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
         if (dataId) replaySegments.delete(dataId)
         log('[Agent] Complete event received')
         applyFinalArtifactContent(message, (dataPayload as any)?.final_content)
-        if (!isAwaitingInput(message)) settlePendingTools(message, t('agentStream.collaboration.status.interrupted'))
         loading.value = false
         isReplying.value = false
         message.is_completed = true
@@ -1709,7 +1705,6 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
       data.response_type === 'collaboration_status' ||
       data.response_type === 'tool_call' ||
       data.response_type === 'tool_result' ||
-      data.response_type === 'tool_error' ||
       data.response_type === 'command_output' ||
       data.response_type === 'work_event' ||
       data.response_type === 'work_started' ||
@@ -1752,8 +1747,10 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
       return
     }
 
-    // Old persisted streams may still contain this retired event.
-    if (data.response_type === 'memory_recalled') return
+    if (data.response_type === 'memory_recalled') {
+      applyUsedMemories(data)
+      return
+    }
 
     if (shouldHandleAsAgent) {
       handleAgentChunk(data)

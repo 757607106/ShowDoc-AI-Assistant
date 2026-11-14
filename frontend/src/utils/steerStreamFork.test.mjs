@@ -223,7 +223,7 @@ test('expanding an already split transcript is a no-op', () => {
 test('explicit boundaries preserve drafts, repeated inputs and delivery order despite equal timestamps', () => {
   const users = ['u2', 'u1'].map(id => ({ id, role: 'user', request_id: 'r', content: 'revise', created_at: '1970-01-01T00:00:00Z' }))
   const assistant = { id: 'a', role: 'assistant', request_id: 'r', content: 'final', is_completed: true,
-    agentEventStream: [
+    used_memories: [{ id: 'memory' }], agentEventStream: [
       { type: 'answer', content: 'first draft', done: true, intermediate_answer: true },
       { type: 'user_message_injected', user_message_id: 'u1' },
       { type: 'answer', content: 'second draft', done: true, intermediate_answer: true },
@@ -235,6 +235,7 @@ test('explicit boundaries preserve drafts, repeated inputs and delivery order de
   assert.equal(out[1].id, 'u1')
   assert.equal(out[3].id, 'u2')
   assert.equal(out[1].isSteer, true)
+  assert.equal(out.filter(m => m.used_memories?.length).length, 1)
 })
 
 test('sealing a draft finishes its text stream without discarding the draft', () => {

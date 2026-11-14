@@ -1,4 +1,3 @@
-import { IS_CONTEXTDB } from '@/config/contextdb'
 import { defineStore } from 'pinia'
 import { computed, ref, shallowReactive, shallowRef, watch } from 'vue'
 import type { PageContextPayload, PageSelectionPayload } from '@/api/chat/streame'
@@ -268,7 +267,6 @@ export const useAssistantStore = defineStore('assistant', () => {
     return auth.user?.id && auth.effectiveTenantId != null ? `${auth.user.id}:${auth.effectiveTenantId}` : ''
   }
   const loadWorkspaceConfig = async () => {
-    if (IS_CONTEXTDB) return
     workspaceConfig.value = null
     const owner = workspaceOwner()
     if (!owner) return

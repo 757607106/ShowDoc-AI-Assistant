@@ -16,7 +16,7 @@ before(async () => {
       resolveId(id) { if (id.endsWith('/utils/request')) return '\0offline-request' },
       load(id) {
         if (id === '\0offline-request') {
-          return 'const request = () => { throw new Error("Unexpected network request") }; export { request as get, request as post, request as put, request as del };'
+          return 'export const get = async (path) => { if (path !== "/api/v1/me/browser") throw new Error("Unexpected endpoint"); return { data: { enabled: true, connected: false, extension_available: false } } };'
         }
       },
     }],
@@ -34,6 +34,14 @@ test('composer keeps the browser source available until account status loads', (
   assert.equal(store.loaded, false)
   assert.equal(store.online, false)
   assert.equal(store.knownOffline, false)
+})
+
+test('browser account capability loads through the account contract', async () => {
+  const store = useBrowserConnectionStore(createPinia())
+  await store.refresh()
+  assert.equal(store.loaded, true)
+  assert.equal(store.enabled, true)
+  assert.equal(store.connected, false)
 })
 
 test('an offline or unpaired extension cannot stay selected as a live source', () => {

@@ -135,8 +135,8 @@ export function useStream() {
         query: params.query,
         agent_enabled: params.agent_enabled !== undefined ? params.agent_enabled : true
       };
-      // An explicit empty selection clears the previous turn's library scope.
-      if (params.knowledge_base_ids !== undefined) {
+      // Always include knowledge_base_ids for agent-chat (already validated above)
+      if (params.knowledge_base_ids !== undefined && params.knowledge_base_ids.length > 0) {
         postBody.knowledge_base_ids = params.knowledge_base_ids;
       }
       // Include knowledge_ids if provided

@@ -6,7 +6,7 @@ import 'tdesign-vue-next/es/style/index.css'
 import '@/assets/theme/theme.css'
 import { installTDesignIconOfflineGuard } from '@/utils/tdesign-icon-offline'
 import i18n from './i18n/embed'
-import EmbedPage from '@/views/embed/EmbedPage.vue'
+import EmbedPage from '@/views/embed/EmbedUnavailable.vue'
 import ProtectedResourcePreview from '@/components/ProtectedResourcePreview.vue'
 
 installTDesignIconOfflineGuard()

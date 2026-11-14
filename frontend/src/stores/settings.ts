@@ -1,4 +1,3 @@
-import {IS_CONTEXTDB} from '@/config/contextdb'
 import { defineStore } from "pinia";
 import { nextTick } from "vue";
 import { BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID } from "@/api/agent";
@@ -77,7 +76,7 @@ const defaultSettings: Settings = {
   endpoint: getApiBaseUrl(),
   apiKey: "",
   knowledgeBaseId: "",
-  isAgentEnabled: IS_CONTEXTDB,
+  isAgentEnabled: false,
   agentConfig: {
     maxIterations: 5,
     temperature: 0.7,
@@ -107,7 +106,7 @@ const defaultSettings: Settings = {
     rerankModelId: "",
     selectedChatModelId: "",  // 用户当前选择的对话模型ID
   },
-  selectedAgentId: IS_CONTEXTDB ? 'platform-agent' : BUILTIN_QUICK_ANSWER_ID,  // 默认选中快速问答模式
+  selectedAgentId: BUILTIN_QUICK_ANSWER_ID,
   selectedAgentSourceTenantId: null as string | null,  // 共享智能体来源空间 ID
   autoCheckUpdate: true,
 };
@@ -180,7 +179,8 @@ export const useSettingsStore = defineStore("settings", {
     isAutoCheckUpdateEnabled: (state) => state.settings.autoCheckUpdate ?? true,
 
     // 当前选中的智能体ID
-    selectedAgentId: (state) => state.settings.selectedAgentId || BUILTIN_QUICK_ANSWER_ID,
+    selectedAgentId: (state) => state.settings.selectedAgentId === 'platform-agent'
+      ? BUILTIN_SMART_REASONING_ID : state.settings.selectedAgentId || BUILTIN_QUICK_ANSWER_ID,
     // 共享智能体来源空间 ID（可选）
     selectedAgentSourceTenantId: (state) => state.settings.selectedAgentSourceTenantId ?? null,
   },
@@ -518,7 +518,7 @@ export const useSettingsStore = defineStore("settings", {
     
     // 获取选中的智能体ID
     getSelectedAgentId(): string {
-      return this.settings.selectedAgentId || BUILTIN_QUICK_ANSWER_ID;
+      return this.selectedAgentId;
     },
 
     // —— 会话级输入态恢复 —— //

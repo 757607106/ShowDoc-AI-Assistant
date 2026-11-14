@@ -3,5 +3,6 @@
   "commit": "cbdcebabf48c5ee2d6868b370326aa8341703f62",
   "version": "0.9.0",
   "license": "UPSTREAM-LICENSE",
-  "adaptations": "API adapters and platform governance routes"
+  "adaptations": "Official Agent chat and management templates/styles/interactions; ContextDB readiness and business DTO adapters at API/data boundaries",
+  "agent_ui_manifest": "UPSTREAM-AGENT-UI.json"
 }

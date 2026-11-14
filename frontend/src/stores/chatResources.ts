@@ -184,7 +184,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
     const orgStore = useOrganizationStore()
     await Promise.all([
       knowledgeBasesResource.ensure(force),
-      swallow(orgStore.fetchSharedKnowledgeBases({ force })),
+      ...(!IS_CONTEXTDB ? [swallow(orgStore.fetchSharedKnowledgeBases({ force }))] : []),
     ])
   }
 
@@ -203,7 +203,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
       if (force) void ensureAgents(true).catch(() => {})
       const [agentsRes] = await Promise.all([
         listAgents({ creator }),
-        orgStore.fetchSharedAgents({ force }),
+        ...(!IS_CONTEXTDB ? [orgStore.fetchSharedAgents({ force })] : []),
       ])
       const res = agentsRes as { data?: CustomAgent[]; disabled_own_agent_ids?: string[] }
       return { data: res.data || [], disabled_own_agent_ids: res.disabled_own_agent_ids || [] }
@@ -222,7 +222,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
       shouldForceLocalizedRefetch(agentsResource.hasInFlightRequest(), agentsInflightLocale, locale)
     await Promise.all([
       agentsResource.ensure(mustForce),
-      swallow(orgStore.fetchSharedAgents({ force })),
+      ...(!IS_CONTEXTDB ? [swallow(orgStore.fetchSharedAgents({ force }))] : []),
     ])
   }
 
@@ -242,7 +242,6 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
   }
 
   async function ensureWebSearchProviders(force = false): Promise<void> {
-    if (IS_CONTEXTDB) return
     return webSearchProvidersResource.ensure(force)
   }
 
@@ -261,8 +260,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
       ensureKnowledgeBases(force),
       ensureAgents(force),
       ensureModels(force),
-      ensureWebSearchProviders(force),
-      orgStore.fetchOrganizations({ force }),
+      ...(!IS_CONTEXTDB ? [ensureWebSearchProviders(force), orgStore.fetchOrganizations({ force })] : []),
     ])
   }
 

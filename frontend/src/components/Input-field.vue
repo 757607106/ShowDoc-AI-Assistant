@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import {IS_CONTEXTDB} from '@/config/contextdb'
 import { ref, onMounted, onBeforeUnmount, onUnmounted, computed, watch, nextTick, h, type PropType } from "vue";
 import { storeToRefs } from 'pinia';
 import { useRoute, useRouter } from 'vue-router';
@@ -972,7 +971,6 @@ const agentScopeKey = (scope?: { agentId: string; sourceTenantId: string | numbe
 let mcpServicesRequestKey = '';
 
 const loadMCPServices = async () => {
-  if (IS_CONTEXTDB) return
   const scope = currentAgentScope.value;
   const requestKey = agentScopeKey(scope);
   mcpServicesRequestKey = requestKey;
@@ -1585,7 +1583,7 @@ const loadMentionItems = async (q: string, resetIndex = true, append = false) =>
       : null;
 
     if (isStale()) return;
-    const canBrowseFiles = !IS_CONTEXTDB && (!hasAgentConfig.value || (agentKBSelectionMode.value !== 'none' && toolsConsumeFiles(agentAllowedTools.value)));
+    const canBrowseFiles = !hasAgentConfig.value || (agentKBSelectionMode.value !== 'none' && toolsConsumeFiles(agentAllowedTools.value));
     mentionBrowserKbs.value = canBrowseFiles ? availableKbs.filter((kb: any) => !kb.type || kb.type === 'document')
       .map((kb: any) => ({ id: String(kb.id), name: kb.name, orgName: kb.org_name })) : [];
     const kbs = availableKbs.filter((kb: any) =>
@@ -1615,7 +1613,7 @@ const loadMentionItems = async (q: string, resetIndex = true, append = false) =>
     nextGroupCounts.kb = kbItems.length;
 
     const tagKeyword = q.trim();
-    const tagSources = IS_CONTEXTDB ? [] : availableKbs;
+    const tagSources = availableKbs;
     try {
       const tagResults = await Promise.all(tagSources.map(async (kb: any) => {
         const res: any = await listKnowledgeTags(kb.id, { page: 1, page_size: 20, keyword: tagKeyword || undefined });
@@ -1690,7 +1688,7 @@ const loadMentionItems = async (q: string, resetIndex = true, append = false) =>
   let fileItems: any[] = [];
   const kbModeAllowsFiles = !hasAgentConfig.value || agentKBSelectionMode.value !== 'none';
   const toolsAllowFiles = !hasAgentConfig.value || toolsConsumeFiles(agentAllowedTools.value);
-  const shouldLoadFiles = !IS_CONTEXTDB && kbModeAllowsFiles && toolsAllowFiles;
+  const shouldLoadFiles = kbModeAllowsFiles && toolsAllowFiles;
 
   // 空关键词时显式请求最近文件；有关键词时返回匹配文件。
   // `recent=true` 只用于浏览态，避免其他搜索调用漏传关键词时静默退化为最近列表。
@@ -2784,7 +2782,6 @@ const collectAgentNotReadyReasons = (
   const keys = getAgentNotReadyReasonKeys(agent.config, allModels.value, {
     isAgentMode,
     isSharedAgent,
-    managedRetrieval: IS_CONTEXTDB,
   });
   return {
     keys,
@@ -3000,7 +2997,7 @@ defineExpose({
       </div>
 
       <!-- 附件列表区域 (由 AttachmentUpload 组件渲染) -->
-      <AttachmentUpload v-if="!IS_CONTEXTDB" ref="attachmentUploadRef" :max-files="5"
+      <AttachmentUpload ref="attachmentUploadRef" :max-files="5"
         :session-id="sessionId" :agent-id="selectedAgentId"
         :agent-source-tenant-id="settingsStore.selectedAgentSourceTenantId ?? undefined"
         @update:files="uploadedAttachments = $event" />
@@ -3134,7 +3131,7 @@ defineExpose({
           </t-tooltip>
 
           <!-- 附件上传按钮 -->
-          <t-tooltip v-if="!IS_CONTEXTDB" placement="top" theme="light" :popupProps="{ overlayClassName: 'input-field-tooltip' }">
+          <t-tooltip placement="top" theme="light" :popupProps="{ overlayClassName: 'input-field-tooltip' }">
             <template #content>
               <span>{{ uploadedAttachments.length > 0 ? $t('chat.attachmentWithCount', {
                 count: uploadedAttachments.length

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const terminal = readFileSync(new URL('./SandboxTerminal.vue', import.meta.url), 'utf8')
 const theme = readFileSync(new URL('../../../assets/theme/theme.css', import.meta.url), 'utf8')
-const promptUrl = new URL('../../../../tests/fixtures/weknora/sandbox-pty-prompt.sh', import.meta.url)
+const promptUrl = new URL('../../../../../docker/sandbox-pty-prompt.sh', import.meta.url)
 const prompt = readFileSync(promptUrl, 'utf8')
 const promptPath = fileURLToPath(promptUrl)
 

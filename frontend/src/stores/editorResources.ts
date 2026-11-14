@@ -326,7 +326,6 @@ export const useEditorResourcesStore = defineStore('editorResources', () => {
       // are this workspace's too.
       ensureMcpServices(undefined, force),
       ensureAgentTypePresets(force),
-      ensureAgentTools(force),
       ensurePromptTemplates(force),
       ensureStorageEngine(force),
       ensurePlaceholders(force),

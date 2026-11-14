@@ -7,6 +7,7 @@
 ## 文档导航
 
 - [ContextDB 官方能力与项目需求对照](architecture/contextdb-capability-fit.md)
+- [Agent 官方源码对齐审计、适配方案与待决缺口](architecture/agent-official-alignment-audit.md)
 - [Wiki 与 WeKnora 界面复用、图谱接口边界](architecture/contextdb-weknora-ui.md)
 - [Wiki 编译器接管准入与独立资源实测](architecture/contextdb-wiki-compiler-readiness.md)
 - [工程结构与命名规范](engineering/project-structure.md)

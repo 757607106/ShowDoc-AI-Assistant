@@ -4,44 +4,15 @@ import {
   ensureRagPipelineHistoryStream,
   hasRagPipelineToolEvents,
   RAG_TIMELINE_TOOL_NAMES,
-  synthesizeRagPipelineToolEvents,
 } from './rag-pipeline-history.ts'
 
-test('synthesizeRagPipelineToolEvents builds completed retrieval steps', () => {
-  const events = synthesizeRagPipelineToolEvents({
-    knowledge_references: [
-      { knowledge_id: 'a' },
-      { knowledge_id: 'a' },
-      { knowledge_id: 'b' },
-    ],
-  })
-
-  assert.equal(events.length, 2)
-  assert.equal(events[0].tool_name, 'query_understand')
-  assert.equal(events[1].tool_name, 'knowledge_search')
-  assert.equal(events[1].tool_data.count, 3)
-  assert.equal(events[1].tool_data.search_source, 'knowledge')
-})
-
-test('synthesizeRagPipelineToolEvents marks web-only references as web search', () => {
-  const events = synthesizeRagPipelineToolEvents({
-    knowledge_references: [
-      { chunk_type: 'web_search', knowledge_title: 'page-1' },
-      { chunk_type: 'web_search', knowledge_title: 'page-2' },
-    ],
-  })
-
-  assert.equal(events[1].tool_data.search_source, 'web')
-  assert.equal(events[1].tool_data.web_count, 2)
-  assert.equal(events[1].tool_data.doc_count, 0)
-})
-
-test('synthesizeRagPipelineToolEvents skips retrieval when there are no references', () => {
-  const events = synthesizeRagPipelineToolEvents({
-    knowledge_references: [],
-  })
-
-  assert.equal(events.length, 0)
+test('native retrieval keeps its actual identity across history restoration', () => {
+  const call = { type: 'tool_call', tool_name: 'knowledge.search', tool_call_id: 'native-1', success: true }
+  const item = { is_completed: true, content: 'answer', knowledge_references: [{ knowledge_id: 'opaque-doc' }], agentEventStream: [call] }
+  ensureRagPipelineHistoryStream(item)
+  assert.equal(hasRagPipelineToolEvents(item.agentEventStream), true)
+  assert.deepEqual(item.agentEventStream, [call])
+  assert.equal(RAG_TIMELINE_TOOL_NAMES.has('knowledge.search'), true)
 })
 
 test('ensureRagPipelineHistoryStream does not invent retrieval for attachment-only turns', () => {
@@ -96,7 +67,8 @@ test('ensureRagPipelineHistoryStream restores quick-answer history after reload'
 
   assert.equal(item.isAgentMode, true)
   assert.equal(item.hideContent, true)
-  assert.equal(hasRagPipelineToolEvents(item.agentEventStream), true)
+  assert.equal(hasRagPipelineToolEvents(item.agentEventStream), false)
+  assert.equal(item.agentEventStream.some(event => event.type === 'tool_call'), false)
   assert.equal(
     item.agentEventStream.some((event) => event.type === 'answer'),
     true,

@@ -11,7 +11,7 @@
             <div class="header-actions" :class="{ 'header-actions-lite': authStore.isLiteMode }" style="--wails-draggable: no-drag">
               <ResourceListToolbar v-if="authStore.isLiteMode" hide-scopes v-model="spaceSelection" v-model:query="keyword" />
               <ResourceSortControl v-model="selectedResourceSort" />
-              <t-tooltip v-if="!IS_CONTEXTDB && authStore.hasRole('contributor')" :content="$t('agent.createAgent')" placement="bottom">
+              <t-tooltip v-if="authStore.hasRole('contributor')" :content="$t('agent.createAgent')" placement="bottom">
                 <t-button variant="text" theme="default" size="small" class="header-action-btn"
                   data-guide="agent-list-create" style="--wails-draggable: no-drag" @click="handleCreateAgent">
                   <template #icon>
@@ -20,7 +20,7 @@
                   {{ $t('agent.createAgent') }}
                 </t-button>
               </t-tooltip>
-              <t-tooltip v-if="!IS_CONTEXTDB && authStore.hasRole('contributor') && assistantStore.pageAccess"
+              <t-tooltip v-if="authStore.hasRole('contributor') && assistantStore.pageAccess"
                 :content="$t('assistant.create.agentHint')" placement="bottom">
                 <t-button variant="text" theme="default" size="small" class="header-action-btn"
                   style="--wails-draggable: no-drag" @click="assistantCreateVisible = true">
@@ -32,7 +32,7 @@
               </t-tooltip>
             </div>
           </div>
-          <p v-if="!IS_CONTEXTDB" class="header-subtitle" style="--wails-draggable: drag">{{ $t('agent.subtitle') }}</p>
+          <p class="header-subtitle" style="--wails-draggable: drag">{{ $t('agent.subtitle') }}</p>
         </div>
       </div>
       <ResourceListToolbar v-if="!authStore.isLiteMode" v-model="spaceSelection" v-model:query="keyword" :count-all="allAgentsCount"
@@ -184,7 +184,7 @@
                     <div class="popup-menu">
                       <div v-if="canManageAgent(agent)" class="popup-menu-item" @click="handleEdit(agent)"><t-icon
                           class="menu-icon" name="edit" /><span>{{ $t('common.edit') }}</span></div>
-                      <div v-if="!IS_CONTEXTDB && authStore.hasRole('contributor')" class="popup-menu-item" @click="handleCopy(agent)">
+                      <div v-if="authStore.hasRole('contributor')" class="popup-menu-item" @click="handleCopy(agent)">
                         <t-icon class="menu-icon" name="file-copy" /><span>{{ $t('common.copy') }}</span>
                       </div>
                       <div v-if="authStore.hasRole('admin')" class="popup-menu-item"
@@ -217,7 +217,7 @@
                 </t-popup>
               </div>
               <div class="card-content">
-                <div v-if="!IS_CONTEXTDB || agent.description" class="card-description" :class="{ 'is-empty': !agent.description }" :title="agent.description || $t('agent.noDescription')">
+                <div class="card-description" :class="{ 'is-empty': !agent.description }" :title="agent.description || $t('agent.noDescription')">
                   {{ agent.description || $t('agent.noDescription') }}</div>
               </div>
               <div class="card-bottom">
@@ -362,7 +362,7 @@
                         <t-icon class="menu-icon" name="edit" />
                         <span>{{ $t('common.edit') }}</span>
                       </div>
-                      <div v-if="!IS_CONTEXTDB && authStore.hasRole('contributor')" class="popup-menu-item" @click="handleCopy(agent)">
+                      <div v-if="authStore.hasRole('contributor')" class="popup-menu-item" @click="handleCopy(agent)">
                         <t-icon class="menu-icon" name="file-copy" />
                         <span>{{ $t('common.copy') }}</span>
                       </div>
@@ -383,7 +383,7 @@
 
               <!-- 卡片内容 -->
               <div class="card-content">
-                <div v-if="!IS_CONTEXTDB || agent.description" class="card-description" :class="{ 'is-empty': !agent.description }" :title="agent.description || $t('agent.noDescription')">
+                <div class="card-description" :class="{ 'is-empty': !agent.description }" :title="agent.description || $t('agent.noDescription')">
                   {{ agent.description || $t('agent.noDescription') }}
                 </div>
               </div>
@@ -574,7 +574,7 @@
         <EmptyState v-if="!keyword.trim() && spaceSelection === 'all' && filteredAgents.length === 0 && !loading" :title="$t('agent.empty.title')"
           :description="$t('agent.empty.description')">
           <template #icon><ResourceIcon type="agent" :size="32" /></template>
-          <t-button v-if="!IS_CONTEXTDB && authStore.hasRole('contributor')" theme="primary" class="agent-create-btn"
+          <t-button v-if="authStore.hasRole('contributor')" theme="primary" class="agent-create-btn"
             data-guide="agent-list-create" @click="handleCreateAgent">
             <template #icon>
               <span class="btn-icon-wrapper">
@@ -597,7 +597,7 @@
             </template>
             <span>{{ $t('agent.createAgent') }}</span>
           </t-button>
-          <t-button v-if="!IS_CONTEXTDB && authStore.hasRole('contributor') && assistantStore.pageAccess" variant="outline"
+          <t-button v-if="authStore.hasRole('contributor') && assistantStore.pageAccess" variant="outline"
             class="agent-create-btn" @click="assistantCreateVisible = true">
             <template #icon>
               <ResourceIcon type="assistant" :size="16" />
@@ -615,7 +615,7 @@
         <EmptyState v-if="!keyword.trim() && spaceSelection === 'mine' && agents.length === 0 && !loading" :title="$t('agent.empty.title')"
           :description="$t('agent.empty.description')">
           <template #icon><ResourceIcon type="agent" :size="32" /></template>
-          <t-button v-if="!IS_CONTEXTDB && authStore.hasRole('contributor')" theme="primary" class="agent-create-btn"
+          <t-button v-if="authStore.hasRole('contributor')" theme="primary" class="agent-create-btn"
             @click="handleCreateAgent">
             <template #icon>
               <span class="btn-icon-wrapper">
@@ -638,7 +638,7 @@
             </template>
             <span>{{ $t('agent.createAgent') }}</span>
           </t-button>
-          <t-button v-if="!IS_CONTEXTDB && authStore.hasRole('contributor') && assistantStore.pageAccess" variant="outline"
+          <t-button v-if="authStore.hasRole('contributor') && assistantStore.pageAccess" variant="outline"
             class="agent-create-btn" @click="assistantCreateVisible = true">
             <template #icon>
               <ResourceIcon type="assistant" :size="16" />
@@ -723,19 +723,18 @@
     <AssistantCreateDialog v-model:visible="assistantCreateVisible" kind="agent" @manual="handleCreateAgent" />
 
     <!-- 智能体编辑器弹窗 -->
-    <AgentEditorModal v-if="!IS_CONTEXTDB" :visible="editorVisible" :mode="editorMode" :agent="editingAgent"
+    <AgentEditorModal :visible="editorVisible" :mode="editorMode" :agent="editingAgent"
       :initialSection="editorInitialSection"
       :initialHighlightField="editorInitialHighlightField"
       :readOnly="editorMode === 'edit' && editingAgent != null && !canManageAgent(editingAgent as AgentWithUI)"
       @update:visible="editorVisible = $event" @success="handleEditorSuccess" />
 
-    <TenantModelsGuide v-if="!IS_CONTEXTDB" :when="showAgentTenantModelsGuide" variant="agent" />
-    <ContextualGuide v-if="!IS_CONTEXTDB" tour="agentList" :when="showAgentListContextualGuide" />
+    <TenantModelsGuide :when="showAgentTenantModelsGuide" variant="agent" />
+    <ContextualGuide tour="agentList" :when="showAgentListContextualGuide" />
   </div>
 </template>
 
 <script setup lang="ts">
-import {IS_CONTEXTDB} from '@/config/contextdb'
 import { useAssistantDataChange } from '@/utils/assistantDataChange'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -1305,7 +1304,6 @@ const handleEdit = (agent: AgentWithUI) => {
 // mutation; this gate just hides buttons the user has no authority
 // to use.
 function canManageAgent(agent: AgentWithUI): boolean {
-  if (IS_CONTEXTDB) return false
   const userId = authStore.user?.id || ''
   const creatorId = (agent as any).created_by || ''
   // A creator demoted to Viewer no longer manages it (access.CreatorRoleFloor).

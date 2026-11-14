@@ -11,7 +11,7 @@ const initial: DefaultSettings = {
   rerank_model_id: 'rerank', vlm_model_id: 'vision', asr_model_id: 'asr',
 }
 
-function setup(t: TestContext, read = async () => ({ data: { ...initial } })) {
+function setup(t: TestContext, read = async () => ({ data: { ...initial } }), managed = false) {
   const f = fixture(t)
   const api = {
     getTenantDefaultSettings: t.mock.fn(read),
@@ -24,6 +24,7 @@ function setup(t: TestContext, read = async () => ({ data: { ...initial } })) {
     ensureWebSearchProviders: t.mock.fn(async (_force?: boolean) => {}),
   })
   const { vm } = f.component(new URL('./DefaultSettings.vue', import.meta.url), {
+    '@/config/contextdb': { IS_CONTEXTDB: managed },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
     'tdesign-vue-next': { MessagePlugin: { success() {}, error() {} } },
     '@/api/default-settings': api,
@@ -35,6 +36,12 @@ function setup(t: TestContext, read = async () => ({ data: { ...initial } })) {
   })
   return { vm, store, api }
 }
+
+test('managed retrieval exposes chat and multimodal defaults without local embedding or rerank controls', t => {
+  const { vm } = setup(t, undefined, true)
+  const fields = Array.from(vm.modelSlots, (slot: any) => slot.field)
+  assert.deepEqual(fields, ['chat_model_id', 'utility_model_id', 'vlm_model_id', 'asr_model_id'])
+})
 
 test('blocks saves until all persisted slots have loaded', async t => {
   let resolve!: (value: { data: DefaultSettings }) => void
