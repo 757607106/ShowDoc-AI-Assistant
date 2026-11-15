@@ -71,7 +71,7 @@ def create_session(title='', owner_id=None, agent_config=None, kind=''):
     sid = str(uuid.uuid4())
     with connection() as conn:
         row = conn.execute('INSERT INTO agent_sessions(id,owner_id,title,agent_config) VALUES (%s,%s,%s,%s) RETURNING *',
-                           (sid, _owner(owner_id), str(title or '新会话')[:200], Jsonb(config))).fetchone()
+                           (sid, _owner(owner_id), str(title or '')[:200], Jsonb(config))).fetchone()
     return _public(row)
 
 

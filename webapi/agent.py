@@ -237,15 +237,27 @@ def weknora_messages(session_id):
 @agent_bp.route('/api/v1/sessions/<session_id>/generate_title', methods=['POST'])
 def session_title(session_id):
     selected = agent_sessions.get_session(session_id)
-    if selected['agent_config'].get('runtime') == 'deepagents':
-        messages = agent_sessions.read_messages(session_id)
-        first = next((item['content'] for item in messages if item['role'] == 'human'), '')
-        item = agent_sessions.touch_session(session_id, first[:40] or None)
-        return jsonify(success=True, data=item)
-    with connection() as conn:
-        first = conn.execute("SELECT query FROM agent_runs WHERE session_id=%s AND owner_id=%s AND query<>'' ORDER BY created_at LIMIT 1", (session_id,user_id())).fetchone()
-    item = agent_sessions.touch_session(session_id, first['query'][:40] if first else None)
-    return jsonify(success=True, data=item)
+    if selected['agent_config'].get('runtime') != 'deepagents':
+        raise StoreError('旧会话已归档为只读，历史标题保留', 410)
+    messages = _json_body().get('messages')
+    if not isinstance(messages, list) or any(not isinstance(item, dict)
+            or not isinstance(item.get('role'), str) or not isinstance(item.get('content'), str)
+            for item in messages):
+        raise StoreError('messages 必须为包含 role 和文本 content 的消息数组', 400)
+    from agent.session_titles import first_query, generate_title
+    query = first_query([{'role': item['role'], 'content': item['content']} for item in messages]) if messages else None
+    if messages and (not query.strip() or len(query) > 100_000):
+        raise StoreError('首条用户消息必须为非空文本，且不超过 100000 字符', 400)
+    try:
+        title = asyncio.run(generate_title(session_id, user_id(), query=query,
+                            language=request.headers.get('Accept-Language', 'zh-CN')))
+    except StoreError:
+        raise
+    except TimeoutError as exc:
+        raise StoreError('会话标题生成超时，请稍后重试', 503) from exc
+    except Exception as exc:
+        raise StoreError(f'会话标题生成失败（{type(exc).__name__}）', 502) from exc
+    return jsonify(success=True, data=title)
 
 
 @agent_bp.route('/api/v1/sessions/<session_id>/pin', methods=['POST','DELETE'])

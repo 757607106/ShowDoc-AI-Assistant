@@ -1,6 +1,7 @@
 """HTTP/auth bindings for the official Deep Agents Harness; no background runner."""
 import asyncio
 import json
+import logging
 import uuid
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timezone
@@ -195,6 +196,9 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
         context = body.get('context') or configuration.get('configurable') or {}
         if not isinstance(context, dict):
             raise StoreError('context 必须是对象', 400)
+        if weknora and request.url.path.startswith('/api/v1/knowledge-chat/') and not isinstance(
+                context.get('disable_title', False), bool):
+            raise StoreError('disable_title 必须为布尔值', 400)
         # A database connection lock protects this HTTP request, not a task queue.
         import os
         lock = await psycopg.AsyncConnection.connect(os.environ['DATABASE_URL'], autocommit=True)
@@ -315,6 +319,21 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                     from webapi.weknora_artifacts import collect
                     artifacts = await collect(graph, config, user['id'], selected['id'])
                     artifact_meta = [metadata for metadata, _ in artifacts.get(projection.identifier, [])]
+                    if not selected['title'] and not (request.url.path.startswith('/api/v1/knowledge-chat/')
+                                                      and context.get('disable_title') is True):
+                        from agent.session_titles import first_query, generate_title
+                        try:
+                            title = await generate_title(selected['id'], user['id'],
+                                query=first_query(state.values.get('messages', [])),
+                                model_id=resolved['agent_config'].get('model_id'),
+                                language=request.headers.get('Accept-Language', 'zh-CN'))
+                        except Exception as exc:
+                            logging.getLogger(__name__).warning('Session title generation failed: session=%s type=%s',
+                                                                selected['id'], type(exc).__name__)
+                        else:
+                            if title:
+                                yield _event('message', projection.event('session_title', title,
+                                    {'session_id': selected['id'], 'title': title}, done=True))
                     if state.interrupts:
                         from webapi.weknora_prompts import cards, card_event, bind_card_ids
                         pending = cards(state, selected['id'])
