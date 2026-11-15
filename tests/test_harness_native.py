@@ -331,7 +331,7 @@ def test_selected_model_name_never_silently_falls_back(monkeypatch):
     monkeypatch.setenv('AGENT_MAIN_MODEL', 'configured-max-model')
     monkeypatch.setenv('AGENT_FALLBACK_MODEL', 'must-not-use')
     assert registry.environment_model()['parameters']['model_name'] == 'configured-max-model'
-    assert graph.build_model({'model_id': 'agent-main'}, 'owner').model_name == 'configured-max-model'
+    assert graph.build_model({'model_id': 'agent-main'}, 'owner').model == 'configured-max-model'
 
 
 def test_history_survives_deleted_model_and_missing_credentials(build, monkeypatch):

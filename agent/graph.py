@@ -3,8 +3,8 @@ import asyncio
 import json
 
 from langchain_openai import ChatOpenAI
-from langchain_qwq import ChatQwen
 
+from agent.models import build_model_record
 from agent.tools import make_governance_tools, load_knowledge_mcp_tools
 
 
@@ -29,33 +29,6 @@ def build_model(agent_config=None, owner_id=None):
     from agent.registry import model_config
     config = agent_config or {}
     return build_model_record(model_config(config.get('model_id'), owner_id), config)
-
-
-def build_model_record(saved, config):
-    """Use the same official model client for saved runs and draft connection tests."""
-    params = saved.get('parameters', {})
-    if saved['type'] not in ('KnowledgeQA', 'VLLM'):
-        from governance.store import StoreError
-        raise StoreError('请选择对话模型', 400)
-    extra = {}
-    effort = config.get('reasoning_effort')
-    provider = params.get('provider', '')
-    if provider in ('aliyun', 'dashscope') or 'aliyuncs.com' in params.get('base_url', ''):
-        extra['extra_body'] = {'enable_thinking': effort not in ('off', '') if effort else config.get('thinking', False)}
-    elif effort and effort not in ('off', 'auto'):
-        extra['reasoning_effort'] = effort
-    headers = {key: value for key, value in params.get('custom_headers', {}).items()
-               if key.lower() not in ('authorization', 'content-type', 'host')}
-    if headers:
-        extra['default_headers'] = headers
-    budget = config.get('max_completion_tokens', 0) or (2048 if config.get('agent_mode') == 'quick-answer' else 24576)
-    if params.get('max_output_tokens'):
-        budget = min(budget, int(params['max_output_tokens']))
-    extra['max_tokens'] = budget
-    model_type = ChatQwen if provider in ('aliyun', 'dashscope', 'qwen') or 'aliyuncs.com' in params.get('base_url', '') else ChatOpenAI
-    return model_type(model=params.get('model_name') or saved['name'], api_key=params.get('api_key') or 'not-required',
-        base_url=params.get('base_url'), temperature=config.get('temperature', 0.7),
-        timeout=config.get('llm_call_timeout') or 180, max_retries=2, **extra)
 
 
 async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowledge_base_ids=(),

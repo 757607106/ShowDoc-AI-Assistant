@@ -10,7 +10,7 @@ import psycopg
 from langchain_core.messages import BaseMessage
 from langgraph.types import Command
 from psycopg.types.json import Jsonb
-from sse_starlette.sse import EventSourceResponse
+from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
@@ -347,6 +347,8 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                 _active_requests.pop(selected['id'], None)
 
     response = EventSourceResponse(events(), data_sender_callable=cancel_on_response_exit,
+                                   ping_message_factory=(lambda: ServerSentEvent(event='message',
+                                       data=json.dumps({'response_type': 'heartbeat'}))) if weknora else None,
                                    headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
     async def send_stream(scope, receive, send):

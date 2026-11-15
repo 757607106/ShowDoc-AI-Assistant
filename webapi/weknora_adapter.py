@@ -7,11 +7,24 @@ from agent.citations import AnswerCitations
 def text(content):
     if isinstance(content, str):
         return content
-    return ''.join(part.get('text', '') for part in content or [] if isinstance(part, dict))
+    return ''.join(part.get('text', '') for part in content or [] if isinstance(part, dict)
+                   and part.get('type') in (None, 'text', 'output_text'))
 
 
 def message_dict(message):
     return message.model_dump(mode='json') if hasattr(message, 'model_dump') else message
+
+
+def reasoning_text(message):
+    """Project visible reasoning without exposing signatures or encrypted replay data."""
+    kwargs = message.get('additional_kwargs', {})
+    if isinstance(kwargs.get('reasoning_content'), str):
+        return kwargs['reasoning_content']
+    blocks = kwargs.get('thinking_blocks') or message.get('content') or []
+    if isinstance(blocks, str):
+        return ''
+    return ''.join(block.get('reasoning') or block.get('thinking') or '' for block in blocks
+                   if isinstance(block, dict) and block.get('type') in ('reasoning', 'thinking'))
 
 
 def assistant_id(message):
@@ -77,7 +90,7 @@ def history(state, session_id, knowledge_base_ids=()):
                 current['content'] = ''
             else:
                 current['content'] += text(message.get('content'))
-            reasoning = message.get('additional_kwargs', {}).get('reasoning_content')
+            reasoning = reasoning_text(message)
             if reasoning:
                 step['reasoning_content'] = reasoning
             for call in calls:
@@ -127,11 +140,11 @@ class StreamProjection:
             if message.get('type') not in ('ai', 'AIMessageChunk') or metadata.get('langgraph_node') != 'model':
                 return []
             identifier = message.get('id', '')
-            if text(message.get('content')):
-                events.append(self.event('answer', text(message['content']), {'event_id': identifier}))
-            reasoning = message.get('additional_kwargs', {}).get('reasoning_content')
+            reasoning = reasoning_text(message)
             if reasoning:
                 events.append(self.event('thinking', reasoning, {'event_id': identifier + ':thinking'}))
+            if text(message.get('content')):
+                events.append(self.event('answer', text(message['content']), {'event_id': identifier}))
         elif part['type'] == 'updates':
             for update in part['data'].values():
                 if not isinstance(update, dict):

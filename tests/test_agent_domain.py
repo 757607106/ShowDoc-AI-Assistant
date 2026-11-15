@@ -44,10 +44,10 @@ def test_build_model_preserves_explicit_model_selection(monkeypatch):
     from agent.graph import build_model
     monkeypatch.delenv('BAILIAN_API_KEY',raising=False)
     monkeypatch.setenv('AGENT_MAIN_MODEL','qwen-max')
-    assert build_model().model_name=='qwen-max'
+    assert build_model().model=='qwen-max'
     monkeypatch.setenv('BAILIAN_API_KEY','sk-bailian-test')
     model=build_model()
-    assert model.model_name=='qwen-max' and 'dashscope.aliyuncs.com' in str(model.openai_api_base)
+    assert model.model=='qwen-max' and 'dashscope.aliyuncs.com' in str(model.api_base)
 
 
 def test_sparse_deepagents_checkpoints_are_hydrated(authenticated_client):

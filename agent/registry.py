@@ -86,6 +86,9 @@ def public(value):
         value['credentials'] = {key: {'configured': bool(private.get(key))} for key in fields}
     if value.get('_kind') == 'model' and private.get('custom_headers'):
         value.setdefault('parameters', {})['custom_headers'] = {key: MASKED for key in private['custom_headers']}
+    if value.get('_kind') == 'model' and value.get('type') in ('KnowledgeQA', 'VLLM'):
+        from agent.models import describe_model
+        value = describe_model(value)
     if value.get('_kind') == 'mcp':
         for key in ('headers', 'env_vars'):
             if private.get(key):
@@ -99,11 +102,11 @@ def public(value):
 
 
 def environment_model():
+    from agent.models import describe_model
     name = os.getenv('AGENT_MAIN_MODEL', 'qwen-max')
-    return {'id': 'agent-main', 'name': name, 'display_name': name, 'type': 'KnowledgeQA', 'source': 'remote',
-            'is_default': True, 'is_builtin': True, 'parameters': {'model_name': name},
-            'capabilities': {'provider': 'aliyun', 'api': 'chat_completions', 'cataloged': False,
-                             'reasoning': True, 'thinking_levels': ['off', 'auto'], 'thinking_format': 'enable_thinking'}}
+    value = {'id': 'agent-main', 'name': name, 'display_name': name, 'type': 'KnowledgeQA', 'source': 'remote',
+             'is_default': True, 'is_builtin': True, 'parameters': {'model_name': name, 'provider': 'aliyun'}}
+    return describe_model(value)
 
 
 def models(owner_id):
@@ -128,12 +131,8 @@ def model_config(model_id, owner_id):
             (os.getenv('DASHSCOPE_API_URL') or 'https://llm-rtc5v8cnt0umugh9.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions').rstrip('/').removesuffix('/chat/completions'))
         return value
     value = copy.deepcopy(record('model', model_id, owner_id))
-    if value.get('source', 'remote') != 'remote':
-        raise StoreError('当前模型运行时仅支持远程兼容 API', 501)
-    if value['parameters'].get('interface_type') not in (None, '', 'openai', 'chat_completions', 'openai_compatible'):
-        raise StoreError('当前运行时尚未提供此原生供应商接口，请使用兼容 API', 501)
-    if value['parameters'].get('extra_config'):
-        raise StoreError('当前模型装配尚不消费 extraConfig，请移除此配置', 501)
+    from agent.models import validate_model_runtime
+    validate_model_runtime(value)
     value['parameters'].update(secrets(value))
     return value
 
@@ -162,12 +161,8 @@ def save_model(body, owner_id, model_id=None):
     value['parameters'] = {**value.get('parameters', {}), **params}
     value.setdefault('type', 'KnowledgeQA')
     value.setdefault('source', 'remote')
-    if value['source'] != 'remote':
-        raise StoreError('当前模型运行时仅支持远程兼容 API', 501)
-    if value['parameters'].get('interface_type') not in (None, '', 'openai', 'chat_completions', 'openai_compatible'):
-        raise StoreError('当前运行时尚未提供此原生供应商接口，请使用兼容 API', 501)
-    if value['parameters'].get('extra_config'):
-        raise StoreError('当前模型装配尚不消费 extraConfig，请移除此配置', 501)
+    from agent.models import validate_model_runtime
+    validate_model_runtime(value)
     base_url = value['parameters'].get('base_url', '')
     if not isinstance(base_url, str) or not _http_url(base_url):
         raise StoreError('请提供有效的模型 API 地址', 400)

@@ -25,26 +25,30 @@ def models():
 
 @runtime_settings_bp.route('/api/v1/models/providers')
 def model_providers():
-    return jsonify(success=True, data=[{'value': 'generic', 'label': 'OpenAI-compatible',
-        'description': '用户提供的 OpenAI 兼容 API', 'api': 'chat_completions', 'requiresAuth': True,
-        'defaultUrls': {}, 'modelTypes': ['KnowledgeQA', 'VLLM', 'ASR', 'Embedding', 'Rerank'], 'models': []},
-        {'value': 'aliyun', 'label': '阿里云百炼', 'description': '百炼 OpenAI 兼容接口', 'api': 'chat_completions',
-         'requiresAuth': True, 'defaultUrls': {'KnowledgeQA': 'https://dashscope.aliyuncs.com/compatible-mode/v1'},
-         'modelTypes': ['KnowledgeQA', 'VLLM'], 'models': []}])
+    from agent.models import PROVIDERS
+    values = [{'value': provider, 'label': label,
+        'description': '用户提供的 OpenAI 兼容 API' if provider == 'generic' else f'{label} 模型服务',
+        'api': {'anthropic': 'anthropic-messages', 'gemini': 'google-generative-ai'}.get(provider, 'openai-completions'), 'requiresAuth': True,
+        'defaultUrls': {'KnowledgeQA': base, 'VLLM': base} if base else {},
+        'modelTypes': ['KnowledgeQA', 'VLLM', 'ASR', 'Embedding', 'Rerank'] if provider == 'generic' else ['KnowledgeQA', 'VLLM'],
+        'models': []} for provider, label, _, base in PROVIDERS]
+    requested = request.args.get('model_type')
+    requested = {'chat': 'KnowledgeQA', 'vllm': 'VLLM', 'embedding': 'Embedding', 'rerank': 'Rerank', 'asr': 'ASR'}.get(requested, requested)
+    return jsonify(success=True, data=[value for value in values if not requested or requested in value['modelTypes']])
 
 
 @runtime_settings_bp.route('/api/v1/models/catalog/resolve', methods=['POST'])
 def resolve_model_catalog():
+    from agent.models import model_capabilities, validate_model_runtime
     body = _body()
-    spec = body.get('spec') or {}
-    capabilities = {'provider': body.get('provider', 'generic'), 'api': 'chat_completions', 'cataloged': False,
-        'reasoning': bool(spec.get('reasoning', body.get('provider') == 'aliyun')),
-        'thinking_format': 'enable_thinking' if body.get('provider') == 'aliyun' else 'reasoning_effort',
-        'thinking_levels': ['off', 'auto'] if body.get('provider') == 'aliyun' else [],
-        **{key: spec[key] for key in ('context_window', 'max_output_tokens', 'input') if key in spec}}
+    name = body.get('remote_model_name') or body.get('model') or ''
+    value = {'name': name, 'parameters': {'provider': body.get('provider', 'generic'), 'base_url': body.get('base_url', ''),
+        'spec': body.get('spec') or {}, 'extra_config': body.get('extra_config') or ({'api': body['api']} if body.get('api') else {})}}
+    validate_model_runtime(value)
+    capabilities = model_capabilities(value)
     return jsonify(success=True, data={'provider': capabilities['provider'], 'api': capabilities['api'],
-        'base_url': body.get('base_url', ''), 'remote_model': body.get('remote_model_name') or body.get('model', ''),
-        'cataloged': False, 'model': {}, 'capabilities': capabilities})
+        'base_url': body.get('base_url', ''), 'remote_model': name,
+        'cataloged': capabilities['cataloged'], 'model': {}, 'capabilities': capabilities})
 
 
 @runtime_settings_bp.route('/api/v1/models/<model_id>', methods=['GET', 'PUT', 'PATCH', 'DELETE'])
@@ -87,11 +91,87 @@ def model_usage(model_id):
 
 @runtime_settings_bp.route('/api/v1/models/<model_id>/debug', methods=['POST'])
 def debug_model(model_id):
+    import asyncio
+    import json
+    import time
+    from agent.config import validate_config
     from agent.graph import build_model
-    body = _body()
-    config = {'model_id': model_id, 'temperature': body.get('temperature', 0), 'max_completion_tokens': body.get('max_tokens', 128)}
-    output = build_model(config, g.user['id']).invoke(body.get('input') or body.get('query') or '请回复 OK')
-    return jsonify(success=True, data={'content': output.content, 'model_id': model_id})
+    from agent.models import model_capabilities
+    from webapi.weknora_adapter import message_dict, reasoning_text, text
+    if request.is_json:
+        body = _body()
+        options = body.get('options', body)
+    else:
+        body = request.form
+        try:
+            options = json.loads(body.get('options', '{}'))
+        except (TypeError, ValueError) as exc:
+            raise StoreError('调试 options 必须为 JSON 对象', 400) from exc
+    if not isinstance(options, dict):
+        raise StoreError('调试 options 必须为对象', 400)
+    saved = registry.model_config(model_id, g.user['id'])
+    if saved['type'] not in ('KnowledgeQA', 'VLLM'):
+        raise StoreError('当前调试入口仅支持对话和视觉模型', 501)
+    config = validate_config({'model_id': model_id, 'temperature': options.get('temperature', 0),
+        'max_completion_tokens': options.get('max_tokens', 2048), 'thinking': options.get('thinking', False),
+        'reasoning_effort': options.get('reasoning_effort', '')})
+    query = body.get('input') or body.get('query') or '请回复 OK'
+    if not isinstance(query, str) or len(query) > 100000:
+        raise StoreError('调试输入无效', 400)
+    prompt = options.get('system_prompt', '')
+    if not isinstance(prompt, str) or len(prompt) > 100000:
+        raise StoreError('调试系统提示词无效', 400)
+    messages = ([{'role': 'system', 'content': prompt}] if prompt else []) + [{'role': 'user', 'content': query}]
+    file = request.files.get('file')
+    if file:
+        import base64
+        import io
+        from PIL import Image
+        data = file.read(10 * 1024 * 1024 + 1)
+        if len(data) > 10 * 1024 * 1024:
+            raise StoreError('调试图片不能超过 10 MB', 400)
+        try:
+            with Image.open(io.BytesIO(data)) as picture:
+                mime = Image.MIME.get(picture.format)
+                picture.verify()
+            if mime not in ('image/png', 'image/jpeg', 'image/webp', 'image/gif'):
+                raise ValueError('Unsupported image')
+        except Exception as exc:
+            raise StoreError('请提供有效图片', 400) from exc
+        messages[-1]['content'] = [{'type': 'text', 'text': query}, {'type': 'image_url', 'image_url': {
+            'url': f'data:{mime};base64,' + base64.b64encode(data).decode()}}]
+    model = build_model(config, g.user['id'])
+    caps = model_capabilities(saved)
+    if 'top_p' in options:
+        if type(options['top_p']) not in (int, float) or not 0 <= options['top_p'] <= 1:
+            raise StoreError('top_p 必须在 0 到 1 之间', 400)
+        if model.temperature is not None:
+            model = model.bind(top_p=options['top_p'])
+    started = time.monotonic()
+    async def query_model():
+        result = None
+        async for chunk in model.astream(messages):
+            result = chunk if result is None else result + chunk
+        if result is None:
+            raise ValueError('Empty model response')
+        return result
+    observations = {'api': caps['api'], 'capabilities': caps, 'requested_reasoning_effort': config.get('reasoning_effort') or
+                    ('auto' if config['thinking'] else 'off')}
+    client = model.bound if hasattr(model, 'bound') else model
+    request_info = {'model': saved['parameters'].get('model_name') or saved['name'], 'input': query,
+                    'system_prompt': prompt, 'options': dict(options), 'image_attached': bool(file),
+                    'effective_options': {'temperature': client.temperature, 'max_tokens': client.max_tokens,
+                        **client.model_kwargs, **(model.kwargs if hasattr(model, 'kwargs') else {})}}
+    try:
+        output = asyncio.run(query_model())
+        native = message_dict(output)
+        reasoning = reasoning_text(native)
+        observations.update(answer_characters=len(text(output.content)), reasoning_characters=len(reasoning), reasoning_returned=bool(reasoning))
+        result = {'ok': True, 'raw_response': native, 'content': output.content, 'model_id': model_id}
+    except Exception as exc:
+        result = {'ok': False, 'raw_response': None, 'error': f'模型调试失败（{type(exc).__name__}）'}
+    return jsonify(success=True, data={**result, 'request': request_info, 'observations': observations,
+        'elapsed_ms': round((time.monotonic() - started) * 1000)})
 
 
 @runtime_settings_bp.route('/api/v1/mcp-services', methods=['GET', 'POST'])

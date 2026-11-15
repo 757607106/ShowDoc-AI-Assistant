@@ -175,8 +175,8 @@ def test_models_encrypt_secrets_and_real_configuration_selects_model(settings_cl
     stored = registry.record('model', value['id'], configured_owner)
     assert 'private-model-key' not in str(stored)
     assert registry.model_config(value['id'], configured_owner)['parameters']['api_key'] == 'private-model-key'
-    from agent import graph
-    monkeypatch.setattr(graph, 'ChatOpenAI', lambda **kwargs: kwargs)
+    from agent import graph, models
+    monkeypatch.setattr(models, 'ChatLiteLLM', lambda **kwargs: kwargs)
     model = graph.build_model({'model_id': value['id'], 'temperature': 0.2, 'max_completion_tokens': 123}, configured_owner)
     assert model['model'] == 'my-model' and model['api_key'] == 'private-model-key'
     assert model['temperature'] == 0.2 and model['max_tokens'] == 123

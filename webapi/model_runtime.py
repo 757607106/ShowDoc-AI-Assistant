@@ -59,13 +59,10 @@ def draft_model(body, owner, model_type):
                                  for key, value in submitted.items()}
         elif not isinstance(submitted, str):
             raise StoreError('模型凭据须为字符串', 400)
-    if body.get('source', saved.get('source', 'remote')) != 'remote':
-        raise StoreError('当前模型运行时仅支持远程兼容 API', 501)
-    if parameters.get('interface_type') not in (None, '', 'openai', 'chat_completions', 'openai_compatible'):
-        raise StoreError('当前运行时尚未提供此原生供应商接口，请使用兼容 API', 501)
-    if parameters.get('extra_config'):
-        raise StoreError('当前模型装配尚不消费 extraConfig，请移除此配置', 501)
-    return {'name': name.strip(), 'type': model_type, 'source': 'remote', 'parameters': parameters}
+    from agent.models import validate_model_runtime
+    value = {'name': name.strip(), 'type': model_type, 'source': body.get('source', saved.get('source', 'remote')), 'parameters': parameters}
+    validate_model_runtime(value)
+    return value
 
 
 def _client(value):

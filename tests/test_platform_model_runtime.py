@@ -4,7 +4,7 @@ import json
 import os
 
 from langchain_core.tools import tool
-from langchain_qwq import ChatQwen
+from agent.graph import build_model_record
 import pytest
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse, StreamingResponse
@@ -113,13 +113,14 @@ def test_failed_provider_is_unavailable_without_leaking_its_error_body(runtime_c
     assert 'must-stay-secret' not in str(response.json)
 
 
-def test_chatqwen_native_stream_keeps_reasoning_and_fragmented_tool_arguments(provider_server):
+def test_litellm_qwen_stream_keeps_reasoning_and_fragmented_tool_arguments(provider_server):
     base, calls = provider_server
     @tool
     def lookup(query: str) -> str:
         """Read fixture data."""
         return query
-    model = ChatQwen(model='qwen-plus', api_key='fixture', base_url=base + '/v1', enable_thinking=True, max_retries=0)
+    model = build_model_record({'name': 'qwen-plus', 'type': 'KnowledgeQA', 'parameters': {
+        'provider': 'aliyun', 'api_key': 'fixture', 'base_url': base + '/v1'}}, {'thinking': True})
     chunks = list(model.bind_tools([lookup]).stream('Read fixture'))
     full = chunks[0]
     for chunk in chunks[1:]:

@@ -43,6 +43,12 @@ cd ..
 
 回答引用只采用本轮成功官方工具返回的原文切片，按真实知识库/文档/切片 ID 校验；跨流片段完整输出标签，代码示例保持字面内容。工具错误、停止与恢复使用实际执行状态，停止无需等待卡住的工具再返回事件。
 
+Agent 模型通过 **LiteLLM Python SDK** 接入，继续使用原生 Deep Agents / LangGraph 执行、审批和 checkpoint。模型配置中的供应商可选择 OpenAI、阿里云百炼、DeepSeek、Anthropic、Google Gemini 或 OpenAI 兼容服务；填写该供应商的实际模型名、Base URL 和个人 API Key。前端 Agent 组件及交互沿用固定 WeKnora 版本，模型能力、调试表单与流事件由后端适配。普通连接测试不代表该型号支持思考或工具调用。
+
+思考选项来自固定 SDK 的本地型号目录，可通过现有 `parameters.spec` 覆盖新型号的 `reasoning`、`thinking_levels` 和 token 限制；不支持的强度会明确拒绝。`qwen-max` 不提供思考选项；百炼可使用支持思考的 `qwen-plus`。`auto` 对 Qwen 开启思考，对 DeepSeek/Gemini/支持 adaptive 的 Claude 使用自动模式；OpenAI 无可用自动强度时使用 `medium`。Claude 思考输出预算须大于 1024 tokens。模型测试返回请求选项、实际应用的选项、思考内容和用量；受模型限制的采样参数不会伪装成已应用。OpenAI Responses 可在现有高级配置中选择 `extra_config.api=openai-responses`，保留推理摘要及恢复所需的加密项。
+
+SDK 固定为 `langchain-litellm==0.11.1`、`litellm==1.109.1`。`langchain-litellm 0.11.2` 强制引入 MCP 2.x，与当前 `mcp==1.30.0` 冲突，因此本次不升级该依赖。默认测试使用本地 OpenAI/Qwen/DeepSeek、Anthropic、Gemini 协议服务及隔离 PostgreSQL；真实浏览器与百炼验收分别执行 `RUN_BROWSER_ACCEPTANCE=1 .venv/bin/python -m pytest tests/test_platform_litellm_browser.py -q`（先构建前端，需安装 Chrome）和 `RUN_LLM_ACCEPTANCE=1 .venv/bin/python -m pytest tests/test_platform_litellm_live.py -q`（使用已配置的百炼凭据，产生模型调用费用）。验收仅写入测试 schema 和会话虚拟文件；验收报告不保存思考正文或明文凭据。
+
 Wiki 编译器接管准入结果为 **未通过**：完整受影响页定位、编译来源/链接写入及云端编译隔离仍未确认，继续使用 ContextDB 官方编译。独立切片分页、页面版本冲突与读回实测见[准入报告](docs/architecture/contextdb-wiki-compiler-readiness.md)；未增加本地编译器或 Worker 编译阶段。
 
 **治理格式边界**：官方明确支持 TXT、Markdown、PDF、DOC、DOCX 的知识评审。HTML、PPT、Excel、图片和音视频等使用官方现有上传、解析与检索能力，治理支持未确认；不将上传或入库成功显示为完成治理，不增加本地格式转换。
