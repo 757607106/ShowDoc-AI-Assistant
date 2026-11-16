@@ -166,21 +166,13 @@ class ContextDBClient:
             body["profile_config"] = profile_config
         return self._request("POST", "/v1/knowledge/knowledge_bases", json_body=body)
 
-    def list_knowledge_bases(self, *, page=1, page_size=20):
-        return self._request("GET", "/v1/knowledge/knowledge_bases", params={"page": page, "page_size": page_size})
+    def list_knowledge_bases(self):
+        return self._request("GET", "/v1/knowledge/knowledge_bases")
 
     def find_knowledge_base(self, name):
         """按精确名称在可读知识库中查找;未命中返回 None。"""
-        page = 1
-        while True:
-            result = self.list_knowledge_bases(page=page, page_size=100)
-            bases = result.get("knowledge_bases", []) if isinstance(result, dict) else []
-            for item in bases:
-                if item.get("name") == name:
-                    return item
-            if len(bases) < 100:
-                return None
-            page += 1
+        result = self.list_knowledge_bases()
+        return next((item for item in result.get('knowledge_bases', []) if item.get('name') == name), None)
 
     def ensure_knowledge_base(self, name, **create_kwargs):
         """按名称幂等获取或创建知识库;返回 KB 对象。"""
@@ -193,16 +185,17 @@ class ContextDBClient:
         return self._request("GET", "/v1/knowledge/knowledge_bases/detail", params={"knowledge_base_id": kb_id})
 
     def update_knowledge_base(self, kb_id, *, name=None, description=None, graph_enabled=None, review_enabled=None):
-        body = {"knowledge_base_id": kb_id}
+        body = {}
         if name is not None:
-            body["name"] = name
+            body["knowledge_base_name"] = name
         if description is not None:
             body["description"] = description
         if graph_enabled is not None:
             body["graph_enabled"] = graph_enabled
         if review_enabled is not None:
             body["review_enabled"] = review_enabled
-        return self._request("PUT", "/v1/knowledge/knowledge_bases", json_body=body)
+        return self._request("PUT", "/v1/knowledge/knowledge_bases", json_body=body,
+                             params={"knowledge_base_id": kb_id})
 
     def delete_knowledge_base(self, kb_id):
         return self._request("DELETE", "/v1/knowledge/knowledge_bases", params={"knowledge_base_id": kb_id})
@@ -268,11 +261,17 @@ class ContextDBClient:
         return self._request("PUT", "/v1/knowledge/documents/metadata", json_body=body)
 
     def upload_file(self, knowledge_base_id, name, local_path, *, file_path=None, metadata=None,
-                    mime_type=None, review_enabled=None, parent_node_id=None):
+                    mime_type=None, review_enabled=None, parent_node_id=None, review_template_id=None):
         """官方文件上传(multipart POST /v1/knowledge/files);文本/代码类单文件上限 20 MB。
 
         适用于超过文本通道 200 KB 上限的治理载荷(如大体量版本记录)。
         """
+        if os.path.getsize(local_path) > 500 * 1024 * 1024:
+            if review_enabled is not None:
+                raise ValueError('分片上传不支持 review_enabled，请使用知识库评审设置')
+            return self._multipart_file(name, local_path, knowledge_base_id=knowledge_base_id,
+                file_path=file_path, metadata=metadata, mime_type=mime_type,
+                parent_node_id=parent_node_id, review_template_id=review_template_id)
         data = {"knowledge_base_id": knowledge_base_id, "name": name}
         if parent_node_id:
             data['parent_node_id'] = parent_node_id
@@ -282,6 +281,8 @@ class ContextDBClient:
             data["metadata"] = json.dumps(metadata, ensure_ascii=False)
         if review_enabled is not None:
             data["review_enabled"] = "true" if review_enabled else "false"
+        if review_template_id is not None:
+            data['review_template_id'] = review_template_id
         with open(local_path, "rb") as handle:
             files = {"file": (name, handle, mime_type or "application/json")}
             response = self._session.post(
@@ -306,15 +307,77 @@ class ContextDBClient:
             params["with_download_url"] = "true"
         return self._request("GET", "/v1/knowledge/documents", params=params)
 
-    def update_file(self, document_id, name, local_path, *, metadata=None, mime_type=None):
+    def update_file(self, document_id, name, local_path, *, metadata=None, mime_type=None,
+                    review_enabled=None, review_template_id=None):
+        if os.path.getsize(local_path) > 500 * 1024 * 1024:
+            if review_enabled is not None:
+                raise ValueError('分片更新不支持 review_enabled，请使用知识库评审设置')
+            doc = self.get_document(None, document_id)
+            return self._multipart_file(name, local_path, document_id=document_id, knowledge_base_id=doc['knowledge_base_id'],
+                metadata=metadata, mime_type=mime_type, review_template_id=review_template_id)
         data = {'document_id': document_id}
         if metadata is not None:
             data['metadata'] = json.dumps(metadata, ensure_ascii=False)
+        if review_enabled is not None:
+            data['review_enabled'] = 'true' if review_enabled else 'false'
+        if review_template_id is not None:
+            data['review_template_id'] = review_template_id
         with open(local_path, 'rb') as handle:
             response = self._session.put(f'{self.base_url}/v1/knowledge/files', data=data,
                 files={'file': (name, handle, mime_type or 'application/octet-stream')},
                 headers={'X-API-Key': self.api_key, 'Accept': 'application/json'}, timeout=self.timeout)
         return self._payload(response)
+
+    def _multipart_file(self, name, local_path, *, knowledge_base_id=None, document_id=None,
+                        file_path=None, metadata=None, mime_type=None, parent_node_id=None,
+                        review_template_id=None):
+        params = {'file_name': name}
+        if document_id:
+            params['document_id'] = document_id
+        else:
+            params.update(knowledge_base_id=knowledge_base_id, name=name)
+            if file_path is not None:
+                params['file_path'] = file_path
+            if parent_node_id is not None:
+                params['parent_node_id'] = parent_node_id
+        if metadata is not None:
+            params['metadata'] = json.dumps(metadata, ensure_ascii=False)
+        if mime_type is not None:
+            params['mime_type'] = mime_type
+        if review_template_id is not None:
+            params['review_template_id'] = review_template_id
+        upload = self._request('PUT' if document_id else 'POST', '/v1/knowledge/files/init-upload', params=params)
+        size = upload.get('chunk_size') if isinstance(upload, dict) else None
+        if (not isinstance(size, int) or isinstance(size, bool) or size <= 0
+                or not isinstance(upload.get('upload_ticket'), str) or not upload['upload_ticket']
+                or upload.get('knowledge_base_id') != knowledge_base_id):
+            raise ContextDBError('官方分片上传初始化响应不完整')
+        headers = {**self._headers(), 'X-Upload-Ticket': upload['upload_ticket']}
+        parts = []
+        try:
+            with open(local_path, 'rb') as handle:
+                while content := handle.read(size):
+                    part = self._payload(self._session.post(f'{self.base_url}/v1/knowledge/files/chunks',
+                        data={'part_number': len(parts) + 1}, files={'data': ('part', content)},
+                        headers=headers, timeout=self.timeout))
+                    if not isinstance(part, dict) or part.get('part_number') != len(parts) + 1 or not part.get('etag'):
+                        raise ContextDBError('官方分片回执不完整，请核对上传状态后重新提交')
+                    parts.append({'part_number': part['part_number'], 'etag': part['etag']})
+            if not parts:
+                raise ValueError('不能上传空文件')
+        except Exception:
+            try:
+                self._payload(self._session.request('POST', f'{self.base_url}/v1/knowledge/files/abort',
+                    headers=headers, timeout=self.timeout))
+            except (ContextDBError, requests.RequestException):
+                pass
+            raise
+        result = self._payload(self._session.request('POST', f'{self.base_url}/v1/knowledge/files/complete',
+            json={'parts': parts}, headers={**headers, 'Content-Type': 'application/json'}, timeout=self.timeout))
+        if (not isinstance(result, dict) or not isinstance(result.get('document_id'), str)
+                or not result['document_id'].strip() or result.get('knowledge_base_id') != knowledge_base_id):
+            raise ContextDBError('官方分片完成响应缺少最终文档 ID，请核对上传状态')
+        return self.get_document(knowledge_base_id, result['document_id'])
 
     def get_document(self, knowledge_base_id, document_id, *, with_download_url=False):
         params = {"document_id": document_id}

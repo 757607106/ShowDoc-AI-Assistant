@@ -105,11 +105,12 @@ def _initialize_schema():
                 owner_id text NOT NULL,
                 scope text NOT NULL,
                 source_id text NOT NULL,
-                target_mode text NOT NULL CHECK (target_mode IN ('wiki', 'graph')),
+                target_mode text NOT NULL CHECK (target_mode IN ('source', 'wiki', 'graph')),
                 knowledge_base_id text NOT NULL,
                 document_id text,
                 source_hash text,
                 source_version text,
+                conversion_fingerprint text NOT NULL DEFAULT '',
                 status text NOT NULL,
                 event_id text,
                 error text,
@@ -130,6 +131,7 @@ def _initialize_schema():
                 updated_at timestamptz NOT NULL DEFAULT now()
             );
             ALTER TABLE platform_users ADD COLUMN IF NOT EXISTS preferences jsonb NOT NULL DEFAULT '{}';
+            ALTER TABLE knowledge_sync ADD COLUMN IF NOT EXISTS conversion_fingerprint text NOT NULL DEFAULT '';
             ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS knowledge_base_ids jsonb NOT NULL DEFAULT '[]';
             ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS pinned_at timestamptz;
             ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS agent_config jsonb NOT NULL DEFAULT '{}';
@@ -173,3 +175,13 @@ def _initialize_schema():
                 created_at timestamptz NOT NULL DEFAULT now()
             );
         ''')
+        conn.execute('''DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conrelid='knowledge_sync'::regclass
+                  AND conname='knowledge_sync_target_mode_check'
+                  AND pg_get_constraintdef(oid) NOT LIKE '%source%') THEN
+                ALTER TABLE knowledge_sync DROP CONSTRAINT knowledge_sync_target_mode_check;
+                ALTER TABLE knowledge_sync ADD CONSTRAINT knowledge_sync_target_mode_check
+                    CHECK (target_mode IN ('source', 'wiki', 'graph'));
+            END IF;
+        END $$''')

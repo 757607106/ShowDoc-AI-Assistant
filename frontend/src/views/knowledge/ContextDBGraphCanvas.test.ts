@@ -20,7 +20,12 @@ function fixture(width = 830, height = 406, fail = false) {
     rootId: '产品甲', selectedId: '', isRelation: false,
   })
   const events: any[] = [], instances: Engine[] = [], cleanup: (() => void)[] = []
-  let mount = () => {}, resize = () => {}, disconnects = 0
+  let mount = () => {}, resize = () => {}, changeAppearance = () => {}, disconnects = 0, appearanceDisconnects = 0
+  const theme: Record<string, string> = {
+    '--td-brand-color': '#07c05f', '--td-component-border': '#dcdcdc', '--td-bg-color-container': '#fff',
+    '--td-bg-color-sidebar': '#f9f9f9', '--td-text-color-primary': 'rgba(0,0,0,0.9)',
+    '--td-text-color-secondary': 'rgba(0,0,0,0.6)', '--app-text-base': '14px', '--app-text-sm': '12px', fontFamily: 'WeKnora Sans',
+  }
   class Engine {
     listeners = new Map<string, (event?: any) => void>()
     dataValue: any; destroyed = false; scale = 0.75; tx = 100; ty = 40; refreshes = 0
@@ -43,6 +48,10 @@ function fixture(width = 830, height = 406, fail = false) {
     translate(x: number, y: number) { this.translations.push([x, y]); this.tx += x; this.ty += y }
     getCanvasByPoint(x: number, y: number) { return { x: x * this.scale + this.tx, y: y * this.scale + this.ty } }
     refreshPositions() { this.refreshes++ }
+    updateItem(item: any, update: any) {
+      const model = item.getModel()
+      Object.assign(model, { ...update, style: { ...model.style, ...update.style }, labelCfg: { ...model.labelCfg, ...update.labelCfg } })
+    }
     destroy() { this.destroyed = true }
   }
   const parallel: any[] = [], exports: { state?: any } = {}, scope = vue.effectScope()
@@ -55,11 +64,15 @@ function fixture(width = 830, height = 406, fail = false) {
     exports, defineProps: () => props, defineEmits: () => (...args: any[]) => events.push(args), defineExpose() {},
     require: (name: string) => { assert.ok(name in modules, name); return modules[name] },
     ResizeObserver: class { constructor(fn: () => void) { resize = fn } observe() {} disconnect() { disconnects++ } },
+    MutationObserver: class { constructor(fn: () => void) { changeAppearance = fn } observe() {} disconnect() { appearanceDisconnects++ } },
+    document: { documentElement: {} },
+    getComputedStyle: () => ({ fontFamily: theme.fontFamily, getPropertyValue: (key: string) => theme[key] || '' }),
   }))
   const element = { clientWidth: width, clientHeight: height }
   exports.state!.stage.value = element
   mount()
-  return { ...exports.state, props, instances, events, element, parallel, resize: () => resize(), disconnects: () => disconnects,
+  return { ...exports.state, props, instances, events, element, parallel, resize: () => resize(), disconnects: () => disconnects, appearanceDisconnects: () => appearanceDisconnects,
+    changeAppearance: (values: Record<string, string>) => { Object.assign(theme, values); changeAppearance() },
     flush: async () => { await vue.nextTick(); await new Promise(resolve => setImmediate(resolve)) },
     dispose() { cleanup.forEach(fn => fn()); scope.stop() }, fail: (value: boolean) => { fail = value } }
 }
@@ -71,8 +84,10 @@ test('official renderer uses the measured canvas, G6 force, node sizes, labels a
   assert.equal(options.fitView, false); assert.equal(options.fitViewPadding, 48); assert.equal(options.animate, false)
   assert.deepEqual(plain(options.layout), { type: 'force', preventOverlap: true, nodeSize: 64, nodeStrength: -420, linkDistance: 170, alphaDecay: 0.05 })
   assert.deepEqual(plain(options.modes.default), ['drag-canvas', 'zoom-canvas', 'drag-node'])
-  assert.equal(options.defaultNode.labelCfg.style.fontSize, 12); assert.equal(options.defaultNode.labelCfg.offset, 9)
-  assert.equal(options.defaultEdge.labelCfg.autoRotate, true); assert.equal(options.defaultEdge.labelCfg.style.fontSize, 11)
+  assert.equal(options.defaultNode.labelCfg.style.fontSize, 14); assert.equal(options.defaultNode.labelCfg.offset, 9)
+  assert.equal(options.defaultEdge.labelCfg.autoRotate, true); assert.equal(options.defaultEdge.labelCfg.style.fontSize, 12)
+  assert.equal(options.defaultNode.labelCfg.style.fontFamily, 'WeKnora Sans')
+  assert.equal(options.nodeStateStyles.selected.stroke, '#07c05f')
   assert.deepEqual(engine.dataValue.nodes.map((node: any) => node.size), [46, 32])
   assert.equal(engine.dataValue.edges[0].source, '产品甲'); assert.equal(engine.dataValue.edges[0].target, '组件乙')
   assert.equal(f.parallel[0][1], 24)
@@ -115,7 +130,7 @@ test('hidden canvases wait for a real size and unmount disconnects and destroys 
   const f = fixture(0, 0)
   assert.equal(f.instances.length, 0)
   f.element.clientWidth = 640; f.element.clientHeight = 480; f.resize(); assert.equal(f.instances.length, 1)
-  f.dispose(); assert.equal(f.disconnects(), 1); assert.equal(f.instances[0]!.destroyed, true)
+  f.dispose(); assert.equal(f.disconnects(), 1); assert.equal(f.appearanceDisconnects(), 1); assert.equal(f.instances[0]!.destroyed, true)
 })
 
 test('render failures remain visible and retry replaces the failed engine', t => {
@@ -164,4 +179,21 @@ test('whole-library initial camera chooses the most connected returned entity wi
   engine.trigger('afterlayout'); assert.equal(engine.scale, 1); assert.deepEqual(engine.focuses, ['组件乙'])
   f.props.edges = [{ id: 'tie', from: '产品甲', to: '组件乙', label: '包含' }]; await f.flush()
   const tied = f.instances.at(-1)!; tied.trigger('afterlayout'); assert.deepEqual(tied.focuses, ['产品甲'])
+})
+
+test('theme and font changes update canvas appearance without changing entity colors, positions or zoom', async t => {
+  const f = fixture(); t.after(f.dispose); const engine = f.instances[0]!
+  f.props.selectedId = 'relation'; f.props.isRelation = true; await f.flush()
+  engine.scale = 2
+  const positions = engine.dataValue.nodes.map(({ id, x, y, size, style }: any) => ({ id, x, y, size, fill: style.fill }))
+  f.changeAppearance({ '--td-brand-color': '#06b04d', '--td-bg-color-container': '#242424', '--td-bg-color-sidebar': '#181818',
+    '--td-text-color-primary': '#eee', '--td-text-color-secondary': '#aaa', '--td-component-border': '#5e5e5e', fontFamily: 'User Sans' })
+  assert.equal(f.instances.length, 1); assert.equal(engine.scale, 2); assert.equal(engine.refreshes, 0)
+  assert.deepEqual(engine.dataValue.nodes.map(({ id, x, y, size, style }: any) => ({ id, x, y, size, fill: style.fill })), positions)
+  assert.equal(engine.dataValue.nodes[0].style.stroke, '#06b04d'); assert.equal(engine.dataValue.nodes[1].style.stroke, '#242424')
+  assert.equal(engine.dataValue.nodes[0].labelCfg.style.fill, '#eee'); assert.equal(engine.dataValue.nodes[0].labelCfg.style.fontFamily, 'User Sans')
+  assert.equal(engine.dataValue.nodes[0].labelCfg.style.background.fill, '#181818')
+  assert.equal(engine.dataValue.edges[0].style.stroke, '#5e5e5e'); assert.equal(engine.dataValue.edges[0].style.endArrow.fill, '#5e5e5e')
+  assert.equal(engine.dataValue.edges[0].labelCfg.style.fill, '#aaa'); assert.equal(engine.dataValue.edges[0].stateStyles.selected.stroke, '#06b04d')
+  assert.deepEqual(plain(engine.selections.at(-1)), ['select', 'relation', 'selected', true])
 })

@@ -12,6 +12,10 @@ from tests.contextdb_fake import FakeContextDBClient
 def test_video_only_capture_recovery_reuses_saved_sources_without_network(tmp_path, monkeypatch):
     fake=FakeContextDBClient()
     store=Store(client=fake,owner_id=os.environ['TEST_PLATFORM_USER'])
+    from governance.spaces import persist_space
+    kb = fake.create_knowledge_base('恢复资料', wiki_enabled=True, graph_enabled=False, review_enabled=True)
+    persist_space(store, {'scope': 'default', 'name': kb['name'], 'knowledge_base_id': kb['id'],
+        'mode': 'wiki', 'lifecycle': 'active'})
     monkeypatch.setattr('webapi.auth.client_for_user',lambda *args:fake)
     monkeypatch.setattr('crawlers.cyb.CYBAuthenticator.login',Mock(side_effect=AssertionError('Unexpected login')))
     monkeypatch.setattr('common.converter.RAGContentPipeline.convert',Mock(side_effect=AssertionError('Unexpected local parsing')))
@@ -36,9 +40,9 @@ def test_video_only_capture_recovery_reuses_saved_sources_without_network(tmp_pa
     assert '视频内容未采集' in recovered['message']
     assert source.read_bytes()==original_bytes and store.get_job(original['task_id'])['status']=='partial'
     assert len(store.list_documents(retry['task_id']))==2
-    assert fake.documents=={} and fake.knowledge_bases=={}
+    assert fake.documents=={} and set(fake.knowledge_bases)=={kb['id']}
     sync_jobs = [job for job in store.list_jobs() if job['kind'] == 'ctxdb_sync']
     assert len(sync_jobs) == 1 and recovered['phase'] == 'submitted'
     from governance.contextdb_sync import run_sync
-    assert run_sync(store, sync_jobs[0])['uploaded'] == 4
-    assert len(fake.documents) == 4
+    assert run_sync(store, sync_jobs[0])['uploaded'] == 2
+    assert len(fake.documents) == 2

@@ -72,6 +72,33 @@ def test_bare_payload_passthrough():
     assert client.list_knowledge_bases() == {'knowledge_bases': [], 'total': 0}
 
 
+def test_library_lookup_uses_one_complete_official_list_without_pagination():
+    bases = [{'id': str(index), 'name': str(index)} for index in range(105)]
+    client, session = make_client([FakeResponse(200, {'knowledge_bases': bases, 'total': len(bases)})])
+    assert client.find_knowledge_base('104') == bases[-1]
+    assert len(session.requests) == 1 and session.requests[0]['params'] is None
+
+
+@pytest.mark.parametrize('method', ['upload', 'update'])
+def test_client_does_not_silently_drop_review_override_when_switching_to_multipart(monkeypatch, method):
+    client, session = make_client([])
+    monkeypatch.setattr('integrations.contextdb.client.os.path.getsize', lambda _: 501 * 1024 * 1024)
+    with pytest.raises(ValueError, match='不支持 review_enabled'):
+        if method == 'upload':
+            client.upload_file('kb', 'large.md', 'unused', review_enabled=False)
+        else:
+            client.update_file('doc', 'large.md', 'unused', review_enabled=False)
+    assert session.requests == []
+
+
+def test_rename_uses_documented_query_identity_and_name_field():
+    client, session = make_client([FakeResponse(200, {'id': 'kb', 'name': '新名称'})])
+    assert client.update_knowledge_base('kb', name='新名称')['name'] == '新名称'
+    request = session.requests[0]
+    assert request['params'] == {'knowledge_base_id': 'kb'}
+    assert request['json'] == {'knowledge_base_name': '新名称'}
+
+
 def test_conflict_error_code_1003():
     client, _ = make_client([FakeResponse(200, {'errorCode': 1003, 'errorMessage': 'COMMON_CONFLICT: boom', 'requestId': 'r2'})])
     try:
@@ -225,6 +252,66 @@ def test_update_file_keeps_name_mime_and_inherits_metadata(tmp_path):
     assert request['files']['file'][0] == '原件.md'
     assert request['files']['file'][2] == 'text/markdown'
     assert request['headers']['X-API-Key'] == 'ctxdb-test'
+
+
+@pytest.mark.parametrize('update', [False, True])
+def test_large_file_parts_preserve_bytes_and_use_final_document_id(tmp_path, monkeypatch, update):
+    final_id = 'old' if update else 'final'
+    client, session = make_client(([FakeResponse(payload={'id': 'old', 'knowledge_base_id': 'kb'})] if update else []) + [
+        FakeResponse(200, {'document_id': 'placeholder', 'knowledge_base_id': 'kb',
+                           'chunk_size': 4, 'upload_ticket': 'private-ticket'}),
+        FakeResponse(200, {'part_number': 1, 'etag': 'one'}),
+        FakeResponse(200, {'part_number': 2, 'etag': 'two'}),
+        FakeResponse(200, {'document_id': final_id, 'knowledge_base_id': 'kb', 'status': 'processing'}),
+        FakeResponse(200, {'id': final_id, 'knowledge_base_id': 'kb', 'ingest_status': 'processing'}),
+    ])
+    path = tmp_path / 'video.mp4'
+    path.write_bytes(b'1234567')
+    monkeypatch.setattr('integrations.contextdb.client.os.path.getsize', lambda _: 501 * 1024 * 1024)
+    result = (client.update_file('old', path.name, path) if update else
+              client.upload_file('kb', path.name, path))
+    assert result['id'] == final_id
+    sent = session.requests[int(update):]
+    init = sent[0]
+    assert init['method'] == ('PUT' if update else 'POST')
+    assert init['params']['file_name'] == 'video.mp4'
+    assert init['params'].get('document_id') == ('old' if update else None)
+    assert sent[1]['files']['data'][1] + sent[2]['files']['data'][1] == b'1234567'
+    assert sent[3]['json'] == {'parts': [
+        {'part_number': 1, 'etag': 'one'}, {'part_number': 2, 'etag': 'two'}]}
+    assert sent[3]['headers']['X-Upload-Ticket'] == 'private-ticket'
+    assert sent[4]['params']['document_id'] == final_id
+
+
+@pytest.mark.parametrize('completion_started', [False, True])
+def test_multipart_failure_aborts_only_before_completion(tmp_path, completion_started):
+    path = tmp_path / 'source.md'
+    path.write_text('# source')
+    responses = [FakeResponse(payload={'upload_ticket': 'ticket', 'chunk_size': 20, 'knowledge_base_id': 'kb'})]
+    if completion_started:
+        responses.extend([FakeResponse(payload={'part_number': 1, 'etag': 'one'}),
+                          FakeResponse(503, {'detail': 'uncertain complete'})])
+    else:
+        responses.extend([FakeResponse(400, {'detail': 'invalid part'}),
+                          FakeResponse(payload={'status': 'aborted'})])
+    client, session = make_client(responses)
+    with pytest.raises(ContextDBError):
+        client._multipart_file(path.name, path, knowledge_base_id='kb')
+    assert len(session.requests) == 3
+    assert session.requests[-1]['url'].endswith('/complete' if completion_started else '/abort')
+
+
+@pytest.mark.parametrize('final', [{'document_id': 123, 'knowledge_base_id': 'kb'},
+                                 {'document_id': 'doc', 'knowledge_base_id': 'another-kb'}])
+def test_multipart_does_not_accept_unverifiable_completion_identity(tmp_path, final):
+    path = tmp_path / 'source.md'
+    path.write_text('# source')
+    client, session = make_client([
+        FakeResponse(payload={'upload_ticket': 'ticket', 'chunk_size': 20, 'knowledge_base_id': 'kb'}),
+        FakeResponse(payload={'part_number': 1, 'etag': 'one'}), FakeResponse(payload=final)])
+    with pytest.raises(ContextDBError, match='最终文档 ID'):
+        client._multipart_file(path.name, path, knowledge_base_id='kb')
+    assert len(session.requests) == 3 and session.requests[-1]['url'].endswith('/complete')
 
 
 @pytest.mark.parametrize('raw', ['# 中文原文'.encode('utf-8'), b'\xff\xfe\x00a', b'\x00binary'])

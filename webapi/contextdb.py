@@ -1,5 +1,6 @@
 """Authenticated forwarding to declared official APIs. No knowledge algorithms or storage."""
 import json
+from contextlib import ExitStack
 import re
 import tempfile
 import zipfile
@@ -56,6 +57,39 @@ WIKI_METHODS = {
 }
 
 
+def forward_nodes(client, store, resource):
+    from governance.knowledge_bases import base_write_lock, require_writable_base
+    params = request.args.to_dict()
+    kb_id = params.pop('knowledge_base_id', None)
+    body = request.get_json(silent=True) if request.method == 'PATCH' or resource.endswith('/batch') else None
+    if body is not None and not isinstance(body, dict):
+        raise StoreError('请求必须是 JSON 对象', 400)
+    if not kb_id:
+        raise StoreError('节点操作必须指定 knowledge_base_id，以核对所属知识库', 400)
+    if isinstance(body, dict) and body.get('knowledge_base_id') not in (None, kb_id):
+        raise StoreError('knowledge_base_id 不能指定不同目标', 400)
+    body = {key: value for key, value in body.items() if key != 'knowledge_base_id'} if isinstance(body, dict) else body
+    fields = {**params, **(body or {})}
+    for key in ('node_id', 'parent_node_id'):
+        if key in params and body and key in body and params[key] != body[key]:
+            raise StoreError(f'{key} 不能指定不同目标', 400)
+    ids = fields.get('ids') if resource.endswith('/batch') else [fields.get('node_id')]
+    if not isinstance(ids, list) or not 1 <= len(ids) <= 50 or any(not isinstance(item, str) or not item.strip() for item in ids):
+        raise StoreError('节点操作必须指定 1～50 个有效节点 ID', 400)
+    if 'parent_node_id' in fields and (not isinstance(fields['parent_node_id'], str) or not fields['parent_node_id'].strip()):
+        raise StoreError('移动目标必须是有效节点 ID', 400)
+    checked = ids + ([fields['parent_node_id']] if fields.get('parent_node_id') else [])
+    with base_write_lock(kb_id):
+        require_writable_base(store, kb_id)
+        for node_id in dict.fromkeys(checked):
+            result = client._request('GET', '/v1/knowledge/nodes',
+                params={'knowledge_base_id': kb_id, 'parent_node_id': node_id, 'page_size': 1})
+            node = result.get('parent_node') if isinstance(result, dict) else None
+            if not isinstance(node, dict) or node.get('node_id') != node_id:
+                raise StoreError('节点所属知识库未确认，请刷新目录后重试', 409)
+        return client._request(request.method, '/v1/' + resource, json_body=body, params=params)
+
+
 @contextdb_bp.route('/api/contextdb/<version>/<path:resource>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
 def forward(version, resource):
     dynamic = bool(re.fullmatch(r'event/[A-Za-z0-9_-]+', resource))
@@ -67,16 +101,45 @@ def forward(version, resource):
         raise StoreError('官方章节修订列表必须指定 page_id，不是全库候选审批列表', 400)
     client = client_for_user()
     path = f'/{version}/{resource}'
-    if resource == 'knowledge/files' and request.method == 'POST':
-        uploaded = request.files.get('file')
-        if not uploaded or not uploaded.filename:
-            raise StoreError('缺少上传文件', 400)
-        with tempfile.TemporaryDirectory(prefix='contextdb-upload-') as directory:
-            local = Path(directory) / 'upload'
-            uploaded.save(local)
-            result = client.upload_file(request.form.get('knowledge_base_id', ''), uploaded.filename, str(local),
-                                        file_path=request.form.get('file_path'), mime_type=uploaded.mimetype,
-                                        parent_node_id=request.form.get('parent_node_id'))
+    if resource == 'knowledge/knowledge_bases' and request.method not in ('GET', 'HEAD'):
+        from app import get_store
+        from governance.knowledge_bases import create_base, update_base, delete_base
+        store = get_store()
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            raise StoreError('请求必须是 JSON 对象', 400)
+        kb_id = request.args.get('knowledge_base_id') or body.get('knowledge_base_id')
+        if request.args.get('knowledge_base_id') and body.get('knowledge_base_id') and request.args['knowledge_base_id'] != body['knowledge_base_id']:
+            raise StoreError('knowledge_base_id 不能指定不同目标', 400)
+        if request.method == 'POST':
+            result = create_base(store, body)
+        elif request.method == 'PUT':
+            result = update_base(store, kb_id, body)
+        elif request.method == 'DELETE':
+            result = delete_base(store, kb_id)
+        else:
+            raise StoreError('知识库更新请使用 PUT', 405)
+        return jsonify(success=True, data=result)
+    from webapi.contextdb_files import RESOURCES, forward_file
+    if resource in RESOURCES:
+        from app import get_store
+        result = forward_file(client, get_store(), resource)
+    elif ((resource == 'knowledge/nodes' and request.method in ('PATCH', 'DELETE')) or
+          (resource == 'knowledge/nodes/batch' and request.method in ('POST', 'DELETE'))):
+        from app import get_store
+        result = forward_nodes(client, get_store(), resource)
+    elif resource == 'knowledge/reviews/batch' and request.method in ('POST', 'DELETE'):
+        from app import get_store
+        from governance.knowledge_bases import batch_reviews
+        from integrations.contextdb.client import BATCH_REVIEW_ACTIONS
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            raise StoreError('请求必须是 JSON 对象', 400)
+        if request.method == 'POST' and (
+                not isinstance(body.get('action'), str) or body['action'] not in BATCH_REVIEW_ACTIONS):
+            raise StoreError('不支持的批量评审动作', 400)
+        result = batch_reviews(get_store(), body.get('ids'), lambda ids: client._request(
+            request.method, path, json_body={**body, 'ids': ids}, params=request.args.to_dict()))
     else:
         body = request.get_json(silent=True) if request.method not in ('GET', 'HEAD') else None
         if resource == 'knowledge/query' and isinstance(body, dict) and 'query' in body:
@@ -84,7 +147,30 @@ def forward(version, resource):
                 raise StoreError('query 与 question 不能指定不同的问题', 400)
             body = {**body, 'question': body['query']}
             body.pop('query')
-        result = client._request(request.method, path, json_body=body, params=request.args.to_dict())
+        with ExitStack() as writes:
+            if request.method not in ('GET', 'HEAD') and resource.startswith('knowledge/') and resource != 'knowledge/query':
+                from app import get_store
+                from governance.knowledge_bases import base_write_lock, require_writable_base, review_base_ids
+                fields = {**request.args.to_dict(), **(body if isinstance(body, dict) else {})}
+                for key in ('knowledge_base_id', 'kb_id', 'document_id', 'review_id'):
+                    if request.args.get(key) and isinstance(body, dict) and body.get(key) and request.args[key] != body[key]:
+                        raise StoreError(f'{key} 不能指定不同目标', 400)
+                if fields.get('knowledge_base_id') and fields.get('kb_id') and fields['knowledge_base_id'] != fields['kb_id']:
+                    raise StoreError('knowledge_base_id 与 kb_id 不能指定不同目标', 400)
+                kb_id = fields.get('knowledge_base_id') or fields.get('kb_id')
+                document_id = fields.get('document_id')
+                store = get_store()
+                ids = []
+                if fields.get('review_id'):
+                    ids = review_base_ids(store, [fields['review_id']])
+                elif kb_id or document_id:
+                    ids = [require_writable_base(store, kb_id, document_id)['knowledge_base_id']]
+                for target in ids:
+                    writes.enter_context(base_write_lock(target))
+                    require_writable_base(store, target)
+                result = client._request(request.method, path, json_body=body, params=request.args.to_dict())
+            else:
+                result = client._request(request.method, path, json_body=body, params=request.args.to_dict())
     if request.method == 'GET' or resource == 'knowledge/query':
         result = KnowledgeNames(user_id()).present(resource, result, kb_id=request.args.get('knowledge_base_id'))
     return jsonify(success=True, data=result)

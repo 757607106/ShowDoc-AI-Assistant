@@ -1,4 +1,4 @@
-"""Upload immutable captures to paired official Wiki/graph libraries.
+"""Upload immutable captures to one fixed ContextDB knowledge base.
 
 PostgreSQL stores identities and delivery status only. ContextDB owns review,
 parsing, compilation, graph construction and their authoritative states.
@@ -15,8 +15,6 @@ from governance.database import connection
 from governance.store import StoreError, now, safe_name
 from integrations.contextdb import ContextDBConflictError, ContextDBError
 
-REVIEW_HIGH_THRESHOLD = 0.85
-
 
 def knowledge_kb_name(scope, mode='wiki'):
     explicit = os.getenv('CONTEXTDB_KB_ID' if mode == 'wiki' else 'CONTEXTDB_GRAPH_KB_ID', '').strip()
@@ -24,47 +22,32 @@ def knowledge_kb_name(scope, mode='wiki'):
 
 
 def enqueue_sync(store, release_id, scope, *, target_modes=None, retry_of=None):
-    from governance.spaces import get_space, persist_space, require_no_active_sync
-    with connection() as conn:
+    from governance.spaces import require_writable_space
+    from governance.knowledge_bases import base_write_lock
+    target_id = require_writable_space(store, scope)['knowledge_base_id']
+    with base_write_lock(target_id), connection() as conn:
         conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', (f'space:{store.owner_id}:{scope}',))
-        space = get_space(store, scope)
-        modes = ['wiki', 'graph'] if space['graph_enabled'] else ['wiki']
-        if target_modes is not None:
-            if not target_modes or any(mode not in modes for mode in target_modes):
-                raise StoreError('目标未在当前业务空间启用', 409)
-            modes = list(dict.fromkeys(target_modes))
-        if any(space['targets'][mode]['status'] == 'missing' for mode in modes):
-            require_no_active_sync(store, scope)
-        persist_space(store, space)
-        params = {'release_id': release_id, 'target_modes': modes,
-                  'target_ids': {mode: space.get(mode + '_kb_id') for mode in modes}}
+        space = require_writable_space(store, scope)
+        if space['knowledge_base_id'] != target_id:
+            raise StoreError('目标知识库映射已改变，请刷新后重试', 409)
+        if target_modes is not None and target_modes != [space['mode']]:
+            raise StoreError('一次提交只能使用该知识库的固定编译模式', 409)
+        if store.get_release(release_id)['scope'] != scope:
+            raise StoreError('提交批次不属于该知识库', 409)
+        params = {'release_id': release_id, 'knowledge_base_id': space['knowledge_base_id'],
+                  'target_mode': space['mode']}
         return store.create_job('contextdb', params, kind='ctxdb_sync', scope=scope, retry_of=retry_of)
 
 
 def _target(store, scope, mode, target_id=None):
-    from governance.spaces import get_space, bind_target
-    with connection() as conn:
-        conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',
-                     (f'space-target:{store.owner_id}:{scope}:{mode}',))
-        client = store.client
-        space = get_space(store, scope)
-        configured = space.get(mode + '_kb_id')
-        if target_id and configured and target_id != configured:
-            raise StoreError('任务的目标知识库映射已改变，请重新提交当前批次', 409)
-        suffix = hashlib.sha256(f'{store.owner_id or ""}:{scope}'.encode()).hexdigest()[:12]
-        name = (f"knowledge-{safe_name(scope)}" if space.get('legacy') else
-                f"knowledge-{safe_name(scope)}-{suffix}") + ('-graph' if mode == 'graph' else '')
-        explicit = target_id or configured
-        kb = client.get_knowledge_base(explicit) if explicit else client.find_knowledge_base(name)
-        if kb is None:
-            kb = client.create_knowledge_base(name, description=f'采集范围 {scope} · {mode}',
-                wiki_enabled=mode == 'wiki', graph_enabled=mode == 'graph', review_enabled=True)
-            client.update_review_settings(kb['id'], high_threshold=REVIEW_HIGH_THRESHOLD,
-                                          rewrite_auto_ingest_enabled=False)
-        if bool(kb.get('wiki_enabled')) != (mode == 'wiki') or bool(kb.get('graph_enabled')) != (mode == 'graph'):
-            raise StoreError(f'{mode} 目标库的官方模式不匹配，请检查配置', 409)
-        bind_target(store, scope, mode, kb['id'])
-        return kb
+    from governance.spaces import require_writable_space
+    space = require_writable_space(store, scope)
+    if not target_id or target_id != space['knowledge_base_id'] or (mode == 'wiki') != (space['mode'] == 'wiki'):
+        raise StoreError('任务的固定目标知识库或模式已改变，请重新提交当前批次', 409)
+    kb = store.client.get_knowledge_base(target_id)
+    if bool(kb.get('wiki_enabled')) != (mode == 'wiki'):
+        raise StoreError('目标库的官方模式与提交记录不匹配', 409)
+    return kb
 
 
 def _save(owner, scope, source, mode, kb, **fields):
@@ -72,7 +55,7 @@ def _save(owner, scope, source, mode, kb, **fields):
         conn.execute('''INSERT INTO knowledge_sync(owner_id,scope,source_id,target_mode,knowledge_base_id,status)
             VALUES (%s,%s,%s,%s,%s,'pending') ON CONFLICT DO NOTHING''', (owner, scope, source, mode, kb))
         if fields:
-            allowed = {'document_id', 'source_hash', 'source_version', 'status', 'event_id', 'error'}
+            allowed = {'document_id', 'source_hash', 'source_version', 'conversion_fingerprint', 'status', 'event_id', 'error'}
             assert set(fields) <= allowed
             clause = ','.join(f'{key}=%s' for key in fields)
             updated = conn.execute(f'''UPDATE knowledge_sync SET {clause},updated_at=now()
@@ -83,10 +66,10 @@ def _save(owner, scope, source, mode, kb, **fields):
                 raise StoreError('目标知识库映射已改变，旧任务不能覆盖新投递回执', 409)
 
 
-def _mapping(owner, scope, source, mode):
+def _mapping(owner, scope, source, kb_id):
     with connection() as conn:
-        return conn.execute('SELECT * FROM knowledge_sync WHERE owner_id=%s AND scope=%s AND source_id=%s AND target_mode=%s',
-                            (owner, scope, source, mode)).fetchone()
+        return conn.execute('SELECT * FROM knowledge_sync WHERE owner_id=%s AND scope=%s AND source_id=%s AND knowledge_base_id=%s',
+                            (owner, scope, source, kb_id)).fetchone()
 
 
 def _find_document(client, kb, name, scope):
@@ -102,7 +85,7 @@ def _find_document(client, kb, name, scope):
         page += 1
 
 
-def _document_metadata(record, scope, source, digest, existing=None):
+def _document_metadata(record, scope, source, digest, conversion_fingerprint, submitted_hash, existing=None):
     metadata = dict(existing or {})
     captured = record.get('metadata') or {}
     applicability = captured.get('scope') or {}
@@ -114,57 +97,66 @@ def _document_metadata(record, scope, source, digest, existing=None):
             metadata[key] = value
     metadata.update(source='crawler', governance_scope=scope[:200], platform_source_id=source[:200],
                     source_version=str(record.get('version_id', ''))[:200], source_content_hash=digest,
+                    source_conversion_fingerprint=conversion_fingerprint,
                     title=str(record.get('title', ''))[:200])
+    if submitted_hash is not None:
+        metadata['submitted_content_hash'] = submitted_hash
     return metadata
 
 
-def _deliver(store, record, archive, mode, kb, scope):
+def _source_payload(store, kb, record, name, content, pipeline):
+    from common.converter import prepare_review_file
+    with tempfile.TemporaryDirectory(prefix='ctxdb-review-') as directory:
+        path = Path(directory) / name
+        path.write_bytes(content)
+        captured = record.get('metadata') or {}
+        name, path, fingerprint = prepare_review_file(store.client, kb['id'], name, path,
+            base_url=captured.get('resource_base_url') or captured.get('url') or '', pipeline=pipeline)
+        if not record.get('archive_source') and record.get('content_format') == 'markdown':
+            fingerprint = (captured.get('conversion') or {}).get('fingerprint') or ''
+        return name, path.read_bytes(), fingerprint
+
+
+def _deliver(store, record, archive, mode, kb, scope, pipeline):
     owner = store.owner_id or ''
     source = str(record['id'])
-    name = f"doc-{safe_name(source)}"
-    if record.get('archive_source'):
-        name += Path(record['archive_source']).suffix
-        content = archive.read(record['archive_source'])
-    else:
-        name += {'html': '.html', 'text': '.txt', 'markdown': '.md'}.get(record.get('source_format'), '.md')
-        content = record.get('content', '').encode('utf-8')
+    suffix = Path(record['archive_source']).suffix.lower() if record.get('archive_source') else {
+        'html': '.html', 'text': '.txt', 'markdown': '.md', 'md': '.md'}.get(record.get('content_format') or record.get('source_format') or 'markdown', '')
+    name = f"doc-{safe_name(source)}{suffix}"
+    content = archive.read(record['archive_source']) if record.get('archive_source') else record.get('content', '').encode('utf-8')
     if not content.strip():
         raise StoreError(f'源文档为空: {source}', 422)
-    digest = hashlib.sha256(content).hexdigest()
-    row = _mapping(owner, scope, source, mode)
+    original = record['source_content'].encode('utf-8') if 'source_content' in record else content
+    digest = hashlib.sha256(original).hexdigest()
+    row = _mapping(owner, scope, source, kb['id'])
+    if row:
+        mode = row['target_mode']
     if row and row['knowledge_base_id'] != kb['id']:
-        from governance.spaces import missing_knowledge_base
-        try:
-            store.client.get_knowledge_base(row['knowledge_base_id'])
-        except ContextDBError as exc:
-            if not missing_knowledge_base(exc):
-                raise
-        else:
-            raise StoreError('目标知识库映射已改变，需要独立迁移后重试', 409)
-        history_key = hashlib.sha256(json.dumps([owner, scope, source, mode, row['knowledge_base_id']]).encode()).hexdigest()
-        if not store._find('knowledge_sync_history', sync_key=history_key):
-            history = {**row, 'updated_at': row['updated_at'].isoformat()}
-            store._create('knowledge_sync_history', history_key, history,
-                          {'scope': scope, 'target_mode': mode, 'sync_key': history_key})
-        with connection() as conn:
-            row = conn.execute('''UPDATE knowledge_sync SET knowledge_base_id=%s, document_id=NULL,
-                source_hash=NULL, source_version=NULL, status='pending', event_id=NULL, error=NULL, updated_at=now()
-                WHERE owner_id=%s AND scope=%s AND source_id=%s AND target_mode=%s AND knowledge_base_id=%s
-                RETURNING *''', (kb['id'], owner, scope, source, mode, row['knowledge_base_id'])).fetchone()
-            if row is None:
-                raise StoreError('目标知识库映射已改变，请刷新后重试', 409)
+        raise StoreError('目标知识库映射已改变，需要独立迁移后重试', 409)
     doc = None
     if row and row['document_id']:
         doc = store.client.get_document(kb['id'], row['document_id'])
-    elif row:
+    same_capture = bool(doc and row['source_hash'] == digest and row['source_version'] == str(record.get('version_id', '')))
+    if same_capture:
+        # Policy changes do not replace a previously accepted capture or its human rewrite.
+        fingerprint = row.get('conversion_fingerprint') or ''
+        submitted_hash = doc.get('metadata', {}).get('submitted_content_hash')
+    else:
+        name, content, fingerprint = _source_payload(store, kb, record, name, content, pipeline)
+        submitted_hash = hashlib.sha256(content).hexdigest()
+    if row and doc is None:
         doc = _find_document(store.client, kb['id'], name, scope)
         if doc is None and row['status'] in ('uploading', 'uncertain'):
             raise StoreError('上次上传结果未知，官方列表尚未返回该文档；请核实后重试，防止重复提交', 409)
-    unchanged = doc and (doc.get('metadata', {}).get('source_content_hash') == digest or
-                         (row and row['source_hash'] == digest and row['source_version'] == str(record.get('version_id', ''))))
+    if doc and doc.get('ingest_status') in ('deleted', 'deleting'):
+        raise StoreError('源文档已删除或正在删除，不能自动恢复', 409)
+    unchanged = same_capture or doc and ((doc.get('metadata', {}).get('source_content_hash') == digest and
+                          doc.get('metadata', {}).get('source_conversion_fingerprint', '') == fingerprint) or
+                         (row and row['source_hash'] == digest and row['source_version'] == str(record.get('version_id', ''))
+                          and (row.get('conversion_fingerprint') or '') == fingerprint))
     if not unchanged and row and row['status'] in ('uploading', 'uncertain'):
         raise StoreError('上次写入结果未知，官方文档尚未确认目标内容版本；请核实后重试，防止覆盖或重复提交', 409)
-    metadata = _document_metadata(record, scope, source, digest, doc.get('metadata') if doc else None)
+    metadata = _document_metadata(record, scope, source, digest, fingerprint, submitted_hash, doc.get('metadata') if doc else None)
     metadata_changed = doc is not None and metadata != doc.get('metadata', {})
     try:
         if unchanged:
@@ -188,11 +180,23 @@ def _deliver(store, record, archive, mode, kb, scope):
                         existing = _find_document(store.client, kb['id'], name, scope)
                         if existing is None:
                             raise
-                        metadata = _document_metadata(record, scope, source, digest, existing.get('metadata'))
-                        result = store.client.update_file(existing['id'], name, path, metadata=metadata, mime_type=mime)
+                        metadata = _document_metadata(record, scope, source, digest, fingerprint, submitted_hash, existing.get('metadata'))
+                        unchanged = (existing.get('metadata', {}).get('source_content_hash') == digest and
+                                     existing.get('metadata', {}).get('source_conversion_fingerprint', '') == fingerprint)
+                        metadata_changed = metadata != existing.get('metadata', {})
+                        if unchanged:
+                            result = existing
+                            if metadata_changed:
+                                result = {**existing, **store.client.update_document_metadata(metadata, document_id=existing['id'])}
+                        else:
+                            result = store.client.update_file(existing['id'], name, path, metadata=metadata, mime_type=mime)
         _save(owner, scope, source, mode, kb['id'], document_id=result['id'], source_hash=digest,
-              source_version=str(record.get('version_id', '')), status=result.get('ingest_status', 'unknown'),
+              source_version=str(record.get('version_id', '')), conversion_fingerprint=fingerprint,
+              status=result.get('ingest_status', 'unknown'),
               event_id=result.get('latest_ingest_event_id'), error=result.get('ingest_error_message'))
+        detail = store.client.get_document(kb['id'], result['id'])
+        _save(owner, scope, source, mode, kb['id'], status=detail.get('ingest_status', 'unknown'),
+              event_id=detail.get('latest_ingest_event_id'), error=detail.get('ingest_error_message'))
         return not unchanged or metadata_changed
     except Exception as exc:
         definite = isinstance(exc, ContextDBError) and exc.status_code is not None and 400 <= exc.status_code < 500
@@ -201,60 +205,63 @@ def _deliver(store, record, archive, mode, kb, scope):
 
 
 def run_sync(store, job):
+    params = job['params']
+    mode, target_id = params.get('target_mode'), params.get('knowledge_base_id')
+    if 'target_modes' in params:
+        modes = params['target_modes']
+        if not isinstance(modes, list) or len(modes) != 1:
+            raise StoreError('旧双目标任务已停止，请选择一个知识库后重新提交', 409)
+        mode = modes[0]
+        target_id = (params.get('target_ids') or {}).get(mode)
+    if mode not in ('source', 'graph', 'wiki') or not target_id:
+        raise StoreError('提交任务缺少固定目标知识库，请重新提交当前批次', 409)
     release = store.get_release(job['params']['release_id'])
     if not release['active']:
         raise StoreError('该提交已被更新批次取代，请同步当前资料，避免覆盖新版本', 409)
     if not Path(release['archive_path']).is_file():
         raise StoreError('治理提交包缺失', 404)
     scope = release['scope']
-    modes = job['params'].get('target_modes', ['wiki', 'graph'])
-    if not isinstance(modes, list) or not modes or any(mode not in ('wiki', 'graph') for mode in modes):
-        raise StoreError('治理任务目标无效', 409)
-    targets, failures, stages = {}, [], {}
-    for mode in modes:
-        stages[mode] = {'uploaded': 0, 'skipped': 0, 'errors': [], 'status': 'pending'}
-        try:
-            targets[mode] = _target(store, scope, mode, job['params'].get('target_ids', {}).get(mode))
-            stages[mode]['knowledge_base_id'] = targets[mode]['id']
-        except Exception as exc:
-            failures.append(f'{mode}: {exc}')
-            stages[mode]['errors'].append(str(exc))
-            stages[mode]['status'] = 'failed'
+    kb = _target(store, scope, mode, target_id)
+    from common.converter import RAGContentPipeline
+    pipeline = RAGContentPipeline(Path(release['archive_path']).with_suffix('') / 'assets')
+    failures = []
+    stage = {'knowledge_base_id': kb['id'], 'uploaded': 0, 'skipped': 0, 'errors': [], 'status': 'pending'}
+    stages = {mode: stage}
     uploaded = skipped = 0
     with ZipFile(release['archive_path']) as archive:
         records = [json.loads(line) for line in archive.read('rag_documents.jsonl').decode('utf-8').splitlines() if line.strip()]
-        total = len(records) * len(modes)
-        for mode, kb in targets.items():
-            for record in records:
-                store.guard_attempt()
-                if store.get_job(job['task_id'])['cancel_requested']:
-                    from crawlers.base import CrawlCancelled
-                    raise CrawlCancelled('同步已取消')
-                try:
-                    with connection() as conn:
-                        conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',
-                                     (f'sync-delivery:{store.owner_id}:{scope}',))
-                        if not store.get_release(release['id'])['active']:
-                            raise StoreError('该提交已被更新批次取代，停止写入旧内容', 409)
-                        delivered = _deliver(store, record, archive, mode, kb, scope)
-                    if delivered:
-                        uploaded += 1
-                        stages[mode]['uploaded'] += 1
-                    else:
-                        skipped += 1
-                        stages[mode]['skipped'] += 1
-                except Exception as exc:
-                    failures.append(f'{mode}/{record["id"]}: {exc}')
-                    stages[mode]['errors'].append(f'{record["id"]}: {exc}')
-                stages[mode]['status'] = 'partial' if stages[mode]['errors'] else 'submitting'
-                store.update_job(job['task_id'], summary={'targets': stages})
-                store.log(job['task_id'], f'上传 {uploaded}，未变化 {skipped}，错误 {len(failures)}',
-                          phase='syncing', completed_pages=uploaded+skipped, total_pages=total)
-    for mode in targets:
-        stages[mode]['status'] = 'partial' if stages[mode]['errors'] else 'submitted'
+        total = len(records)
+        for record in records:
+            store.guard_attempt()
+            if store.get_job(job['task_id'])['cancel_requested']:
+                from crawlers.base import CrawlCancelled
+                raise CrawlCancelled('同步已取消')
+            try:
+                from governance.knowledge_bases import base_write_lock
+                with base_write_lock(target_id), connection() as conn:
+                    conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',
+                                 (f'sync-delivery:{store.owner_id}:{scope}',))
+                    if not store.get_release(release['id'])['active']:
+                        raise StoreError('该提交已被更新批次取代，停止写入旧内容', 409)
+                    kb = _target(store, scope, mode, target_id)
+                    delivered = _deliver(store, record, archive, mode, kb, scope, pipeline)
+                if delivered:
+                    uploaded += 1
+                    stage['uploaded'] += 1
+                else:
+                    skipped += 1
+                    stage['skipped'] += 1
+            except Exception as exc:
+                failures.append(f'{mode}/{record["id"]}: {exc}')
+                stage['errors'].append(f'{record["id"]}: {exc}')
+            stage['status'] = 'partial' if stage['errors'] else 'submitting'
+            store.update_job(job['task_id'], summary={'targets': stages})
+            store.log(job['task_id'], f'上传 {uploaded}，未变化 {skipped}，错误 {len(failures)}',
+                      phase='syncing', completed_pages=uploaded+skipped, total_pages=total)
+    stage['status'] = 'partial' if stage['errors'] else 'submitted'
     store.update_job(job['task_id'], status='partial' if failures else 'completed', summary={'targets': stages},
         phase='partial' if failures else 'submitted', progress=int(100*(uploaded+skipped)/total) if total else 100,
         end_time=now(), failed_pages=len(failures), skipped_pages=skipped,
-        message=('；'.join(failures)[:1400] if failures else '资料已提交治理；评审、入库、Wiki 编译与图谱构建请查看各目标官方处理状态'))
-    return {'targets': {mode: kb['id'] for mode, kb in targets.items()}, 'uploaded': uploaded,
+        message=('；'.join(failures)[:1400] if failures else '资料已提交；评审、入库与编译请查看该知识库的官方处理状态'))
+    return {'knowledge_base_id': kb['id'], 'target_mode': mode, 'targets': {mode: kb['id']}, 'uploaded': uploaded,
             'skipped': skipped, 'total': total, 'errors': failures}

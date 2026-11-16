@@ -15,6 +15,7 @@ function collection(t: TestContext, listing = async () => ({pages:[{page_id:'doc
     '@/utils/platformPresentation':presentation,
     '@/utils/contextdbReviewSupport':reviewSupport,
     '@/api/knowledgeSpaces':{getSpaces:async()=>({spaces:[{scope:'space-a',name:'产品知识'}]})},
+    '@/api/contextdb':{listBases:async()=>({data:[{id:'kb-a',name:'产品知识',wiki_enabled:true,graph_enabled:false}]}),getBasePermissions:async()=>({member:{role:'owner'}}),knowledgeAccess:()=>({write:true}),knowledgeModeLabel:()=> 'Wiki 编译',bindBase:async()=>({space:{scope:'space-a'}})},
     '@/api/backend':{entries:async()=>({entries:[{key:'showdoc',display_name:'ShowDoc'},{key:'web'}]}),entryDocuments:listing,
       startTask:async(entry:string,payload:any)=>{requests.push({entry,payload:JSON.parse(JSON.stringify(payload))});return {task_id:'task-1'}}},
   })
@@ -26,7 +27,7 @@ test('ordinary collection fields and named document selection retain the source 
   vm.projectId='42';await flush()
   vm.selection='selected';await vm.loadPages();vm.selectedIds=['doc-123']
   await vm.launch()
-  assert.deepEqual(requests,[{entry:'showdoc',payload:{item_id:'42',space_scope:'space-a',selected_ids:['doc-123']}}])
+  assert.deepEqual(requests,[{entry:'showdoc',payload:{item_id:'42',knowledge_base_id:'kb-a',selected_ids:['doc-123']}}])
   vm.selectedIds=[];await vm.launch()
   assert.equal(requests.length,1);assert.equal(vm.error,'请选择要采集的文档')
 })
@@ -36,7 +37,7 @@ test('web collection validates addresses and preserves explicit crawl limits',as
   vm.entryKey='web';vm.url='not a website';await flush();await vm.launch()
   assert.equal(requests.length,0);assert.match(vm.error,/网站地址/)
   vm.url='https://example.com/manual';vm.crawlMode='site';vm.maxPages=25;vm.maxDepth=2;await flush();await vm.launch()
-  assert.deepEqual(requests[0].payload,{url:'https://example.com/manual',crawl_mode:'site',max_pages:25,max_depth:2,space_scope:'space-a'})
+  assert.deepEqual(requests[0].payload,{url:'https://example.com/manual',crawl_mode:'site',max_pages:25,max_depth:2,knowledge_base_id:'kb-a'})
 })
 
 test('a slow document list cannot populate the selector after its source changes',async t=>{

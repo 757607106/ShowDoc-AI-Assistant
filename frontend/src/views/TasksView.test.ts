@@ -41,3 +41,12 @@ test('captured, queued and failed submissions are distinct from completed cloud 
   assert.equal(label({kind:'ctxdb_sync',status:'completed',phase:'submitted'}),'提交完成')
   assert.equal(label({kind:'ctxdb_sync',status:'failed',phase:'failed'}),stateLabel('failed','upload'))
 })
+test('knowledge-base links retain the scope-to-ID resolver without requesting the removed progress view',()=>{
+  const script=source.slice(source.indexOf('function openKnowledgeBase('),source.indexOf('function statusLabel('))
+  const code=ts.transpileModule(script+'\nreturn openKnowledgeBase',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText
+  const routes:any[]=[]
+  const open=new Function('router',code)({push:(route:any)=>routes.push(route)})
+  const scope='资料 /?#中文';open({scope})
+  assert.deepEqual(routes,[{path:'/platform/knowledge-spaces/'+encodeURIComponent(scope)}])
+  assert.equal('query' in routes[0],false)
+})

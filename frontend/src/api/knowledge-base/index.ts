@@ -308,6 +308,7 @@ export interface KnowledgeBaseStoreView {
 
 export function createKnowledgeBase(data: {
   name: string;
+  review_enabled?: boolean;
   description?: string;
   type?: 'document' | 'faq';
   chunking_config?: any;
@@ -362,6 +363,7 @@ export function getKnowledgeBaseById(id: string, _options?: any) {
 
 export function updateKnowledgeBase(id: string, data: {
   name: string;
+  review_enabled?: boolean;
   description?: string;
   config?: {
     chunking_config?: any;

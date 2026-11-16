@@ -54,7 +54,7 @@ class FakeContextDBClient:
             raise ContextDBError('name exists')
         return self.ensure_knowledge_base(name, **kwargs)
 
-    def list_knowledge_bases(self, *, page=1, page_size=20):
+    def list_knowledge_bases(self):
         bases = list(self.knowledge_bases.values())
         return {'knowledge_bases': bases, 'total': len(bases)}
 
@@ -110,12 +110,13 @@ class FakeContextDBClient:
         return dict(doc)
 
     def upload_file(self, knowledge_base_id, name, local_path, *, file_path=None, metadata=None,
-                    mime_type=None, review_enabled=None, parent_node_id=None):
+                    mime_type=None, review_enabled=None, parent_node_id=None, review_template_id=None):
         with open(local_path, 'r', encoding='utf-8') as handle:
             text = handle.read()
         return self.create_text_document(knowledge_base_id, name, text, file_path=file_path, metadata=metadata)
 
-    def update_file(self, document_id, name, local_path, *, metadata=None, mime_type=None):
+    def update_file(self, document_id, name, local_path, *, metadata=None, mime_type=None,
+                    review_enabled=None, review_template_id=None):
         return self.update_text_document(Path(local_path).read_text(), document_id=document_id, metadata=metadata)
 
     def update_text_document(self, text, *, document_id=None, knowledge_base_id=None, name=None,
@@ -179,7 +180,7 @@ class FakeContextDBClient:
 
     def get_document(self, knowledge_base_id, document_id, *, with_download_url=False):
         doc = self.documents.get(document_id)
-        if doc is None or doc['knowledge_base_id'] != knowledge_base_id:
+        if doc is None or (knowledge_base_id is not None and doc['knowledge_base_id'] != knowledge_base_id):
             raise ContextDBError('document not found')
         view = dict(doc)
         if not with_download_url:

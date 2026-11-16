@@ -4,8 +4,9 @@ import { createRequire } from 'node:module'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
-import { compileScript, parse } from '@vue/compiler-sfc'
-import { createRenderer, nextTick, reactive } from 'vue'
+import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
+import { createRenderer, createSSRApp, nextTick, reactive } from 'vue'
+import { renderToString } from 'vue/server-renderer'
 import ts from 'typescript'
 import { renderDocumentPreviewMarkdown } from '../../../utils/documentPreviewMarkdown.ts'
 
@@ -23,7 +24,7 @@ async function fixture(options: { directory?: boolean; props?: any; api?: Record
   const compiled = ts.transpileModule(script, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
   const calls: { name: string; args: any[] }[] = [], warnings: string[] = [], successes: string[] = []
   const guards: (() => boolean)[] = [], updateGuards: ((to: any, from: any) => boolean)[] = []
-  const route = reactive({ query: options.directory ? {} : { wikiPageId: 'page-a', tab: 'wiki', retained: 'yes' }, fullPath: '/wiki' })
+  const route = reactive({ query: (options.directory ? {} : { wikiPageId: 'page-a', tab: 'wiki', retained: 'yes' }) as Record<string, string>, fullPath: '/wiki' })
   let remote = page()
   const defaults: Record<string, (...args: any[]) => Promise<any>> = {
     getWikiPage: async () => remote,
@@ -67,6 +68,7 @@ async function fixture(options: { directory?: boolean; props?: any; api?: Record
       if (name === '@/utils/notificationPreview') return require('../../../utils/notificationPreview.ts')
       if (name === '@/utils/security') return require('../../../utils/security.ts')
       if (name === '@/utils/wikiLineDiff') return require('../../../utils/wikiLineDiff.ts')
+      if (name === '@/utils/platformPresentation') return require('../../../utils/platformPresentation.ts')
       if (name === 'tdesign-vue-next') return { MessagePlugin: { warning: (message: string) => warnings.push(message), success: (message: string) => successes.push(message), error() {}, info() {} } }
       if (name.endsWith('.vue')) return { default: {} }
       throw new Error(`Unexpected dependency: ${name}`)
@@ -99,6 +101,32 @@ test('directory reads only the current level, preserves opaque cursors and loads
   } finally { f.close() }
 })
 
+test('Wiki directory renders readable summary titles and ordinary directory names in labels and menus', async () => {
+  const items = [
+    page({ page_id: 'summary-a', page_type: 'summary', title: `doc-${'a'.repeat(64)}.md - Summary`, display_title: '采购单.md - Summary' }),
+    page({ page_id: 'directory-a', page_type: 'category', title: '资料目录' }),
+  ]
+  const original = structuredClone(items)
+  const f = await fixture({ directory: true, api: { listWikiPages: async () => ({ items }) } })
+  try {
+    const { descriptor } = parse(readFileSync(new URL('./ContextDBWikiDirectory.vue', import.meta.url), 'utf8'))
+    const compiled = compileTemplate({ source: descriptor.template!.content, filename: 'ContextDBWikiDirectory.vue', id: 'wiki-directory-names', compilerOptions: { expressionPlugins: ['typescript'] } })
+    assert.deepEqual(compiled.errors, [])
+    const exports: any = {}
+    runInNewContext(ts.transpileModule(compiled.code, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports, require })
+    const app = createSSRApp({ render: () => exports.render({ ...f.vm.$props, ...f.vm }, []) })
+    for (const name of ['t-icon', 't-dropdown', 't-button', 't-loading', 'ContextDBWikiDirectory']) app.component(name, { template: '<span><slot /></span>' })
+    const html = (await renderToString(app)).replace(/<!--[\s\S]*?-->/g, '')
+    assert.match(html, /<span>采购单\.md - Summary<\/span>/)
+    assert.match(html, /aria-label="更多 采购单\.md - Summary"/)
+    assert.match(html, /<span>资料目录<\/span>/)
+    assert.match(html, /aria-label="展开资料目录"/)
+    assert.match(html, /aria-label="更多 资料目录"/)
+    assert.doesNotMatch(html, /doc-[a-f\d]{64}/i)
+    assert.deepEqual(items, original)
+  } finally { f.close() }
+})
+
 test('page navigation preserves the space route query and unsaved drafts block every navigation path', async () => {
   const f = await fixture()
   try {
@@ -114,6 +142,62 @@ test('page navigation preserves the space route query and unsaved drafts block e
     assert.equal(f.route.query.wikiPageId, 'page-b')
     assert.equal(f.route.query.retained, 'yes')
     assert.equal(f.route.query.tab, 'wiki')
+  } finally { f.close() }
+})
+
+test('Wiki view links retain the selected page and unsaved drafts prevent a view switch', async () => {
+  const f = await fixture()
+  try {
+    await f.vm.switchTab('compile')
+    assert.equal(f.route.query.wikiTab, 'compile')
+    assert.equal(f.route.query.wikiPageId, 'page-a')
+    await f.vm.switchTab('read')
+    f.vm.startEditing(); f.vm.draft = '保留的正文'
+    await f.vm.switchTab('compile')
+    assert.equal(f.vm.internalTab, 'read')
+    assert.equal(f.route.query.wikiTab, 'read')
+    f.vm.cancelEditing()
+  } finally { f.close() }
+})
+
+test('directory menu actions use their own page identity without changing the open article', async () => {
+  const f = await fixture()
+  try {
+    f.vm.openAction('rename', page({ page_id: 'directory-b', page_type: 'category', title: '目录 B', version: 9 }))
+    assert.equal(f.vm.actionTitle, '目录 B')
+    f.vm.actionTitle = '目录新名称'
+    await f.vm.submitAction()
+    const call = f.calls.find(call => call.name === 'organizeWikiDirectory')!
+    assert.equal(call.args[1], 'directory-b')
+    assert.equal(call.args[2].expected_version, 9)
+    assert.equal(call.args[2].title, '目录新名称')
+    assert.equal(f.route.query.wikiPageId, 'page-a')
+  } finally { f.close() }
+})
+
+test('deleting another page from its tree menu checks that version and keeps the current article open', async () => {
+  const f = await fixture({ api: { getWikiPage: async (_kb, id) => page({ page_id: id, version: id === 'page-b' ? 9 : 3 }) } })
+  try {
+    f.vm.openAction('delete', page({ page_id: 'page-b', version: 9 }))
+    await f.vm.submitAction()
+    assert.equal(f.calls.find(call => call.name === 'deleteWikiPage')!.args[1], 'page-b')
+    assert.equal(f.route.query.wikiPageId, 'page-a')
+    assert.equal(f.vm.page.page_id, 'page-a')
+  } finally { f.close() }
+})
+
+test('new Wiki pages default to entity and submit their complete Markdown body', async () => {
+  const f = await fixture()
+  try {
+    f.vm.openAction('create-page')
+    assert.equal(f.vm.actionType, 'entity')
+    await f.vm.submitAction()
+    assert.equal(f.calls.filter(call => call.name === 'createWikiPage').length, 0)
+    f.vm.actionTitle = '新建主题'; f.vm.actionContent = '# 新建主题\n\n' + '完整正文。'.repeat(1000)
+    await f.vm.submitAction()
+    const call = f.calls.find(call => call.name === 'createWikiPage')!
+    assert.equal(call.args[1].page_type, 'entity')
+    assert.equal(call.args[1].content, '# 新建主题\n\n' + '完整正文。'.repeat(1000))
   } finally { f.close() }
 })
 
@@ -135,9 +219,10 @@ test('a returned version alone never confirms a save, while published matching�
   const f = await fixture({ api: { updateWikiPage: async () => ({ version: 99 }) } })
   try {
     f.vm.startEditing(); f.vm.draft = '等待发布的正文'
-    f.remote(page({ version: 99, published: false, content: '等待发布的正文' }))
+    f.remote(page({ version: 99, published: false, run_state: 'pending', content: '等待发布的正文' }))
     await f.vm.save()
     assert.equal(f.vm.editing, true); assert.equal(f.vm.submitted, true)
+    assert.equal(f.vm.busyPage, true)
     assert.equal(f.successes.length, 0)
     assert.match(f.vm.saveNotice, /正式正文尚未/)
     f.remote(page({ version: 100, published: true, content: '等待发布的正文' }))
@@ -244,6 +329,22 @@ test('Wiki labels use additive titles while editing and original content keep na
     assert.equal(f.vm.draft, native.content)
     assert.equal(f.vm.page.title, rawTitle)
     assert.equal(f.vm.page.page_id, native.page_id)
+  } finally { f.close() }
+})
+
+test('Wiki references replace native title labels with display titles and preserve custom aliases and source content', async () => {
+  const rawTitle = `doc-${'e'.repeat(64)}.html - Summary`
+  const content = `[[summary/source|${rawTitle}]]`
+  const native = page({ content, links: [{ page_id: 'related-id', slug: 'summary/source', title: rawTitle, display_title: '采购单.html - Summary' }] })
+  const f = await fixture({ api: { getWikiPage: async () => native } })
+  try {
+    for (const reference of ['summary/source', 'related-id']) {
+      assert.equal(f.vm.readingContent(`[[${reference}|${rawTitle}]]`), '[采购单.html - Summary](#wiki-reference-related-id)')
+      assert.equal(f.vm.readingContent(`[[${reference}|自定义引用名称]]`), '[自定义引用名称](#wiki-reference-related-id)')
+    }
+    assert.equal(f.vm.page.content, content)
+    assert.equal(f.vm.page.links[0].title, rawTitle)
+    assert.equal(native.content, content)
   } finally { f.close() }
 })
 

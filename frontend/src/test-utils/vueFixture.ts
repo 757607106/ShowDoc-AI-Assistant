@@ -23,7 +23,7 @@ export function fixture(
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const window = Object.assign(new EventTarget(), { innerHeight: 900, innerWidth: 1200, setTimeout, clearTimeout })
   const globals = {
-    window, CustomEvent, URL, AbortController, setTimeout, clearTimeout, setInterval, clearInterval,
+    window, CustomEvent, URL, URLSearchParams, AbortController, setTimeout, clearTimeout, setInterval, clearInterval,
     localStorage: storage, sessionStorage: storage,
     requestAnimationFrame: (callback: () => void) => setTimeout(callback, 16),
     document: Object.assign(new EventTarget(), { documentElement: { clientHeight: 900 }, querySelector: () => null, visibilityState: 'visible' }),

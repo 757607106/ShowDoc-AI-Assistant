@@ -36,9 +36,9 @@ export const api = {
   retryTask: (taskId: string) => unwrap(http.post(`/tasks/${taskId}/retry`)),
   publishTask: (taskId: string) => unwrap(http.post(`/tasks/${taskId}/publish`)),
   submitTask: (taskId: string) => unwrap(http.post(`/tasks/${taskId}/submit`)),
-  uploadFiles: (files: File[], spaceScope: string) => {
+  uploadFiles: (files: File[], knowledgeBaseId: string) => {
     const form = new FormData()
-    form.append('space_scope', spaceScope)
+    form.append('knowledge_base_id', knowledgeBaseId)
     files.forEach(file => form.append('files', file))
     return unwrap(http.post('/api/uploads', form))
   },

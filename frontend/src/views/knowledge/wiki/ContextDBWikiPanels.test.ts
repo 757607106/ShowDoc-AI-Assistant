@@ -43,7 +43,7 @@ async function fixture(name: 'Compile' | 'Issues', overrides: Record<string, any
       if (name === 'vue-router') return { onBeforeRouteLeave: (guard: () => boolean) => guards.push(guard), onBeforeRouteUpdate: (guard: (to: any, from: any) => boolean) => updateGuards.push(guard) }
       if (name === 'tdesign-vue-next') return { MessagePlugin: { warning: (message: string) => warnings.push(message) } }
       if (name === '@/api/contextdbWiki' || name === '@/api/contextdb') return api
-      if (name === '@/utils/platformPresentation') return { dateTime: (v: unknown) => v || '—' }
+      if (name === '@/utils/platformPresentation') return { dateTime: (v: unknown) => v || '—', contextdbDateTime: (v: unknown) => v || '—' }
       if (name === '@/utils/contextdbDocumentName') return require('../../../utils/contextdbDocumentName.ts')
       throw new Error(`Unexpected dependency: ${name}`)
     },
@@ -112,6 +112,20 @@ test('compile controls check the accepted event then reread the source state', a
     assert.deepEqual(calls.slice(-3), ['controlWikiCompileRuns', 'getWikiEvent', 'listWikiCompileRuns'])
     assert.match(f.vm.notice, /在途任务/)
     assert.equal(f.vm.event.status, 'SUCCEEDED')
+  } finally { f.close() }
+})
+
+test('compile statistics stay in console order and retry is available only for waiting sources', async () => {
+  const f = await fixture('Compile', {
+    listWikiCompileRuns: async () => ({ items: [], summary: { total: 8, compiled: 3, pending: 2, waiting_budget: 1, blocked_oversize: 1, revoked: 1 }, wiki_compile_paused: false }),
+  })
+  try {
+    assert.deepEqual(Array.from(f.vm.summaryCards, (item: any) => [item.label, item.value]), [['已编译', 3], ['等待编译', 2], ['等待重试', 1], ['超过容量限制', 1], ['已撤销', 1], ['来源总数', 8]])
+    assert.equal(f.vm.retryAvailable, true)
+    f.handlers.listWikiCompileRuns = async () => ({ items: [], summary: { total: 8, compiled: 8 }, wiki_compile_paused: false })
+    await f.vm.load()
+    assert.equal(f.vm.retryAvailable, false)
+    assert.equal(f.vm.summaryCards[2].value, 0)
   } finally { f.close() }
 })
 

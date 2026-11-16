@@ -42,7 +42,7 @@ def test_space_aliases_keep_cloud_identity_and_are_owner_scoped(names_data):
     owner, _ = names_data
     raw = {'id': 'graph-id', 'name': 'knowledge-default-graph', 'graph_enabled': True}
     result = KnowledgeNames(owner).base(raw)
-    assert result == {**raw, 'display_name': '默认知识库（知识图谱）', 'space_name': '默认知识库',
+    assert result == {**raw, 'display_name': raw['name'], 'space_name': raw['name'],
                       'space_scope': 'default', 'space_mode': 'graph'}
     assert 'display_name' not in raw
     hidden = KnowledgeNames('another-owner').base({'id': 'graph-id', 'name': 'unbound-graph'})
@@ -57,7 +57,7 @@ def test_current_binding_wins_over_history_and_ambiguous_history_is_not_editable
             'previous_knowledge_base_ids': {'wiki': ['wiki-id', 'ambiguous']}}, {'scope': scope})
     names = KnowledgeNames(owner)
     current = names.base({'id': 'wiki-id', 'name': 'internal'})
-    assert current['space_scope'] == 'default' and current['display_name'] == '默认知识库'
+    assert current['space_scope'] == 'default' and current['display_name'] == 'internal'
     assert names.base({'id': 'ambiguous', 'name': 'old-internal'}) == {
         'id': 'ambiguous', 'name': 'old-internal', 'display_name': 'old-internal'}
 
@@ -82,8 +82,12 @@ def test_native_and_business_read_apis_add_labels_without_renaming(names_data, m
     raw = {'id': 'cloud-doc', 'name': 'doc-source.html', 'knowledge_base_id': 'wiki-id',
            'metadata': {'title': '采购明细'}}
     fake = FakeContextDBClient()
+    fake.knowledge_bases['wiki-id'] = {'id': 'wiki-id', 'name': 'knowledge-default', 'wiki_enabled': True,
+                                       'graph_enabled': False}
+    fake.documents['cloud-doc'] = raw
     fake._request = Mock(return_value={'documents': [raw], 'total': 1})
     monkeypatch.setattr('webapi.contextdb.client_for_user', lambda: fake)
+    monkeypatch.setattr('app.get_store', lambda: Store(client=fake, owner_id=owner))
     response = http.get('/api/contextdb/v1/knowledge/documents?knowledge_base_id=wiki-id')
     document = response.json['data']['documents'][0]
     assert document['name'] == raw['name'] and document['display_name'] == '采购明细.html'
@@ -94,7 +98,7 @@ def test_native_and_business_read_apis_add_labels_without_renaming(names_data, m
     assert review['document_name'] == raw['name'] and review['document_display_name'] == '历史采购明细.html'
     fake._request.return_value = {'knowledge_bases': [{'id': 'wiki-id', 'name': 'knowledge-default'}]}
     base = http.get('/api/contextdb/v1/knowledge/knowledge_bases').json['data']['knowledge_bases'][0]
-    assert base['name'] == 'knowledge-default' and base['display_name'] == '默认知识库'
+    assert base['name'] == 'knowledge-default' and base['display_name'] == 'knowledge-default'
     fake._request.return_value = raw
     response = http.put('/api/contextdb/v1/knowledge/documents', json={'document_id': 'cloud-doc', 'text': 'new'})
     assert response.json['data'] == raw
@@ -287,5 +291,5 @@ def test_document_picker_searches_readable_and_native_names_without_renaming(nam
         item = response.json['data'][0]
         assert item['name'] == raw['name'] and item['id'] == raw['id']
         assert item['title'] == item['file_name'] == '历史采购明细.html'
-        assert item['knowledge_base_name'] == '默认知识库'
+        assert item['knowledge_base_name'] == 'knowledge-default'
     assert 'display_name' not in raw

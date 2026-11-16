@@ -8,8 +8,10 @@ const props = withDefaults(defineProps<{
   selectedId?: string
   directoriesOnly?: boolean
   blockedId?: string
-}>(), { parentId: '', selectedId: '', blockedId: '', directoriesOnly: false })
-const emit = defineEmits<{ select: [page: WikiPage] }>()
+  canEdit?: boolean
+}>(), { parentId: '', selectedId: '', blockedId: '', directoriesOnly: false, canEdit: false })
+type Action = 'rename' | 'move' | 'archive' | 'delete'
+const emit = defineEmits<{ select: [page: WikiPage]; action: [action: Action, page: WikiPage] }>()
 const items = ref<WikiPage[]>([]), cursor = ref<string | null>(null)
 const loading = ref(false), error = ref(''), expanded = ref(new Set<string>())
 let request = 0
@@ -43,7 +45,7 @@ watch(() => [props.kbId, props.parentId, props.directoriesOnly], () => {
 </script>
 
 <template>
-  <div class="native-wiki-tree" role="group">
+  <div class="native-wiki-tree" role="group" aria-label="页面目录">
     <div v-for="item in items" :key="item.page_id">
       <div class="tree-row" :class="{ selected: item.page_id === selectedId }">
         <button v-if="item.page_type === 'category'" class="tree-toggle" type="button"
@@ -53,14 +55,15 @@ watch(() => [props.kbId, props.parentId, props.directoriesOnly], () => {
         </button>
         <span v-else class="tree-spacer" />
         <button class="tree-label" type="button" :disabled="item.page_id === blockedId" @click="emit('select', item)">
-          <t-icon :name="item.page_type === 'category' ? 'folder' : 'file'" />
           <span>{{ item.display_title || item.title || (item.page_type === 'category' ? '未命名目录' : '未命名页面') }}</span>
-          <span v-if="item.run_state === 'pending'" class="tree-pending" title="编译中">·</span>
         </button>
+        <span v-if="item.page_type!=='category'&&item.published" class="tree-status">正式</span>
+        <span v-else-if="item.run_state==='pending'" class="tree-status">编译中</span>
+        <t-dropdown v-if="canEdit" :options="[{content:'重命名',value:'rename'},{content:'移动',value:'move'},...(item.page_type!=='category'?[{content:'归档',value:'archive'}]:[]),{content:'删除',value:'delete'}]" @click="(option:any)=>emit('action',option.value as Action,item)"><t-button variant="text" shape="square" size="small" :disabled="item.run_state==='pending'" :aria-label="`更多 ${item.display_title||item.title}`"><t-icon name="more" /></t-button></t-dropdown>
       </div>
       <div v-if="item.page_type === 'category' && expanded.has(item.page_id)" class="tree-children">
         <ContextDBWikiDirectory :kb-id="kbId" :parent-id="item.page_id" :selected-id="selectedId"
-          :directories-only="directoriesOnly" :blocked-id="blockedId" @select="emit('select', $event)" />
+          :directories-only="directoriesOnly" :blocked-id="blockedId" :can-edit="canEdit" @select="emit('select', $event)" @action="(next,target)=>emit('action',next,target)" />
       </div>
     </div>
     <t-button v-if="cursor" size="small" variant="text" :loading="loading" @click="load(true)">加载更多</t-button>
@@ -71,12 +74,12 @@ watch(() => [props.kbId, props.parentId, props.directoriesOnly], () => {
 </template>
 
 <style scoped>
-.tree-row{display:flex;align-items:center;min-height:34px;border-radius:var(--app-radius-sm);color:var(--td-text-color-secondary)}
-.tree-row:hover{background:var(--td-bg-color-container-hover)}.tree-row.selected{background:var(--td-brand-color-light);color:var(--td-brand-color)}
+.tree-row{display:flex;align-items:center;min-height:36px;border-radius:var(--app-radius-xs);color:var(--td-text-color-primary);font-family:var(--app-font-family)}
+.tree-row:hover{background:var(--td-bg-color-container-hover)}.tree-row.selected{background:var(--app-selection-bg);color:var(--app-selection-text)}
 .tree-toggle,.tree-label{border:0;background:transparent;color:inherit;cursor:pointer;font:inherit;display:flex;align-items:center}
-.tree-toggle,.tree-spacer{width:24px;flex:none;justify-content:center}.tree-toggle{height:30px;padding:0}
-.tree-label{gap:8px;min-width:0;flex:1;text-align:left;padding:7px 8px 7px 0;font-size:var(--app-text-md)}
+.tree-toggle,.tree-spacer{width:20px;flex:none;justify-content:center}.tree-toggle{height:30px;padding:0}
+.tree-label{min-width:0;flex:1;text-align:left;padding:8px 4px 8px 0;font-size:var(--app-text-base);line-height:20px}
 .tree-label>span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tree-label:disabled{opacity:.45;cursor:default}
-.tree-pending{color:var(--td-warning-color);font-size:var(--app-text-3xl)}.tree-children{padding-left:16px;border-left:1px solid var(--td-component-stroke);margin-left:12px}
+.tree-status{font-size:var(--app-text-sm);color:var(--td-text-color-placeholder);white-space:nowrap;margin-right:4px}.tree-row :deep(.t-button){width:24px;height:28px;color:var(--td-text-color-secondary)}.tree-children{padding-left:16px}
 .tree-hint,.tree-error{padding:8px 12px;font-size:var(--app-text-sm);color:var(--td-text-color-placeholder)}.tree-error{color:var(--td-error-color)}
 </style>

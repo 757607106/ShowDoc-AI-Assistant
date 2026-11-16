@@ -49,8 +49,8 @@ async function act(taskId: string, action: 'cancel'|'retry'|'submit') {
   } catch (err: any) { error.value = err.message }
   finally { busy.value = '' }
 }
-function progress(row: any) {
-  router.push({path:`/platform/knowledge-spaces/${encodeURIComponent(row.scope)}`, query:{tab:'progress'}})
+function openKnowledgeBase(row: any) {
+  router.push({path:`/platform/knowledge-spaces/${encodeURIComponent(row.scope)}`})
 }
 function statusLabel(row: any) {
   if (row.kind === 'ctxdb_sync') return row.phase === 'submitted' ? '提交完成' : stateLabel(row.status, 'upload')
@@ -67,7 +67,7 @@ onUnmounted(() => { stopped = true; requestId++; closeDetails(); window.clearInt
   <t-card title="资料任务" :bordered="false">
     <template #actions><t-space><t-button variant="text" @click="load">刷新</t-button><t-button @click="router.push({path:'/platform/collect',query:spaceScope?{space:spaceScope}:{}})">添加资料</t-button></t-space></template>
     <t-alert v-if="error" theme="error" :message="error" />
-    <t-space v-if="spaceScope" class="task-filter"><t-tag closable @close="router.push('/platform/tasks')">{{spaceName(spaceScope,spaces)}}</t-tag><t-link @click="progress({scope:spaceScope})">查看治理进度</t-link></t-space>
+    <t-space v-if="spaceScope" class="task-filter"><t-tag closable @close="router.push('/platform/tasks')">{{spaceName(spaceScope,spaces)}}</t-tag><t-link @click="openKnowledgeBase({scope:spaceScope})">查看知识库</t-link></t-space>
     <t-table row-key="task_id" :data="tasks" :loading="loading && !tasks.length" :columns="[
       {colKey:'task_id',title:'任务编号',width:120},{colKey:'scope',title:'知识库',ellipsis:true},
       {colKey:'entry_name',title:'来源'},{colKey:'status',title:'状态',width:130},
@@ -84,7 +84,7 @@ onUnmounted(() => { stopped = true; requestId++; closeDetails(); window.clearInt
         <t-button v-if="auth.hasRole('contributor') && ['pending','running','cancelling'].includes(row.status)" size="small" variant="outline" :disabled="!!busy" @click="act(row.task_id,'cancel')">取消</t-button>
         <t-button v-if="auth.hasRole('contributor') && row.kind!=='ctxdb_sync' && ['failed','cancelled','partial'].includes(row.status)" size="small" variant="outline" :disabled="!!busy" @click="act(row.task_id,'retry')">{{row.entry==='file'?'重新检查':'重试采集'}}</t-button>
         <t-tooltip v-if="auth.hasRole('contributor') && row.submit_available" content="自动提交未完成或历史任务尚未提交时使用；包含该知识库全部当前资料"><t-button size="small" :loading="busy===row.task_id" :disabled="!!busy && busy!==row.task_id" @click="act(row.task_id,'submit')">补交知识库资料</t-button></t-tooltip>
-        <t-button v-if="row.kind==='ctxdb_sync' || row.submission_id" size="small" variant="text" @click="progress(row)">治理进度</t-button>
+        <t-button v-if="row.kind==='ctxdb_sync' || row.submission_id" size="small" variant="text" @click="openKnowledgeBase(row)">知识库</t-button>
         <t-button v-if="row.download_available" size="small" variant="text" @click="api.downloadFile(api.taskDownloadUrl(row.task_id),row.task_id+'.zip').catch(e=>error=e.message)">下载资料包</t-button>
       </t-space></template>
     </t-table>

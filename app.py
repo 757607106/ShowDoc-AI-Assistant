@@ -1,6 +1,7 @@
 """Local governance workbench; durable jobs run in governance.worker."""
 import io
 import json
+from contextlib import nullcontext
 import os
 import re
 import uuid
@@ -122,13 +123,20 @@ def applicability(value):
     return output
 
 
-def selected_space(store, value):
+def selected_space(store, value, knowledge_base_id=None):
+    from governance.spaces import ensure_base_space, require_writable_space
+    if knowledge_base_id is not None:
+        if not isinstance(knowledge_base_id, str) or not knowledge_base_id.strip():
+            raise ApiError('请选择有效的知识库', 400)
+        space = ensure_base_space(store, knowledge_base_id.strip())
+        if value is not None and value != space['scope']:
+            raise ApiError('知识库与资料任务范围不一致', 409)
+        return require_writable_space(store, space['scope'])['scope']
     if value is None:
         return None
     if not isinstance(value, str) or not value.strip() or len(value) > 200:
         raise ApiError('请选择有效的业务知识库', 400)
-    from governance.spaces import get_space
-    return get_space(store, value.strip())['scope']
+    return require_writable_space(store, value.strip())['scope']
 
 
 def public_document(document):
@@ -371,9 +379,15 @@ def entry_start(key):
         if not isinstance(values, list) or not all(isinstance(v, (str, int)) for v in values):
             raise ApiError(f'{field} 必须是文档标识列表', 400)
     store = get_store()
-    scope = selected_space(store, body.get('space_scope'))
-    job = store.create_job(entry.key, params, body.get('selected_ids'), body.get('selected_titles'), scope=scope,
-                                 applicability=applicability(body.get('scope')))
+    scope = selected_space(store, body.get('space_scope'), body.get('knowledge_base_id'))
+    from governance.knowledge_bases import base_write_lock
+    from governance.spaces import require_writable_space
+    kb_id = require_writable_space(store, scope)['knowledge_base_id'] if scope else None
+    with base_write_lock(kb_id) if kb_id else nullcontext():
+        if scope:
+            require_writable_space(store, scope)
+        job = store.create_job(entry.key, params, body.get('selected_ids'), body.get('selected_titles'), scope=scope,
+                               applicability=applicability(body.get('scope')))
     return jsonify(success=True, task_id=job['task_id'], message='任务已入队')
 
 
@@ -387,7 +401,8 @@ def task_list():
     scope = request.args.get('space_scope')
     store = get_store()
     if scope is not None:
-        scope = selected_space(store, scope)
+        from governance.spaces import get_space
+        scope = get_space(store, scope)['scope']
     return jsonify(success=True, tasks=[task_payload(j, False) for j in store.list_jobs() if scope is None or j['scope'] == scope])
 
 
@@ -405,10 +420,17 @@ def retry_task(task_id):
         raise ApiError('请在知识库的治理进度中选择失败目标重试', 409)
     if job['status'] not in {'failed', 'cancelled', 'partial'}:
         raise ApiError('仅失败、取消或部分完成任务可以重试')
-    retried = store.create_job(job['entry'], job['params'], job['selected_ids'], job['selected_titles'],
-                              retry_of=task_id, kind=job['kind'], scope=job['scope'],
-                              version_id=job.get('version_id'), document_id=job.get('document_id'),
-                              revision_reason=job.get('revision_reason', ''), applicability=job.get('applicability'))
+    from governance.spaces import get_space, require_writable_space
+    from governance.knowledge_bases import base_write_lock
+    space = get_space(store, job['scope'])
+    kb_id = space['knowledge_base_id']
+    with base_write_lock(kb_id) if kb_id else nullcontext():
+        if kb_id:
+            require_writable_space(store, job['scope'])
+        retried = store.create_job(job['entry'], job['params'], job['selected_ids'], job['selected_titles'],
+                                  retry_of=task_id, kind=job['kind'], scope=job['scope'],
+                                  version_id=job.get('version_id'), document_id=job.get('document_id'),
+                                  revision_reason=job.get('revision_reason', ''), applicability=job.get('applicability'))
     return jsonify(success=True, task_id=retried['task_id'], message='重试任务已入队，将复用已保存产物')
 
 
@@ -431,7 +453,7 @@ def upload_files():
     except (ValueError, TypeError):
         raise ApiError('scope 必须是有效 JSON 对象', 400)
     store = get_store()
-    space_scope = selected_space(store, request.form.get('space_scope'))
+    space_scope = selected_space(store, request.form.get('space_scope'), request.form.get('knowledge_base_id'))
     for file in files:
         if not file.filename:
             raise ApiError('上传文件必须有文件名', 400)
@@ -450,7 +472,13 @@ def upload_files():
             raise ApiError('不能上传空文件', 400)
         paths.append(str(path))
         names.append(name)
-    job = store.create_job('file', {'file_paths': paths, 'file_names': names}, applicability=scope, scope=space_scope)
+    from governance.knowledge_bases import base_write_lock
+    from governance.spaces import require_writable_space
+    kb_id = require_writable_space(store, space_scope)['knowledge_base_id'] if space_scope else None
+    with base_write_lock(kb_id) if kb_id else nullcontext():
+        if space_scope:
+            require_writable_space(store, space_scope)
+        job = store.create_job('file', {'file_paths': paths, 'file_names': names}, applicability=scope, scope=space_scope)
     return jsonify(success=True, task_id=job['task_id'], message='文件已保存，任务已入队')
 
 
@@ -496,9 +524,15 @@ def revise_document(version_id):
     directory.mkdir(parents=True)
     path = directory / 'revision.md'
     path.write_text(content, encoding='utf-8')
-    job = store.create_job('file', {'file_paths': [str(path)]}, scope=document['scope'],
-                           version_id=version_id, document_id=document['id'], revision_reason=reason.strip(),
-                           applicability=document.get('metadata', {}).get('scope'))
+    from governance.spaces import get_space, require_writable_space
+    from governance.knowledge_bases import base_write_lock
+    kb_id = get_space(store, document['scope'])['knowledge_base_id']
+    with base_write_lock(kb_id) if kb_id else nullcontext():
+        if kb_id:
+            require_writable_space(store, document['scope'])
+        job = store.create_job('file', {'file_paths': [str(path)]}, scope=document['scope'],
+                               version_id=version_id, document_id=document['id'], revision_reason=reason.strip(),
+                               applicability=document.get('metadata', {}).get('scope'))
     return jsonify(success=True, task_id=job['task_id'], message='修订已保存为新版本输入，等待解析')
 
 

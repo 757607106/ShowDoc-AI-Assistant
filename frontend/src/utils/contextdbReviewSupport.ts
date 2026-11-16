@@ -1,4 +1,4 @@
-export const CONTEXTDB_REVIEW_FORMAT_NOTICE = 'ContextDB 官方确认的知识评审格式为 TXT、Markdown、PDF、DOC、DOCX；HTML、PPT、Excel、图片和音视频等资料的治理支持尚未确认。上传或入库成功不代表已完成知识治理。'
+export const CONTEXTDB_REVIEW_FORMAT_NOTICE = 'TXT、Markdown、PDF、DOC、DOCX 使用官方知识评审；开启评审时 HTML 先转换为 Markdown。其他不支持评审的格式会被阻止提交；关闭评审时按官方支持的格式入库。上传或入库成功不代表评审和编译均已完成。'
 
 export function supportsOfficialReview(document: { name?: string; file_name?: string; document_name?: string; source_type?: string }): boolean {
   const name = document.name || document.file_name || document.document_name || ''

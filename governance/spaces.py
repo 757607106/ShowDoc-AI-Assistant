@@ -1,7 +1,6 @@
 """Business-space routing metadata. All knowledge content and processing remain in ContextDB."""
 import os
 import re
-import uuid
 
 from governance.database import connection
 from governance.store import StoreError
@@ -16,36 +15,65 @@ def missing_knowledge_base(error):
         'common_bad_request: knowledge base not found', 'knowledge base not found')
 
 
-def _view(value, has_submission, store):
-    result = {**value, 'has_submission': has_submission, 'targets': {}}
+def base_mode(base):
+    if base.get('wiki_enabled') and base.get('graph_enabled'):
+        raise StoreError('ContextDB 知识库模式不一致', 409)
+    return 'wiki' if base.get('wiki_enabled') else 'graph' if base.get('graph_enabled') else 'source'
+
+
+def _single(value):
+    value = dict(value)
+    legacy_targets = dict(value.get('legacy_targets') or {})
     for mode in ('wiki', 'graph'):
-        key = mode + '_kb_id'
-        kb_id = value.get(key)
-        target = {'knowledge_base_id': kb_id, 'enabled': mode == 'wiki' or value['graph_enabled'],
-                  'status': 'unbound' if not kb_id else 'available',
-                  'previous_knowledge_base_ids': list(value.get('previous_knowledge_base_ids', {}).get(mode, []))}
-        if kb_id:
-            try:
-                store.client.get_knowledge_base(kb_id)
-            except ContextDBError as exc:
-                target['error'] = str(exc)
-                if missing_knowledge_base(exc):
-                    target.update(status='missing', knowledge_base_id=None, missing_knowledge_base_id=kb_id)
-                    result[key] = None
-                else:
-                    target['status'] = 'forbidden' if exc.status_code in (401, 403) else 'unknown'
-        result['targets'][mode] = target
-    with connection() as conn:
-        history = conn.execute('''SELECT target_mode,knowledge_base_id FROM knowledge_sync
-            WHERE owner_id=%s AND scope=%s
-            UNION SELECT metadata->>'target_mode',payload->>'knowledge_base_id' FROM runtime_records
-            WHERE owner_id=%s AND kind='knowledge_sync_history' AND metadata->>'scope'=%s''',
-            (store.owner_id or '', value['scope'], store.owner_id or '', value['scope'])).fetchall()
-    for row in history:
-        result['targets'][row['target_mode']]['previous_knowledge_base_ids'].append(row['knowledge_base_id'])
-    for mode, target in result['targets'].items():
-        target['previous_knowledge_base_ids'] = sorted({kb_id for kb_id in target['previous_knowledge_base_ids']
-                                                      if kb_id and kb_id != value.get(mode + '_kb_id')})
+        if value.get(mode + '_kb_id'):
+            legacy_targets[mode] = value[mode + '_kb_id']
+    kb_id = value.get('knowledge_base_id') or value.get('wiki_kb_id') or value.get('graph_kb_id')
+    mode = value.get('mode') or ('wiki' if value.get('wiki_kb_id') else
+                                 'graph' if value.get('graph_kb_id') else 'wiki')
+    return {**value, 'knowledge_base_id': kb_id, 'mode': mode,
+            'lifecycle': value.get('lifecycle') or ('active' if kb_id else 'unbound'),
+            'legacy_targets': legacy_targets,
+            'wiki_kb_id': kb_id if mode == 'wiki' else None,
+            'graph_kb_id': kb_id if mode == 'graph' else None,
+            'graph_enabled': mode == 'graph'}
+
+
+def _view(value, has_submission, store, base=None):
+    result = _single(value)
+    kb_id, mode = result['knowledge_base_id'], result['mode']
+    status = 'unbound' if not kb_id else 'available'
+    error = None
+    if result['lifecycle'] in ('deleted', 'deleting'):
+        status = result['lifecycle']
+    elif kb_id:
+        try:
+            base = base or store.client.get_knowledge_base(kb_id)
+            official_mode = base_mode(base)
+            result.update(name=base['name'], description=base.get('description', ''), official_mode=official_mode)
+            if (official_mode == 'wiki') != (mode == 'wiki'):
+                status, error = 'unknown', '官方知识库模式与创建时不一致，禁止继续写入'
+            else:
+                mode = official_mode
+                result.update(mode=mode, graph_enabled=bool(base.get('graph_enabled')),
+                              wiki_kb_id=kb_id if mode == 'wiki' else None,
+                              graph_kb_id=kb_id if mode == 'graph' else None)
+        except ContextDBError as exc:
+            error = str(exc)
+            if missing_knowledge_base(exc):
+                status, result['lifecycle'] = 'missing', 'missing'
+            else:
+                status = 'forbidden' if exc.status_code in (401, 403) else 'unknown'
+    result.update(has_submission=has_submission, targets={})
+    for target_mode in ('source', 'wiki', 'graph'):
+        enabled = target_mode == mode
+        target = {'knowledge_base_id': kb_id if enabled else None, 'enabled': enabled,
+                  'status': status if enabled else 'unbound',
+                  'previous_knowledge_base_ids': list((value.get('previous_knowledge_base_ids') or {}).get(target_mode, []))}
+        if enabled and error:
+            target['error'] = error
+        if enabled and status == 'missing':
+            target['missing_knowledge_base_id'] = kb_id
+        result['targets'][target_mode] = target
     return result
 
 
@@ -61,158 +89,155 @@ def _legacy_scopes(store):
 def get_space(store, scope):
     record = store._find('knowledge_space', scope=scope)
     if record:
-        return _view(store._body(record['id']), bool(store._find('release', scope=scope, active=True)), store)
-    with connection() as conn:
-        mappings = conn.execute('''SELECT DISTINCT target_mode,knowledge_base_id FROM knowledge_sync
-            WHERE owner_id=%s AND scope=%s''', (store.owner_id or '', scope)).fetchall()
-    ids = {}
-    for row in mappings:
-        if row['target_mode'] in ids and ids[row['target_mode']] != row['knowledge_base_id']:
-            raise StoreError('同一业务范围存在多个目标库，请先核对映射', 409)
-        ids[row['target_mode']] = row['knowledge_base_id']
-    known = scope in _legacy_scopes(store)
-    if not known and scope != 'default':
-        raise StoreError('业务知识库不存在', 404)
-    from governance.contextdb_sync import knowledge_kb_name
-    for mode in ('wiki', 'graph'):
-        if mode in ids:
-            continue
-        explicit = os.getenv('CONTEXTDB_KB_ID' if mode == 'wiki' else 'CONTEXTDB_GRAPH_KB_ID', '').strip()
-        if explicit:
-            ids[mode] = explicit
-            continue
-        kb = store.client.find_knowledge_base(knowledge_kb_name(scope, mode))
-        if kb:
-            ids[mode] = kb['id']
-    if not known and not ids.get('wiki'):
-        raise StoreError('业务知识库不存在', 404)
-    return _view({'scope': scope, 'name': '默认知识库' if scope == 'default' else scope,
-                  'graph_enabled': True, 'wiki_kb_id': ids.get('wiki'), 'graph_kb_id': ids.get('graph'), 'legacy': True},
-                 bool(store._find('release', scope=scope, active=True)), store)
-
-
-def list_spaces(store):
-    records = store._list({'type': 'knowledge_space'}, sort_by='created_at', sort_order='asc')
-    scopes = {record['metadata']['scope'] for record in records} | _legacy_scopes(store)
-    bases, page = [], 1
-    while True:
-        response = store.client.list_knowledge_bases(page=page, page_size=100)
-        items = response.get('knowledge_bases', [])
-        bases.extend(items)
-        if len(items) < 100:
-            break
-        page += 1
-    if any(item.get('name') == 'knowledge-default' and item.get('wiki_enabled') for item in bases):
-        scopes.add('default')
-    spaces = [get_space(store, scope) for scope in sorted(scopes)]
-    bound = {space.get(key) for space in spaces for key in ('wiki_kb_id', 'graph_kb_id')}
-    available = [{key: item.get(key) for key in ('id', 'name', 'wiki_enabled', 'graph_enabled')}
-                 for item in bases if item['id'] not in bound and item.get('name') != '_governance']
-    return spaces, available
+        value = store._body(record['id'])
+    else:
+        with connection() as conn:
+            rows = conn.execute('''SELECT DISTINCT target_mode,knowledge_base_id FROM knowledge_sync
+                WHERE owner_id=%s AND scope=%s''', (store.owner_id or '', scope)).fetchall()
+        ids = {}
+        for row in rows:
+            if row['target_mode'] in ids and ids[row['target_mode']] != row['knowledge_base_id']:
+                raise StoreError('同一业务范围存在多个目标库，请先核对映射', 409)
+            ids[row['target_mode']] = row['knowledge_base_id']
+        known = scope in _legacy_scopes(store)
+        if not known and scope != 'default':
+            raise StoreError('业务知识库不存在', 404)
+        for mode in ('wiki', 'graph'):
+            if mode not in ids:
+                explicit = os.getenv('CONTEXTDB_KB_ID' if mode == 'wiki' else 'CONTEXTDB_GRAPH_KB_ID', '').strip()
+                base = None if explicit else store.client.find_knowledge_base(
+                    f"knowledge-{scope.replace(':', '_').replace('/', '_')[:180]}" + ('-graph' if mode == 'graph' else ''))
+                if explicit or base:
+                    ids[mode] = explicit or base['id']
+        if not known and not ids:
+            raise StoreError('业务知识库不存在', 404)
+        value = {'scope': scope, 'name': '默认知识库' if scope == 'default' else scope,
+                 'wiki_kb_id': ids.get('wiki'), 'graph_kb_id': ids.get('graph'), 'legacy': True}
+        if not ids.get('wiki') and not ids.get('graph') and ids.get('source'):
+            value.update(knowledge_base_id=ids['source'], mode='source')
+    return _view(value, bool(store._find('release', scope=scope, active=True)), store)
 
 
 def persist_space(store, value):
+    value = _single(value)
+    saved = {key: value.get(key) for key in ('scope', 'name', 'description', 'knowledge_base_id', 'mode',
+             'lifecycle', 'legacy', 'legacy_targets', 'legacy_origin_scope', 'previous_knowledge_base_ids')}
+    saved['previous_knowledge_base_ids'] = value.get('previous_knowledge_base_ids') or {}
     record = store._find('knowledge_space', scope=value['scope'])
-    previous = store._body(record['id']) if record else {}
-    aliases = {mode: set(previous.get('previous_knowledge_base_ids', {}).get(mode, [])) |
-                    set(value.get('targets', {}).get(mode, {}).get('previous_knowledge_base_ids', []))
-               for mode in ('wiki', 'graph')}
-    missing = {mode: value.get('targets', {}).get(mode, {}).get('missing_knowledge_base_id')
-               for mode in ('wiki', 'graph')}
-    value = {key: value.get(key) for key in ('scope', 'name', 'graph_enabled', 'wiki_kb_id', 'graph_kb_id', 'legacy')}
-    for mode, kb_id in missing.items():
-        if not value.get(mode + '_kb_id') and kb_id:
-            value[mode + '_kb_id'] = kb_id
-        old_id = previous.get(mode + '_kb_id')
-        if old_id and old_id != value.get(mode + '_kb_id'):
-            aliases[mode].add(old_id)
-    value['previous_knowledge_base_ids'] = {mode: sorted(ids) for mode, ids in aliases.items()}
     if record:
-        store._write(record['id'], value)
+        store._write(record['id'], saved, metadata={**record['metadata'],
+            'knowledge_base_id': value['knowledge_base_id']})
     else:
-        store._create('knowledge_space', value['scope'], value, {'scope': value['scope']})
-    return _view(value, bool(store._find('release', scope=value['scope'], active=True)), store)
+        store._create('knowledge_space', value['scope'], saved,
+                      {'scope': value['scope'], 'knowledge_base_id': value['knowledge_base_id']})
+    return _view(saved, bool(store._find('release', scope=value['scope'], active=True)), store)
 
 
-def require_no_active_sync(store, scope):
+def ensure_base_space(store, kb_id):
+    if not isinstance(kb_id, str) or not kb_id.strip():
+        raise StoreError('knowledge_base_id 必须是非空文本', 400)
     with connection() as conn:
-        active = conn.execute('''SELECT 1 FROM runtime_records WHERE owner_id=%s AND kind='job'
-            AND metadata->>'scope'=%s AND metadata->>'kind'='ctxdb_sync'
-            AND metadata->>'status' IN ('pending','running','cancelling') LIMIT 1''',
-            (store.owner_id or '', scope)).fetchone()
-    if active:
-        raise StoreError('该知识库已有同步任务，请等待提交完成后恢复目标库', 409)
+        conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', (f'space-config:{store.owner_id}',))
+        records = store._list({'type': 'knowledge_space'})
+        origin = None
+        for record in records:
+            value = _single(store._body(record['id']))
+            if value['knowledge_base_id'] == kb_id:
+                if value['lifecycle'] == 'creating':
+                    base = store.client.get_knowledge_base(kb_id)
+                    return persist_space(store, {**value, 'mode': base_mode(base), 'lifecycle': 'active'})
+                return _view(value, bool(store._find('release', scope=value['scope'], active=True)), store)
+            if kb_id in value['legacy_targets'].values():
+                origin = value['scope']
+        base = store.client.get_knowledge_base(kb_id)
+        for scope in sorted(_legacy_scopes(store) | {'default'}):
+            try:
+                old = get_space(store, scope)
+            except StoreError as exc:
+                if exc.status == 404:
+                    continue
+                raise
+            if old['knowledge_base_id'] == kb_id:
+                return persist_space(store, {**old, 'name': base['name'], 'mode': base_mode(base)})
+            if kb_id in old.get('legacy_targets', {}).values():
+                origin = scope
+        return persist_space(store, {'scope': 'kb-' + kb_id, 'knowledge_base_id': kb_id,
+            'mode': base_mode(base), 'name': base['name'], 'description': base.get('description', ''),
+            'lifecycle': 'active', 'legacy_origin_scope': origin})
+
+
+def list_spaces(store):
+    bases = store.client.list_knowledge_bases().get('knowledge_bases', [])
+    values = [_single(store._body(record['id'])) for record in store._list({'type': 'knowledge_space'})]
+    for scope in sorted(_legacy_scopes(store) | {'default'}):
+        if any(value['scope'] == scope for value in values):
+            continue
+        try:
+            values.append(get_space(store, scope))
+        except StoreError as exc:
+            if exc.status != 404:
+                raise
+    by_id = {value['knowledge_base_id']: value for value in values if value['knowledge_base_id']}
+    for base in bases:
+        if base['id'] not in by_id:
+            value = {'scope': 'kb-' + base['id'], 'knowledge_base_id': base['id'], 'name': base['name'],
+                     'mode': base_mode(base), 'lifecycle': 'active'}
+            values.append(value)
+            by_id[base['id']] = value
+    spaces = [_view(value, bool(store._find('release', scope=value['scope'], active=True)), store)
+              for value in values if value.get('lifecycle') != 'deleted']
+    return spaces, []
+
+
+def require_writable_space(store, scope):
+    space = get_space(store, scope)
+    if space['lifecycle'] != 'active' or not space['knowledge_base_id']:
+        raise StoreError('知识库未绑定、已删除或正在删除，不能继续写入；请新建或选择现有知识库', 409)
+    with connection() as conn:
+        stopped = conn.execute('''SELECT 1 FROM runtime_records WHERE kind='knowledge_space'
+            AND payload->>'knowledge_base_id'=%s AND payload->>'lifecycle' IN ('deleting','deleted') LIMIT 1''',
+            (space['knowledge_base_id'],)).fetchone()
+    if stopped:
+        raise StoreError('知识库已删除或正在删除，不能继续写入', 409)
+    target = space['targets'][space['mode']]
+    if target['status'] != 'available':
+        raise StoreError(target.get('error') or '无法确认官方知识库状态，不能继续写入', 409)
+    return space
 
 
 def save_space(store, body, scope=None):
-    lock_scope = scope or body.get('scope') or 'space-' + uuid.uuid4().hex[:16]
-    if scope is None:
-        body = {**body, 'scope': lock_scope}
-    with connection() as conn:
-        conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', (f'space-config:{store.owner_id}',))
-        conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', (f'space:{store.owner_id}:{lock_scope}',))
-        return _save_space(store, body, scope)
-
-
-def _save_space(store, body, scope=None):
-    unknown = set(body) - {'scope', 'name', 'graph_enabled', 'wiki_kb_id', 'graph_kb_id'}
+    from governance.knowledge_bases import create_base, update_base
+    if not isinstance(body, dict):
+        raise StoreError('请求必须是 JSON 对象', 400)
+    unknown = set(body) - {'scope', 'name', 'description', 'mode', 'knowledge_base_id',
+                           'wiki_kb_id', 'graph_kb_id', 'graph_enabled'}
     if unknown:
         raise StoreError('不支持的知识库配置字段', 400)
-    if scope:
-        previous = get_space(store, scope)
-        if 'scope' in body and body['scope'] != scope:
-            raise StoreError('业务范围标识不能修改', 400)
-    else:
-        scope = body.get('scope') or 'space-' + uuid.uuid4().hex[:16]
-        if not isinstance(scope, str) or not re.fullmatch(r'[A-Za-z0-9_:.\-]{1,180}', scope):
-            raise StoreError('业务范围标识仅支持字母、数字、下划线、点、冒号和短横线', 400)
-        if store._find('knowledge_space', scope=scope) or scope in _legacy_scopes(store):
-            raise StoreError('业务范围已存在，请修改现有知识库', 409)
-        if scope == 'default':
-            try:
-                get_space(store, scope)
-            except StoreError as exc:
-                if exc.status != 404:
-                    raise
-            else:
-                raise StoreError('业务范围已存在，请修改现有知识库', 409)
-        previous = {'scope': scope, 'name': '', 'graph_enabled': False, 'wiki_kb_id': None, 'graph_kb_id': None, 'legacy': False}
-    value = {**previous, **body, 'scope': scope}
-    if not isinstance(value['name'], str) or not 1 <= len(value['name'].strip()) <= 100:
-        raise StoreError('知识库名称需为 1 至 100 字文本', 400)
-    value['name'] = value['name'].strip()
-    if not isinstance(value['graph_enabled'], bool):
+    if 'graph_enabled' in body and not isinstance(body['graph_enabled'], bool):
         raise StoreError('graph_enabled 必须是布尔值', 400)
-    existing_spaces = list_spaces(store)[0] if value.get('wiki_kb_id') or value.get('graph_kb_id') else []
-    for mode in ('wiki', 'graph'):
-        key = mode + '_kb_id'
-        kb_id = value.get(key)
-        if previous.get(key) and previous[key] != kb_id:
-            raise StoreError('已有目标库不能直接替换；请独立迁移映射', 409)
-        if key in body and previous.get('targets', {}).get(mode, {}).get('status') == 'missing':
-            require_no_active_sync(store, scope)
-            value['targets'] = {**value.get('targets', {}), mode: {}}
-        if kb_id:
-            if not isinstance(kb_id, str):
-                raise StoreError('知识库 ID 必须是文本', 400)
-            kb = store.client.get_knowledge_base(kb_id)
-            if bool(kb.get('wiki_enabled')) != (mode == 'wiki') or bool(kb.get('graph_enabled')) != (mode == 'graph'):
-                raise StoreError(f'{mode} 目标库模式不匹配', 409)
-            if any(other['scope'] != scope and kb_id in (other.get('wiki_kb_id'), other.get('graph_kb_id'))
-                   for other in existing_spaces):
-                raise StoreError('该知识库已关联另一个业务范围', 409)
-    return persist_space(store, value)
-
-
-def bind_target(store, scope, mode, kb_id):
-    with connection() as conn:
-        conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', (f'space:{store.owner_id}:{scope}',))
-        value = get_space(store, scope)
-        key = mode + '_kb_id'
-        if value.get(key) and value[key] != kb_id:
-            raise StoreError('目标知识库映射已改变，需要独立迁移后重试', 409)
-        value[key] = kb_id
-        return persist_space(store, value)
+    if scope:
+        space = require_writable_space(store, scope)
+        if any(key in body and body[key] != space.get(key) for key in
+               ('scope', 'knowledge_base_id', 'wiki_kb_id', 'graph_kb_id')):
+            raise StoreError('知识库创建后不能替换目标 ID', 409)
+        update_base(store, space['knowledge_base_id'],
+                    {key: body[key] for key in ('name', 'description', 'mode', 'graph_enabled') if key in body})
+        return get_space(store, scope)
+    kb_ids = [body[key] for key in ('knowledge_base_id', 'wiki_kb_id', 'graph_kb_id') if body.get(key)]
+    if len(set(kb_ids)) > 1:
+        raise StoreError('一次只能绑定一个 ContextDB 知识库', 409)
+    if kb_ids:
+        base = store.client.get_knowledge_base(kb_ids[0])
+        expected = body.get('mode') or ('wiki' if body.get('wiki_kb_id') else 'graph' if body.get('graph_kb_id') else None)
+        if expected and base_mode(base) != expected:
+            raise StoreError('目标库模式不匹配', 409)
+        bound = ensure_base_space(store, kb_ids[0])
+        if body.get('scope') and body['scope'] != bound['scope']:
+            raise StoreError('已有知识库不能覆盖另一个业务范围', 409)
+        return bound
+    base = create_base(store, {'name': body.get('name'), 'description': body.get('description'),
+                              'mode': body.get('mode') or ('graph' if body.get('graph_enabled') else 'wiki')}, scope=body.get('scope'))
+    return ensure_base_space(store, base['id'])
 
 
 def retry_stages(detail, mode):
@@ -233,21 +258,21 @@ def progress(store, scope, page=1, page_size=20):
     names = KnowledgeNames(store.owner_id)
     space = get_space(store, scope)
     with connection() as conn:
-        total = conn.execute('SELECT count(*) AS n FROM knowledge_sync WHERE owner_id=%s AND scope=%s',
-                             (store.owner_id or '', scope)).fetchone()['n']
-        rows = conn.execute('''SELECT * FROM knowledge_sync WHERE owner_id=%s AND scope=%s
+        total = conn.execute('SELECT count(*) AS n FROM knowledge_sync WHERE owner_id=%s AND knowledge_base_id=%s',
+                             (store.owner_id or '', space['knowledge_base_id'])).fetchone()['n']
+        rows = conn.execute('''SELECT * FROM knowledge_sync WHERE owner_id=%s AND knowledge_base_id=%s
             ORDER BY source_id,target_mode LIMIT %s OFFSET %s''',
-            (store.owner_id or '', scope, page_size, (page - 1) * page_size)).fetchall()
+            (store.owner_id or '', space['knowledge_base_id'], page_size, (page - 1) * page_size)).fetchall()
     for row in rows:
         row['retry_stages'] = []
-        target = space['targets'][row['target_mode']]
+        target = space['targets'][space['mode']]
         if row['knowledge_base_id'] != (target['knowledge_base_id'] or target.get('missing_knowledge_base_id')):
             row['target_status'] = 'pending_submission'
             row['official_error'] = '此来源尚未投递到当前目标库，原投递回执已保留；请重新提交最近批次'
             continue
         if target['status'] != 'available':
             row['target_status'] = target['status']
-            row['official_error'] = ('目标知识库已删除，原投递回执已保留；请重新提交最近批次恢复目标库'
+            row['official_error'] = ('目标知识库已不存在，历史回执保留；请创建或选择现有知识库'
                                      if target['status'] == 'missing' else target.get('error', '目标知识库状态未确认'))
             continue
         if not row['document_id']:
@@ -259,8 +284,7 @@ def progress(store, scope, page=1, page_size=20):
                       'review_status', 'decision', 'lifecycle_state', 'recovery_actions')
             row['official'] = {key: detail[key] for key in fields if key in detail}
             row['official']['display_name'] = names.document(detail, kb_id=row['knowledge_base_id'])['display_name']
-            if row['target_mode'] != 'graph' or space['graph_enabled']:
-                row['retry_stages'] = retry_stages(detail, row['target_mode'])
+            row['retry_stages'] = retry_stages(detail, space['mode'])
         except ContextDBError as exc:
             row['official_error'] = str(exc)
     jobs = [store._job_from_doc(record) for record in store._list(
@@ -273,12 +297,12 @@ def progress(store, scope, page=1, page_size=20):
 def retry(store, scope, body):
     from governance.contextdb_sync import enqueue_sync
     from governance.store import digest
-    space = get_space(store, scope)
-    mode, stage = body.get('target_mode'), body.get('stage')
-    if mode not in ('wiki', 'graph') or stage not in ('upload', 'ingest', 'graph'):
+    space = require_writable_space(store, scope)
+    mode, stage = body.get('target_mode', space['mode']), body.get('stage')
+    if mode not in ('source', 'wiki', 'graph') or stage not in ('upload', 'ingest', 'graph'):
         raise StoreError('请选择已支持的处理阶段与目标', 400)
-    if mode == 'graph' and not space['graph_enabled']:
-        raise StoreError('该业务范围的图谱同步已关闭', 409)
+    if (mode == 'wiki') != (space['mode'] == 'wiki'):
+        raise StoreError('重试目标与当前知识库模式不一致', 409)
     lock = f'space-retry:{store.owner_id}:{scope}:{mode}:{body.get("task_id") or body.get("source_id")}'
     with connection() as conn:
         conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', (lock,))
@@ -293,64 +317,70 @@ def retry(store, scope, body):
                 raise StoreError('已有更新的提交批次，请重试当前批次，避免旧内容覆盖新版本', 409)
             if job['status'] not in ('failed', 'partial', 'cancelled'):
                 raise StoreError('仅失败或中断的提交任务可以重试', 409)
-            if mode not in job['params'].get('target_modes', ['wiki', 'graph']):
+            job_modes = job['params'].get('target_modes', [job['params'].get('target_mode', space['mode'])])
+            if not any((target == 'wiki') == (mode == 'wiki') for target in job_modes):
                 raise StoreError('该任务未提交此目标', 409)
             target = (job.get('summary') or {}).get('targets', {}).get(mode, {})
             if target.get('status') == 'submitted' and not target.get('errors'):
                 raise StoreError('该目标已提交成功，请查看后续官方治理状态', 409)
             active = conn.execute('''SELECT 1 FROM runtime_records WHERE owner_id=%s AND kind='job'
                 AND metadata->>'retry_of'=%s AND metadata->>'status' IN ('pending','running','cancelling')
-                AND payload->'params'->'target_modes' ? %s LIMIT 1''', (store.owner_id or '', task_id, mode)).fetchone()
+                LIMIT 1''', (store.owner_id or '', task_id)).fetchone()
             if active:
                 raise StoreError('该目标已有重试任务，请等待处理结果', 409)
-            queued = enqueue_sync(store, job['params']['release_id'], scope, target_modes=[mode], retry_of=task_id)
+            queued = enqueue_sync(store, job['params']['release_id'], scope, retry_of=task_id)
             return {'task_id': queued['task_id'], 'status': 'pending'}
-        source = body.get('source_id')
-        if not isinstance(source, str) or not source:
-            raise StoreError('处理请求必须指定 source_id', 400)
-        row = conn.execute('''SELECT * FROM knowledge_sync WHERE owner_id=%s AND scope=%s
-            AND source_id=%s AND target_mode=%s''', (store.owner_id or '', scope, source, mode)).fetchone()
-        if not row or not row['document_id']:
-            raise StoreError('来源与目标文档映射不存在', 404)
-        if row['knowledge_base_id'] != space.get(mode + '_kb_id'):
-            raise StoreError('该来源仍关联旧目标，请重新提交最近批次后重试', 409)
-        detail = store.client.get_document(row['knowledge_base_id'], row['document_id'])
-        if stage not in retry_stages(detail, mode):
-            raise StoreError('当前官方状态不允许此处理，请刷新或前往知识评审处理', 409)
-        if stage == 'graph':
-            kb = store.client.get_knowledge_base(row['knowledge_base_id'])
-            if not kb.get('graph_enabled'):
-                raise StoreError('官方知识库未启用图谱', 409)
-        fingerprint = digest({'scope': scope, 'source': source, 'mode': mode, 'stage': stage,
-                              'document_id': row['document_id'], 'event_id': detail.get(
-                                  'latest_graph_event_id' if stage == 'graph' else 'latest_ingest_event_id')})
-        previous = store._find('processing_retry', retry_key=fingerprint)
-        if previous:
-            raise StoreError('此文档版本已发起处理，请先刷新官方状态；结果未知时不要重复提交', 409)
-        receipt = store._create('processing_retry', fingerprint, {'status': 'submitting'},
-                                {'scope': scope, 'retry_key': fingerprint})
-        try:
-            if stage == 'ingest':
-                result = store.client.retry_document(row['document_id'])
-            else:
-                result = store.client._request('POST', '/v1/knowledge/events',
-                    json_body={'document_id': row['document_id'], 'event_type': 'graph_build'})
-        except Exception as exc:
-            if isinstance(exc, ContextDBError) and exc.status_code is not None and 400 <= exc.status_code < 500:
-                store._delete(receipt['id'])
-            else:
-                store._write(receipt['id'], {'status': 'uncertain'})
-            raise
-        store._write(receipt['id'], {'status': 'submitted', 'result': result})
-        return result
+        from governance.knowledge_bases import base_write_lock
+        with base_write_lock(space['knowledge_base_id']):
+            require_writable_space(store, scope)
+            source = body.get('source_id')
+            if not isinstance(source, str) or not source:
+                raise StoreError('处理请求必须指定 source_id', 400)
+            row = conn.execute('''SELECT * FROM knowledge_sync WHERE owner_id=%s AND knowledge_base_id=%s
+                AND source_id=%s''', (store.owner_id or '', space['knowledge_base_id'], source)).fetchone()
+            if not row or not row['document_id']:
+                raise StoreError('来源与目标文档映射不存在', 404)
+            if row['knowledge_base_id'] != space['knowledge_base_id']:
+                raise StoreError('该来源仍关联旧目标，请重新提交最近批次后重试', 409)
+            detail = store.client.get_document(row['knowledge_base_id'], row['document_id'])
+            if stage == 'graph':
+                kb = store.client.get_knowledge_base(row['knowledge_base_id'])
+                if not kb.get('graph_enabled'):
+                    raise StoreError('官方知识库未启用图谱', 409)
+            if stage not in retry_stages(detail, space['mode']):
+                raise StoreError('当前官方状态不允许此处理，请刷新或前往知识评审处理', 409)
+            fingerprint = digest({'scope': scope, 'source': source, 'mode': mode, 'stage': stage,
+                                  'document_id': row['document_id'], 'event_id': detail.get(
+                                      'latest_graph_event_id' if stage == 'graph' else 'latest_ingest_event_id')})
+            previous = store._find('processing_retry', retry_key=fingerprint)
+            if previous:
+                raise StoreError('此文档版本已发起处理，请先刷新官方状态；结果未知时不要重复提交', 409)
+            receipt = store._create('processing_retry', fingerprint, {'status': 'submitting'},
+                                    {'scope': scope, 'retry_key': fingerprint})
+            try:
+                if stage == 'ingest':
+                    result = store.client.retry_document(row['document_id'])
+                else:
+                    result = store.client._request('POST', '/v1/knowledge/events',
+                        json_body={'document_id': row['document_id'], 'event_type': 'graph_build'})
+            except Exception as exc:
+                if isinstance(exc, ContextDBError) and exc.status_code is not None and 400 <= exc.status_code < 500:
+                    store._delete(receipt['id'])
+                else:
+                    store._write(receipt['id'], {'status': 'uncertain'})
+                raise
+            store._write(receipt['id'], {'status': 'submitted', 'result': result})
+            return result
 
 
 def submit_current(store, scope, *, target_modes=None):
     from governance.contextdb_sync import enqueue_sync
     if target_modes is not None and (not isinstance(target_modes, list) or not target_modes or
-                                     any(mode not in ('wiki', 'graph') for mode in target_modes)):
-        raise StoreError('target_modes 必须是包含 wiki 或 graph 的非空列表', 400)
-    get_space(store, scope)
+                                     any(mode not in ('source', 'wiki', 'graph') for mode in target_modes)):
+        raise StoreError('target_modes 必须是包含 source、wiki 或 graph 的非空列表', 400)
+    space = require_writable_space(store, scope)
+    if target_modes is not None and list(dict.fromkeys(target_modes)) != [space['mode']]:
+        raise StoreError('一次只能提交当前知识库的固定模式', 409)
     with connection() as conn:
         conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', (f'space-submit:{store.owner_id}:{scope}',))
         release = store._find('release', scope=scope, active=True)

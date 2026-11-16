@@ -53,22 +53,19 @@ test('document view supplies readable names to list, preview and single-file dow
 })
 
 test('directory rows show source names but retain explicit user renames and folder names', async () => {
-  const source = readFileSync(new URL('../views/knowledge/ContextDBKnowledge.vue', import.meta.url), 'utf8')
-  const start = source.indexOf('async function loadNodes()')
-  const script = ts.transpileModule(source.slice(start, source.indexOf('async function enterNode', start)) + '\nreturn loadNodes', {}).outputText
-  const nodes = { value: [] as any[] }, breadcrumbs = { value: [] }, nodeTotal = { value: 0 }
+  const source = readFileSync(new URL('../views/knowledge/ContextDBDocuments.vue', import.meta.url), 'utf8')
+  const start = source.indexOf('const title=')
+  const script = ts.transpileModule(source.slice(start, source.indexOf('async function readNodes', start)) + '\nreturn title', {}).outputText
   const items = [
     { node_type: 'file', display_name: storedName, metadata: { title: '采购明细' } },
     { node_type: 'file', display_name: storedName, document_display_name: '云端标题.html' },
     { node_type: 'file', display_name: '用户重命名.html', document_display_name: '采购明细.html', metadata: { title: '采购明细' } },
     { node_type: 'folder', display_name: '资料目录', metadata: { title: '不覆盖目录' } },
   ]
-  const load = new Function('nativeAPI', 'kbId', 'parent', 'nodePage', 'nodes', 'breadcrumbs', 'nodeTotal', 'documentDisplayName', script)(
-    { get: async () => ({ data: { items, total: 3 } }) }, { value: 'kb' }, { value: '' }, { value: 1 }, nodes, breadcrumbs, nodeTotal, documentDisplayName,
-  )
-  await load()
-  assert.deepEqual(nodes.value.map(item => item.label), ['采购明细.html', '云端标题.html', '用户重命名.html', '资料目录'])
-  assert.equal(nodes.value[0].display_name, storedName)
+  const original = structuredClone(items)
+  const title = new Function('documentDisplayName', script)(documentDisplayName)
+  assert.deepEqual(items.map(item => title(item)), ['采购明细.html', '云端标题.html', '用户重命名.html', '资料目录'])
+  assert.deepEqual(items, original)
 })
 
 test('semantic results show readable names while retaining source names and IDs', async () => {

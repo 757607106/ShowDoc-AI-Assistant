@@ -221,15 +221,9 @@ def resolve_request(body, *, client, owner_id, role='viewer', session=None, has_
         elif config['kb_selection_mode'] == 'selected':
             kb_ids = list(config['knowledge_bases'])
         elif config['kb_selection_mode'] == 'all':
-            kb_ids = []
-            page = 1
-            while True:
-                response = client.list_knowledge_bases(page=page, page_size=100)
-                values = response.get('knowledge_bases', [])
-                kb_ids.extend(item.get('id') or item.get('knowledge_base_id') for item in values if not str(item.get('name', '')).startswith('_governance'))
-                if len(values) < 100 or (response.get('total') is not None and page * 100 >= response['total']):
-                    break
-                page += 1
+            values = client.list_knowledge_bases().get('knowledge_bases', [])
+            kb_ids = [item.get('id') or item.get('knowledge_base_id') for item in values
+                      if not str(item.get('name', '')).startswith('_governance')]
         else:
             kb_ids = []
         whole_kb_ids = list(kb_ids)

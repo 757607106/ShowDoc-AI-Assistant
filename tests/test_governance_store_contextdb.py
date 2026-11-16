@@ -126,7 +126,11 @@ def test_same_source_in_different_spaces_keeps_independent_versions_and_legacy_i
 
 
 def test_release_flow_and_activation():
-    store, _ = make_store()
+    store, client = make_store()
+    from governance.spaces import persist_space
+    kb = client.create_knowledge_base('发布资料', wiki_enabled=True, graph_enabled=False, review_enabled=True)
+    persist_space(store, {'scope': 'default', 'name': kb['name'], 'knowledge_base_id': kb['id'],
+        'mode': 'wiki', 'lifecycle': 'active'})
     store.create_job('file', {}, scope='default')
     claimed = store.claim()
     job = claimed
@@ -145,6 +149,7 @@ def test_release_flow_and_activation():
     # 发布后应入队 ctxdb_sync 任务
     sync_jobs = [item for item in store.list_jobs() if item['kind'] == 'ctxdb_sync']
     assert sync_jobs and sync_jobs[0]['params']['release_id'] == release_id
+    assert sync_jobs[0]['params']['knowledge_base_id'] == kb['id']
 
 
 def test_concurrent_submissions_keep_one_current_snapshot():

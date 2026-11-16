@@ -4,6 +4,9 @@ import { emitAssistantDataChange } from '@/utils/assistantDataChange'
 export interface KnowledgeSpace {
   scope: string
   name: string
+  knowledge_base_id?: string
+  mode?: 'source' | 'graph' | 'wiki'
+  legacy_targets?: Partial<Record<'wiki' | 'graph', string>>
   graph_enabled: boolean
   wiki_kb_id: string | null
   graph_kb_id: string | null

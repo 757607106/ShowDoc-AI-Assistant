@@ -4,115 +4,104 @@ import test, { type TestContext } from 'node:test'
 import * as vue from 'vue'
 import { fixture, flush } from '../../test-utils/vueFixture.ts'
 
-async function setup(t: TestContext, options: { spaces?: any[]; query?: Record<string, string | undefined>; base?: any; failure?: Error; props?: Record<string, unknown> } = {}) {
-  const f = fixture(t), routes: any[] = [], reads: string[] = [], documentReads: string[] = []
+const plain = (value: any) => JSON.parse(JSON.stringify(value))
+async function setup(t: TestContext, options: { query?: Record<string, string>; base?: any; failure?: Error; permission?: any; getBase?: (id: string) => Promise<any> } = {}) {
+  const f = fixture(t), routes: any[] = [], reads: string[] = []
   const route = vue.reactive({ params: { kbId: 'native-kb' }, query: options.query || {} })
-  const spaceAPI = f.evaluate(readFileSync(new URL('../../api/knowledgeSpaces.ts', import.meta.url), 'utf8'), {
-    '@/utils/request': { get() {}, post() {}, patch() {} },
-    '@/utils/assistantDataChange': f.dataChange,
-  })
-  const page = f.component(new URL('./ContextDBKnowledge.vue', import.meta.url), {
-    'vue-router': { useRoute: () => route, useRouter: () => ({ replace: (value: any) => routes.push(value), push() {} }) },
-    'tdesign-vue-next': { MessagePlugin: { error() {} } },
-    '@/stores/auth': { useAuthStore: () => ({ hasRole: () => true }) },
-    '@/stores/ui': { useUIStore: () => ({}) },
-    '@/api/knowledgeSpaces': { ...spaceAPI, getSpaces: async () => ({ spaces: options.spaces || [] }) },
-    '@/api/contextdb': {
-      getBase: async (id: string) => { reads.push(id); if (options.failure) throw options.failure; return { data: options.base || { name: 'Wiki', wiki_enabled: true } } },
-      listBases: async () => ({ data: [] }), getDocument: async (id: string) => {documentReads.push(id);return { data: { id } }},
-      documentView: (value: any) => value, nativeAPI: { get: async () => ({ data: { items: [], total: 0 } }) },
+  const helper = f.evaluate(readFileSync(new URL('../../api/contextdb.ts', import.meta.url), 'utf8'), { '@/utils/request': {}, '@/utils/contextdbDocumentName': {} })
+  const { vm } = f.component(new URL('./ContextDBKnowledge.vue', import.meta.url), {
+    'vue-router': { useRoute: () => route, useRouter: () => ({ replace: (value: any) => { routes.push(value); if (value.query) route.query = value.query }, push: (value: any) => routes.push(value) }) },
+    '@/stores/auth': { useAuthStore: () => ({ hasRole: () => true }) }, '@/stores/ui': { useUIStore: () => ({}) },
+    '@/api/contextdb': { ...helper,
+      getBase: async (id: string) => { reads.push(id); if (options.failure) throw options.failure; return { data: options.getBase ? await options.getBase(id) : { id, name: 'Knowledge', wiki_enabled: true, ...options.base } } },
+      getBasePermissions: async () => options.permission || { member: { role: 'owner' } },
     },
-    '@/api/knowledge-base': { getKnowledgeDetailsCon: async () => ({ data: [], total: 0 }) },
-    '@/utils/platformPresentation': { stateLabel: (value: string) => value, dateTime: () => '' },
-    '@/utils/contextdbReviewSupport': { CONTEXTDB_REVIEW_FORMAT_NOTICE: '' },
-    '@/utils/contextdbDocumentName': { documentDisplayName: () => '' },
-  },options.props)
-  await flush()
-  return { ...page, route, routes, reads, documentReads }
+  })
+  await flush(); await flush(); return { vm, route, props: vm.$.props, routes, reads }
 }
-
-test('current native Wiki deep links resolve to their business space without losing references', async t => {
-  const query = { tab: 'history', wikiPageId: 'page-a', node_id: 'folder-a', file_path: 'guides' }
-  const f = await setup(t, { query, spaces: [{ scope: 'product:a', wiki_kb_id: 'native-kb' }] })
-  assert.deepEqual(JSON.parse(JSON.stringify(f.routes)), [{ path: '/platform/knowledge-spaces/product%3Aa', query }])
-  assert.deepEqual(f.reads, [])
-})
-
-test('recovered historical links discard old resource IDs while keeping unrelated query parameters',async t=>{
-  const query={tab:'documents',wikiPageId:'old-page',slug:'old-topic',document_id:'old-doc',knowledge_id:'old-doc',node_id:'old-node',parent_node_id:'old-parent',file_path:'old-path',filter:'keep',target:'graph'}
-  for(const mode of ['wiki','graph'] as const)await t.test(mode,async t=>{
-    const f=await setup(t,{query,spaces:[{scope:'default',[`${mode}_kb_id`]:'new-kb',targets:{[mode]:{previous_knowledge_base_ids:['native-kb']}}}]})
-    assert.deepEqual(JSON.parse(JSON.stringify(f.routes)),[{path:'/platform/knowledge-spaces/default',query:{tab:mode,filter:'keep',...(mode==='graph'?{target:'graph'}:{})}}])
-    assert.deepEqual(f.reads,[])
+test('native entries keep their exact library ID and default to files for every compilation mode', async t => {
+  for (const base of [{ wiki_enabled: true }, { wiki_enabled: false, graph_enabled: true }, { wiki_enabled: false, graph_enabled: false }]) await t.test(JSON.stringify(base), async t => {
+    const f = await setup(t, { base }); assert.deepEqual(f.reads, ['native-kb']); assert.equal(f.vm.tab, 'documents')
+    assert.equal(f.routes.some(route => route.path?.includes('knowledge-spaces')), false)
+    assert.equal(f.vm.viewTabs.some((tab: any) => tab.key === 'wiki'), base.wiki_enabled)
+    assert.equal(f.vm.viewTabs.some((tab: any) => tab.key === 'graph'), !!base.graph_enabled)
+    assert.equal(f.vm.viewTabs.some((tab: any) => tab.key === 'ontology'), !base.wiki_enabled)
+    assert.equal(f.vm.viewTabs[0].label, '文件'); assert.equal(f.vm.viewTabs.some((tab: any) => tab.key === 'nodes'), false)
   })
 })
-
-test('old Wiki bookmarks and the replacement native ID both resolve after rebuilding the library', async t => {
-  for(const current of [false,true])await t.test(current?'replacement ID':'historical ID',async t=>{
-    const f=await setup(t,{spaces:[{scope:'default',wiki_kb_id:current?'native-kb':'replacement-kb',targets:{wiki:{previous_knowledge_base_ids:current?['old-kb']:['native-kb']}}}]})
-    assert.equal(f.routes[0].path,'/platform/knowledge-spaces/default')
-    assert.equal(f.routes[0].query.tab,'wiki')
-    assert.deepEqual(f.reads,[])
-  })
-})
-
-test('a current binding wins over another space history and ambiguous historical aliases stay native', async t => {
-  const historical={scope:'previous',targets:{wiki:{previous_knowledge_base_ids:['native-kb']}}}
-  await t.test('current binding',async t=>{
-    const f=await setup(t,{spaces:[historical,{scope:'current',wiki_kb_id:'native-kb'}]})
-    assert.equal(f.routes[0].path,'/platform/knowledge-spaces/current')
-    assert.deepEqual(f.reads,[])
-  })
-  await t.test('ambiguous history',async t=>{
-    const f=await setup(t,{spaces:[historical,{...historical,scope:'another-previous'}]})
-    assert.deepEqual(f.routes.filter((value:any)=>value.path),[])
-    assert.deepEqual(f.reads,['native-kb'])
-  })
-})
-
-test('graph native entry defaults to graph and document references keep the graph source library', async t => {
-  for (const query of [{}, { tab: 'wiki', document_id: 'doc-a', node_id: 'folder-a' }]) {
-    await t.test(JSON.stringify(query), async t => {
-      const f = await setup(t, { query, spaces: [{ scope: 'default', graph_kb_id: 'native-kb' }] })
-      assert.deepEqual(JSON.parse(JSON.stringify(f.routes)), [{ path: '/platform/knowledge-spaces/default', query: { ...query, tab: 'document_id' in query ? 'documents' : 'graph', target: 'graph' } }])
-    })
-  }
-})
-
-test('unassociated libraries use their available native views and invalid tabs fall back by mode', async t => {
+test('legacy directory links open files and history remains compatible only for a Wiki library', async t => {
   for (const [base, query, expected] of [
-    [{ wiki_enabled: true }, {}, 'wiki'], [{ graph_enabled: true }, { tab: 'invalid' }, 'graph'],
-    [{}, { tab: 'wiki' }, 'documents'], [{ wiki_enabled: true }, { document_id: 'doc-a' }, 'documents'],
-  ] as const) {
-    await t.test(JSON.stringify([base, query]), async t => {
-      const f = await setup(t, { base, query })
-      assert.equal(f.vm.tab, expected)
-      assert.deepEqual(f.routes.filter((value: any) => value.path), [])
-      assert.deepEqual(f.reads, ['native-kb'])
+    [{ wiki_enabled: true }, { tab: 'nodes' }, 'documents'], [{ wiki_enabled: true }, { tab: 'history', wikiPageId: 'page-a' }, 'history'],
+    [{ wiki_enabled: false, graph_enabled: true }, { tab: 'history' }, 'documents'], [{ wiki_enabled: false }, { tab: 'wiki' }, 'documents'],
+    [{ wiki_enabled: true }, { view: 'wiki' }, 'wiki'],
+  ] as const) await t.test(JSON.stringify(query), async t => {
+    const f = await setup(t, { base, query }); assert.equal(f.vm.tab, expected)
+    assert.equal(f.vm.viewTabs.some((tab: any) => tab.key === 'history'), false)
+  })
+})
+test('source links select files and pass the original ID to the inline document component', async t => {
+  for (const key of ['document_id', 'documentId', 'knowledge_id']) await t.test(key, async t => {
+    const f = await setup(t, { query: { [key]: 'source', tab: 'wiki' } })
+    assert.equal(f.vm.documentId, 'source'); assert.equal(f.vm.tab, 'documents')
+    f.vm.open({ id: 'another' }); assert.equal(f.vm.documentId, 'another'); assert.equal(f.vm.tab, 'documents')
+    assert.deepEqual(f.reads, ['native-kb'])
+  })
+})
+test('changing a document deep link within the same library updates the inline preview target', async t => {
+  const f = await setup(t, { query: { document_id: 'one' } }); f.route.query.document_id = 'two'; await flush()
+  assert.equal(f.vm.documentId, 'two'); assert.equal(f.vm.tab, 'documents')
+  f.route.query = { tab: 'nodes' }; await flush(); assert.equal(f.vm.tab, 'documents')
+  f.route.query = { tab: 'history' }; await flush(); assert.equal(f.vm.tab, 'history')
+})
+test('an unavailable library reports the error while missing write grants leave visible content read-only', async t => {
+  await t.test('unavailable', async t => { const f = await setup(t, { failure: new Error('knowledge base not found') }); assert.equal(f.vm.base, null); assert.match(f.vm.error, /not found/) })
+  await t.test('read-only', async t => {
+    const f = await setup(t, { permission: { member: { role: 'member' }, knowledge_base_permissions: [{ knowledge_base_id: 'native-kb', current_permission: 'read' }] } })
+    assert.equal(f.vm.editable, false); assert.equal(f.vm.manageable, false); assert.ok(f.vm.base)
+  })
+})
+test('a stale knowledge-base response cannot replace a newly selected library', async t => {
+  let complete!: (value: any) => void
+  const f = await setup(t, { getBase: id => id === 'native-kb' ? new Promise(resolve => { complete = resolve }) : Promise.resolve({ id, name: 'New', graph_enabled: true }) })
+  f.route.params.kbId = 'new-kb'; await flush(); complete({ id: 'native-kb', name: 'Old', wiki_enabled: true }); await flush()
+  assert.equal(f.vm.base.id, 'new-kb'); assert.equal(f.vm.tab, 'documents'); assert.deepEqual(f.reads, ['native-kb', 'new-kb'])
+})
+test('unsaved Wiki changes veto switching views and refreshing until the editor permits navigation', async t => {
+  const f = await setup(t, { query: { tab: 'wiki' } }); f.vm.wikiRef = { permitNavigation: () => false }
+  f.vm.selectTab('documents'); await f.vm.loadBase(); assert.equal(f.vm.tab, 'wiki'); assert.deepEqual(f.reads, ['native-kb'])
+  f.vm.wikiRef = { permitNavigation: () => true }; f.vm.selectTab('documents'); await flush(); assert.equal(f.vm.tab, 'documents')
+})
+test('historical spaces resolve to their original library IDs while preserving source links', async t => {
+  for (const graph of [false, true]) await t.test(String(graph), async t => {
+    const f = fixture(t), routes: any[] = []
+    const query = { tab: graph ? 'documents' : 'wiki', ...(graph ? { target: 'graph' } : {}), document_id: 'original-doc', wikiPageId: 'original-page' }
+    f.component(new URL('./ContextDBLegacySpace.vue', import.meta.url), {
+      'vue-router': { useRoute: () => ({ params: { scope: 'legacy' }, query, fullPath: '/old' }), useRouter: () => ({ replace: (value: any) => routes.push(value), push() {} }) },
+      '@/api/knowledgeSpaces': { getSpace: async () => ({ space: { knowledge_base_id: 'wiki-old', mode: 'wiki', wiki_kb_id: 'wiki-old', graph_kb_id: null, legacy_targets: { wiki: 'wiki-old', graph: 'graph-old' } } }) },
     })
-  }
+    await flush(); assert.equal(routes[0].path, '/platform/knowledge-bases/' + (graph ? 'graph-old' : 'wiki-old'))
+    assert.equal(routes[0].query.document_id, 'original-doc'); assert.equal(routes[0].query.target, undefined)
+    assert.equal(plain(routes[0].query).wikiPageId, 'original-page')
+  })
 })
-
-test('an unavailable unassociated library remains an error instead of an empty successful library', async t => {
-  const f = await setup(t, { failure: new Error('knowledge base not found') })
-  assert.equal(f.vm.base, null)
-  assert.equal(f.vm.error, 'knowledge base not found')
-  assert.equal(f.vm.baseLoading, false)
+test('view switches remove legacy view and source aliases instead of being forced back into files', async t => {
+  const f = await setup(t, { query: { view: 'documents', document_id: 'old-source', documentId: 'older-source', knowledge_id: 'oldest-source', kept: 'yes' } })
+  f.vm.selectTab('wiki'); await flush()
+  assert.equal(f.vm.tab, 'wiki'); assert.equal(f.vm.documentId, '')
+  assert.deepEqual(plain(f.route.query), { tab: 'wiki', kept: 'yes' })
+  f.vm.openWikiPage('page-new'); await flush()
+  assert.equal(f.vm.tab, 'wiki'); assert.deepEqual(plain(f.route.query), { tab: 'wiki', kept: 'yes', wikiPageId: 'page-new' })
 })
-
-test('document deep links have one preview owner while Wiki source previews remain available',async t=>{
-  const query={tab:'documents',document_id:'graph-doc',target:'graph'}
-  const f=await setup(t,{query,base:{graph_enabled:true},props:{embedded:true,knowledgeBaseId:'native-kb',view:'documents'}})
-  assert.equal(f.vm.tab,'documents')
-  assert.equal(f.vm.preview,null)
-  assert.deepEqual(f.documentReads,[],'the embedded document page owns route-driven previews')
-  assert.equal(f.route.query.document_id,'graph-doc')
-  const template=readFileSync(new URL('./ContextDBKnowledge.vue',import.meta.url),'utf8').split('<template>')[1]!
-  assert.match(template,/<KnowledgeBase\s+v-else-if="tab==='documents'"[^>]+embedded/)
-  f.vm.tab='wiki';await flush()
-  await f.vm.open({id:'wiki-source'})
-  assert.equal(f.vm.preview.id,'wiki-source')
-  assert.deepEqual(f.documentReads,['wiki-source'])
-  f.vm.tab='documents';await flush()
-  assert.equal(f.vm.preview,null,'returning to documents closes the wrapper-owned source preview')
+test('opening a graph source survives the router update and returning to the graph clears its preview target', async t => {
+  const f = await setup(t, { base: { wiki_enabled: false, graph_enabled: true }, query: { view: 'graph', kept: 'yes' } })
+  assert.equal(f.vm.tab, 'graph'); f.vm.open({ id: 'graph-source' }); await flush()
+  assert.equal(f.vm.tab, 'documents'); assert.equal(f.vm.documentId, 'graph-source')
+  assert.deepEqual(plain(f.route.query), { tab: 'documents', document_id: 'graph-source', kept: 'yes' })
+  f.vm.selectTab('graph'); await flush()
+  assert.equal(f.vm.tab, 'graph'); assert.equal(f.vm.documentId, ''); assert.deepEqual(plain(f.route.query), { tab: 'graph', kept: 'yes' })
+})
+test('Wiki navigation guards also preserve the current source target and URL for source/page jumps', async t => {
+  const f = await setup(t, { query: { tab: 'wiki', wikiPageId: 'page-current' } }); f.vm.wikiRef = { permitNavigation: () => false }
+  const before = plain(f.route.query); f.vm.open({ id: 'new-source' }); f.vm.openWikiPage('new-page'); await flush()
+  assert.equal(f.vm.tab, 'wiki'); assert.equal(f.vm.documentId, ''); assert.deepEqual(plain(f.route.query), before)
 })

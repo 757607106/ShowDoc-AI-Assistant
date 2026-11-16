@@ -108,13 +108,8 @@ def delete_compiler_probe(client, kb_id, document_ids):
     client.delete_knowledge_base(kb_id)
     # The DATA API may report an absent KB as 400; verify absence by its complete readable list.
     for _ in range(10):
-        page, found = 1, False
-        while True:
-            bases = client.list_knowledge_bases(page=page, page_size=100)['knowledge_bases']
-            found = found or any(base.get('id') == kb_id for base in bases)
-            if len(bases) < 100:
-                break
-            page += 1
+        bases = client.list_knowledge_bases()['knowledge_bases']
+        found = any(base.get('id') == kb_id for base in bases)
         if not found:
             return {'status': 'deleted', 'probe_kb_id': kb_id}
         time.sleep(1)
@@ -201,7 +196,7 @@ def wiki_compiler_readiness(write=False):
 
 def probe(write=False):
     client = ContextDBClient(max_retries=0, timeout=30)
-    bases = client.list_knowledge_bases(page_size=100)['knowledge_bases']
+    bases = client.list_knowledge_bases()['knowledge_bases']
     wiki = next((base for base in bases if base.get('wiki_enabled')), None)
     report = {'source': 'ContextDB official DATA API and MCP', 'features': {}, 'cleanup': {}}
     features = report['features']

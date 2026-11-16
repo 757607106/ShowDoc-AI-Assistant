@@ -4,20 +4,20 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/api/backend'
 import { getSpaces } from '@/api/knowledgeSpaces'
+import { bindBase, getBasePermissions, knowledgeAccess, knowledgeModeLabel, listBases, uploadDocumentFile, type BasePermissionProfile } from '@/api/contextdb'
 import { CONTEXTDB_REVIEW_FORMAT_NOTICE } from '@/utils/contextdbReviewSupport'
-import { spaceName } from '@/utils/platformPresentation'
 import KbUploadSourceDropdown from './knowledge/components/KbUploadSourceDropdown.vue'
 
 const route = useRoute(), router = useRouter(), auth = useAuthStore()
-const entries = ref<any[]>([]), spaces = ref<any[]>([])
+const entries = ref<any[]>([]), spaces = ref<any[]>([]), profile = ref<BasePermissionProfile | null>(null)
 const spaceScope = ref(''), entryKey = ref(''), url = ref(''), projectId = ref(''), userToken = ref(''), keyword = ref('')
 const crawlMode = ref('page'), maxPages = ref(0), maxDepth = ref(0), selection = ref('all')
 const selectedIds = ref<string[]>([]), pages = ref<any[]>([]), listing = ref(false), listError = ref('')
 const useServerAuth=ref(false),projects=ref<any[]>([]),projectsLoading=ref(false)
 const mode = ref('crawl'), files = ref<File[]>([]), launching = ref(false), loading = ref(false)
-const error = ref(''), taskId = ref('')
-const space = computed(() => spaces.value.find(item => item.scope === spaceScope.value))
-const editable = computed(() => auth.hasRole('contributor'))
+const error = ref(''), taskId = ref(''), taskScope = ref(''), uploadNotice = ref('')
+const space = computed(() => spaces.value.find(item => item.id === spaceScope.value))
+const editable = computed(() => !!space.value && knowledgeAccess(space.value, profile.value, auth.hasRole('contributor')).write)
 let requestId = 0
 let listRequest = 0
 
@@ -55,15 +55,20 @@ async function load() {
   const request = ++requestId
   loading.value = true; error.value = ''; taskId.value = ''; files.value = []
   try {
-    const [catalog, result] = await Promise.all([api.entries(), getSpaces()])
+    const [catalog, result, permissions] = await Promise.all([api.entries(), listBases(), getBasePermissions()])
     if (request !== requestId) return
     entries.value = (catalog.entries || []).filter((item: any) => item.key !== 'file')
-    spaces.value = result.spaces || []
+    spaces.value = result.data || []; profile.value = permissions
     const requested = typeof route.query.space === 'string' ? route.query.space : ''
     const kbId = typeof route.query.kb_id === 'string' ? route.query.kb_id : ''
-    const match = spaces.value.find(item => requested ? item.scope === requested : kbId && [item.wiki_kb_id, item.graph_kb_id].includes(kbId))
-    spaceScope.value = match?.scope || (!requested && !kbId ? spaces.value[0]?.scope || '' : '')
-    if ((requested || kbId) && !match) error.value = '请先在“关联已有库”中关联此库，再添加资料。'
+    let targetId = kbId
+    if (requested && !targetId) {
+      const legacy = (await getSpaces()).spaces.find((item: any) => item.scope === requested)
+      targetId = legacy?.knowledge_base_id || legacy?.wiki_kb_id || legacy?.graph_kb_id || ''
+    }
+    const match = spaces.value.find(item => item.id === targetId)
+    spaceScope.value = match?.id || (!requested && !kbId ? spaces.value.find(item=>knowledgeAccess(item,permissions,auth.hasRole('contributor')).write)?.id || '' : '')
+    if ((requested || kbId) && !match) error.value = '当前知识库不可读取，请返回知识库列表核对权限和状态。'
     mode.value = route.query.mode === 'file' ? 'file' : 'crawl'
     url.value = typeof route.query.url === 'string' ? route.query.url : ''
     entryKey.value = url.value ? 'web' : entries.value[0]?.key || ''
@@ -72,29 +77,44 @@ async function load() {
 }
 
 function selectFiles(selected: File[]) {
-  if (selected.length > 50 || selected.reduce((size, file) => size + file.size, 0) > 100 * 1024 * 1024) {
-    error.value = '一次最多选择 50 个文件，总大小不能超过 100 MB。'; return
+  if (selected.length > 50) {
+    error.value = '一次最多选择 50 个文件。'; return
   }
   files.value = selected; mode.value = 'file'; error.value = ''; taskId.value = ''
 }
 function selectUrl(value: string) { mode.value = 'crawl'; entryKey.value = 'web'; url.value = value }
 async function launch() {
   if (launching.value || !space.value || !editable.value) return
-  launching.value = true; error.value = ''; taskId.value = ''
+  launching.value = true; error.value = ''; taskId.value = ''; uploadNotice.value = ''
   try {
+    taskScope.value = (await bindBase(spaceScope.value)).space.scope
     let data: any
     if (mode.value === 'file') {
       if (!files.value.length) throw new Error('请先选择文件')
-      data = await api.uploadFiles(files.value, spaceScope.value)
-      files.value = []
+      const remaining = [...files.value], limit = 100 * 1024 * 1024
+      let direct = 0
+      while (remaining.length) {
+        const first = remaining[0]!
+        if (first.size > limit) {
+          await uploadDocumentFile(spaceScope.value, first)
+          remaining.shift(); files.value = files.value.filter(file=>file!==first); direct++
+          uploadNotice.value = `${direct} 份大文件已提交知识库，原件由 ContextDB 保存；请到文档中核对评审与入库状态。`
+        } else {
+          const batch: File[] = []; let size = 0
+          while (remaining[0] && remaining[0].size <= limit && size + remaining[0].size <= limit) { const file = remaining.shift()!; batch.push(file); size += file.size }
+          data = await api.uploadFiles(batch, spaceScope.value)
+          taskId.value = data.task_id
+          files.value = files.value.filter(file=>!batch.includes(file))
+        }
+      }
     } else {
       if (selection.value === 'selected' && !selectedIds.value.length) throw new Error('请选择要采集的文档')
-      const payload: any = { ...crawlerParams(), space_scope: spaceScope.value }
+      const payload: any = { ...crawlerParams(), knowledge_base_id: spaceScope.value }
       if (selection.value === 'selected') payload.selected_ids = selectedIds.value
       data = await api.startTask(entryKey.value, payload)
     }
-    taskId.value = data.task_id
-  } catch (err: any) { error.value = err.message }
+    if(data?.task_id)taskId.value = data.task_id
+  } catch (err: any) { error.value = `${err.message}${mode.value==='file'?'。已成功的文件不会重复提交；请先核对官方文档，再决定是否重试剩余文件。':''}` }
   finally { launching.value = false }
 }
 watch(() => route.fullPath, load, { immediate: true })
@@ -107,15 +127,16 @@ watch([entryKey, url, projectId, userToken, keyword, crawlMode, maxPages, maxDep
   <t-card title="添加资料" :bordered="false" class="collection-card">
     <template #actions><t-button variant="text" @click="router.push('/platform/knowledge-bases')">知识库</t-button></template>
     <t-alert v-if="error" theme="error" :message="error" />
-    <p class="hint">资料完整采集成功后会自动提交到所选知识库；需人工评审时在“知识评审”中处理，Wiki 编译完成后可阅读、编辑。</p>
+    <t-alert v-if="uploadNotice" theme="info" :message="uploadNotice" />
+    <p class="hint">资料采集成功后自动提交到所选知识库；需人工评审时在“知识评审”中处理。原文入库与图谱或 Wiki 编译分别推进。</p>
     <t-alert theme="info" :message="CONTEXTDB_REVIEW_FORMAT_NOTICE" />
     <t-loading :loading="loading">
       <t-form label-width="120px" class="collection-form" @submit.prevent>
         <t-form-item label="知识库" required>
-          <t-select v-model="spaceScope" :disabled="launching" placeholder="选择资料所属知识库" :options="spaces.map(item => ({label: spaceName(item.scope,spaces), value: item.scope}))" />
+          <t-select v-model="spaceScope" :disabled="launching" placeholder="选择资料所属知识库" :options="spaces.map(item => ({label: item.name, value: item.id, disabled: !knowledgeAccess(item,profile,auth.hasRole('contributor')).write}))" />
         </t-form-item>
         <t-form-item v-if="space" label="生成内容">
-          <t-space><t-tag theme="primary" variant="light">Wiki</t-tag><t-tag v-if="space.graph_enabled" theme="primary" variant="light">知识图谱</t-tag></t-space>
+          <t-space><t-tag theme="primary" variant="light">{{knowledgeModeLabel(space)}}</t-tag><t-tag>{{space.review_enabled?'知识评审已开启':'知识评审已关闭'}}</t-tag></t-space>
         </t-form-item>
         <t-form-item label="资料来源"><t-radio-group v-model="mode" :disabled="launching"><t-radio-button value="crawl">网站采集</t-radio-button><t-radio-button value="file">文件上传</t-radio-button></t-radio-group></t-form-item>
         <template v-if="mode === 'crawl'">
@@ -146,18 +167,18 @@ watch([entryKey, url, projectId, userToken, keyword, crawlMode, maxPages, maxDep
         <t-form-item v-else label="来源文件">
           <div>
             <KbUploadSourceDropdown trigger-label="选择文件" @files="selectFiles" @url="selectUrl" />
-            <p class="hint">最多 50 个文件，总大小不超过 100 MB</p>
-            <ul v-if="files.length" class="file-list"><li v-for="(file, index) in files" :key="index">{{ file.name }} <t-button size="small" variant="text" :aria-label="'移除 '+file.name" @click="files.splice(index, 1)">移除</t-button></li></ul>
+            <p class="hint">最多 50 个文件；普通批次保留采集归档，超过 100 MB 的单文件直接保存到 ContextDB。</p>
+            <ul v-if="files.length" class="file-list"><li v-for="(file, index) in files" :key="index">{{ file.name }} <t-button size="small" variant="text" :disabled="launching" :aria-label="'移除 '+file.name" @click="files.splice(index, 1)">移除</t-button></li></ul>
           </div>
         </t-form-item>
         <t-form-item><t-space>
           <t-button theme="primary" :loading="launching" :disabled="!editable || !space || (mode === 'file' && !files.length)" @click="launch">{{ mode === 'file' ? '上传到知识库' : '采集到知识库' }}</t-button>
-          <t-button variant="outline" @click="router.push({path:'/platform/tasks', query:spaceScope ? {space:spaceScope} : {}})">查看任务</t-button>
+          <t-button variant="outline" @click="router.push({path:'/platform/tasks', query:taskScope ? {space:taskScope} : {}})">查看任务</t-button>
         </t-space></t-form-item>
       </t-form>
     </t-loading>
     <t-empty v-if="!loading && !spaces.length" description="请先创建知识库"><t-button @click="router.push('/platform/knowledge-bases')">创建知识库</t-button></t-empty>
-    <t-alert v-if="taskId" theme="success" title="任务已创建"><template #operation><t-button variant="text" @click="router.push({path:'/platform/tasks',query:{space:spaceScope}})">查看任务</t-button></template></t-alert>
+    <t-alert v-if="taskId" theme="success" title="任务已创建"><template #operation><t-button variant="text" @click="router.push({path:'/platform/tasks',query:{space:taskScope}})">查看任务</t-button></template></t-alert>
   </t-card>
 </template>
 

@@ -53,6 +53,38 @@ def truncate_incomplete_jsonl(path):
             stream.truncate(data.rfind(b'\n') + 1)
 
 
+def prepare_review_file(client, kb_id, name, path, *, base_url='', pipeline=None, review_enabled=None):
+    """Keep originals intact; normalize HTML only when the official review gate is enabled."""
+    from governance.store import StoreError
+    path = Path(path)
+    if review_enabled is None:
+        review_enabled = client.get_knowledge_base(kb_id).get('review_enabled')
+    if not review_enabled:
+        return name, path, ''
+    suffix = Path(name).suffix.lower()
+    if not path.stat().st_size or (suffix in ('.txt', '.md', '.markdown') and not path.read_bytes().strip()):
+        raise StoreError(f'源正文为空: {name}', 422)
+    if suffix == '.markdown':
+        return str(Path(name).with_suffix('.md')), path, ''
+    if suffix in ('.txt', '.md', '.pdf', '.doc', '.docx'):
+        return name, path, ''
+    if suffix not in ('.html', '.htm'):
+        raise StoreError(f'知识评审不支持 {suffix or "未知格式"}，请提供 TXT、Markdown、PDF、DOC 或 DOCX', 422)
+    pipeline = pipeline or RAGContentPipeline(path.parent / 'assets')
+    try:
+        result = pipeline.convert_record({'id': name, 'title': name, 'source_format': 'html',
+            'content': path.read_text(encoding='utf-8-sig'), 'base_url': base_url}, chunk=False)
+    except ValueError as exc:
+        raise StoreError(f'HTML 无法生成可评审正文: {exc}', 422) from exc
+    if not result.markdown.strip() or not result.nodes:
+        raise StoreError(f'HTML 未提取到可评审正文: {name}', 422)
+    converted = path.with_name(path.name + '.review.md')
+    converted.write_text(result.markdown, encoding='utf-8')
+    fingerprint = hashlib.sha256(json.dumps({'pipeline': result.fingerprint, 'base_url': base_url},
+        sort_keys=True).encode()).hexdigest()
+    return str(Path(name).with_suffix('.md')), converted, fingerprint
+
+
 @dataclass
 class DocumentConversion:
     markdown: str
@@ -136,6 +168,12 @@ class RAGContentPipeline:
         }
         return hashlib.sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest()
 
+    @property
+    def markdown_fingerprint(self):
+        settings = {"pipeline": PIPELINE_REVISION, "export": "markdown-only",
+                    "docling": version("docling-slim"), "core": version("docling-core")}
+        return hashlib.sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest()
+
     def _initialize(self):
         if self._converter is not None:
             return
@@ -143,11 +181,7 @@ class RAGContentPipeline:
         from docling.datamodel.base_models import InputFormat
         from docling.datamodel.backend_options import HTMLBackendOptions, MarkdownBackendOptions
         from docling.datamodel.pipeline_options import PdfPipelineOptions
-        from docling.chunking import HybridChunker
-        from docling_core.transforms.chunker.tokenizer.openai import OpenAITokenizer
-        import tiktoken
         model_root = Path(os.getenv("GOVERNANCE_DATA_DIR", Path(__file__).resolve().parents[1] / "downloads")) / "_models"
-        os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(model_root / "tiktoken"))
         artifacts_path = Path(os.getenv("DOCLING_ARTIFACTS_PATH", model_root / "docling"))
 
         html_backend, md_backend = _backend_classes()
@@ -159,6 +193,15 @@ class RAGContentPipeline:
             InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options),
             InputFormat.IMAGE: ImageFormatOption(pipeline_options=pdf_options),
         })
+
+    def _initialize_chunker(self):
+        if self._chunker is not None:
+            return
+        from docling.chunking import HybridChunker
+        from docling_core.transforms.chunker.tokenizer.openai import OpenAITokenizer
+        import tiktoken
+        model_root = Path(os.getenv("GOVERNANCE_DATA_DIR", Path(__file__).resolve().parents[1] / "downloads")) / "_models"
+        os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(model_root / "tiktoken"))
         self._chunker = HybridChunker(tokenizer=OpenAITokenizer(
             tokenizer=tiktoken.get_encoding("cl100k_base"), max_tokens=self.max_tokens))
 
@@ -177,12 +220,10 @@ class RAGContentPipeline:
                 progress_callback(index, len(records), f"已清洗: {record['title']}")
         return converted
 
-    def convert_record(self, record):
+    def convert_record(self, record, *, chunk=True):
         self._initialize()
         from docling.datamodel.base_models import InputFormat, ConversionStatus
         from docling_core.types.doc import DoclingDocument, ImageRefMode, ContentLayer
-        from langchain_docling import DoclingLoader
-        from langchain_docling.loader import ExportType
         from pydantic import AnyUrl
 
         source_path = record.get("source_path")
@@ -190,7 +231,7 @@ class RAGContentPipeline:
         source = Path(source_path).read_bytes() if source_path else content.encode("utf-8")
         if not source.strip():
             raise ValueError("源正文为空")
-        fingerprint = self.fingerprint
+        fingerprint = self.fingerprint if chunk else self.markdown_fingerprint
         source_url = record.get("base_url") or self.site_base_url
         source_identity = json.dumps({"id": record["id"], "format": record["source_format"],
             "filename": Path(source_path).name if source_path else "", "url": source_url}, sort_keys=True)
@@ -228,15 +269,19 @@ class RAGContentPipeline:
         nodes, resources = self._nodes_and_resources(doc, source_url)
         if not nodes and not doc.pictures:
             raise ValueError("Docling 未提取到正文或图片")
-        documents = DoclingLoader(file_path=str(artifact), export_type=ExportType.DOC_CHUNKS, chunker=self._chunker).load()
         chunks = []
-        for index, chunk in enumerate(documents, 1):
-            meta = chunk.metadata.get("dl_meta", {})
-            chunks.append({"content": chunk.page_content, "metadata": {
-                "dl_meta": meta, "section_path": meta.get("headings", []), "chunk_index": index,
-                "node_refs": [item["self_ref"] for item in meta.get("doc_items", [])],
-                "size_unit": "tokens", "token_count": self._chunker.tokenizer.count_tokens(chunk.page_content),
-            }})
+        if chunk:
+            from langchain_docling import DoclingLoader
+            from langchain_docling.loader import ExportType
+            self._initialize_chunker()
+            documents = DoclingLoader(file_path=str(artifact), export_type=ExportType.DOC_CHUNKS, chunker=self._chunker).load()
+            for index, document in enumerate(documents, 1):
+                meta = document.metadata.get("dl_meta", {})
+                chunks.append({"content": document.page_content, "metadata": {
+                    "dl_meta": meta, "section_path": meta.get("headings", []), "chunk_index": index,
+                    "node_refs": [item["self_ref"] for item in meta.get("doc_items", [])],
+                    "size_unit": "tokens", "token_count": self._chunker.tokenizer.count_tokens(document.page_content),
+                }})
         return DocumentConversion(
             markdown=markdown, preview_html=doc.export_to_html(image_mode=ImageRefMode.REFERENCED,
                                                               included_content_layers={ContentLayer.BODY}),

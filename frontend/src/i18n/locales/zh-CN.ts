@@ -4146,7 +4146,7 @@ export default {
     pinned: '已置顶'
   },
   platform: {
-    subtitle: '大模型驱动的企业级知识框架',
+    subtitle: '大模型驱动的企业级知识库',
     description: 'RAG 检索、智能体推理、Wiki 知识库，让文档真正被理解和运用',
     rag: 'RAG 增强生成',
     agent: 'ReAct 智能体',
@@ -6793,11 +6793,11 @@ export default {
     haveAccount: '已有账户？',
     backToLogin: '返回登录',
     loginHint: '登录以继续使用；首次使用请在下方创建账户。',
-    firstTime: '首次使用 WeKnora？',
+    firstTime: '首次使用？',
     registerSuccess: '注册成功，请登录',
     registerFailed: '注册失败',
-    subtitle: 'RAG 问答、ReAct 智能体与 Wiki 知识库，大模型驱动的企业级知识框架',
-    registerSubtitle: '创建账户并开始使用 WeKnora',
+    subtitle: 'RAG 问答、ReAct 智能体与 Wiki 知识库，大模型驱动的企业级知识库',
+    registerSubtitle: '创建账户，开始使用知识库',
     emailPlaceholder: '输入邮箱地址',
     passwordPlaceholder: '输入密码',
     confirmPasswordPlaceholder: '再次输入密码',

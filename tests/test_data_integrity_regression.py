@@ -56,7 +56,7 @@ def test_category_collision_cannot_overwrite_documents(tmp_path):
     docs = [doc('1', category='A/B'), doc('2', category='A_B')]
     c._convert_all(docs)
     c._save(docs)
-    assert len(list((tmp_path / 'A_B').glob('*.md'))) == 2
+    assert len(list((tmp_path / 'A_B').glob('*.md'))) == 2, [d.metadata.get('conversion_error') for d in docs]
 
 
 def test_invalid_document_isolated_and_raw_source_retained(tmp_path):

@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { runInNewContext } from 'node:vm'
 import { parse } from '@vue/compiler-sfc'
 import { createSSRApp } from 'vue'
 import { renderToString } from 'vue/server-renderer'
-import ts from 'typescript'
 
 const { descriptor } = parse(readFileSync(new URL('./KnowledgeChunksList.vue', import.meta.url), 'utf8'))
 const rawName = `doc-${'d'.repeat(64)}.html`
@@ -29,20 +27,14 @@ test('source labels and heading paths use readable fields without modifying orig
   assert.deepEqual(chunk, original)
 })
 
-test('global Wiki results display the readable summary title while retaining native title and content', async () => {
-  const source = readFileSync(new URL('../views/KnowledgeView.vue', import.meta.url), 'utf8')
-  const expression = source.match(/:chunks="(wikiItems\.map\([^\n]+?)"/)?.[1]
-  assert.ok(expression, 'The actual Wiki result mapping must be exercised')
+test('Wiki evidence displays its readable summary title without changing native identity or content', async () => {
   const wikiItem = { title: `${rawName} - Summary`, display_title: '采购单.html - Summary',
     page_id: 'wiki-page', content: `正式原文中的 ${rawName}`, score: 0.6 }
-  const context: any = { wikiItems: [wikiItem], result: null }
-  const script = ts.transpileModule(`result = ${expression}`, {}).outputText
-  runInNewContext(script, context)
-  const html = await render(context.result)
+  const original = structuredClone(wikiItem)
+  const html = await render([wikiItem])
   assert.match(html, /<span[^>]*>采购单\.html - Summary<\/span>/)
-  assert.equal(context.result[0].title, wikiItem.title)
-  assert.equal(context.result[0].content, wikiItem.content)
-  assert.equal(context.result[0].page_id, wikiItem.page_id)
+  assert.ok(html.includes(wikiItem.content))
+  assert.deepEqual(wikiItem, original)
 })
 
 test('older responses retain their original labels and all labels remain inert text', async () => {

@@ -829,6 +829,7 @@ import { getKnowledgeChunksSummaryHtml } from '@/utils/knowledgeChunksDisplay';
 import { getAttachmentParsingSummaryHtml } from '@/utils/attachmentParsingDisplay';
 import { useChatCitationPopover } from '@/composables/useChatCitationPopover';
 import { useChatReferencesDrawer } from '@/composables/useChatReferencesDrawer';
+import { IS_CONTEXTDB } from '@/config/contextdb';
 import { mergeDocumentReferences, type KnowledgeReferenceLike, type ReferenceHighlightTarget } from '@/utils/referenceSources';
 import { resolveCitationChunkId } from '@/utils/citationMarkdown';
 import { citationAnchorText } from '@/utils/citationAnchor';
@@ -2966,6 +2967,7 @@ const renderAgentMarkdown = (
     sanitizeHtml: sanitizeMarkdownHTML,
     streaming: !isSegmentDone.value,
     knowledgeReferences: getReferencesForDrawer(),
+    exactKnowledgeReferences: IS_CONTEXTDB,
     cachedMermaidSvgHtml: streamingMermaidSvgCache.value,
     prepareMarkdown: prepareAgentMarkdown,
     injectCachedMermaidSvg,

@@ -68,6 +68,10 @@ class KnowledgeNames:
             self._spaces = {kb_id: next(iter(matches)) for kb_id, matches in candidates.items() if len(matches) == 1}
             current = {}
             for space in configured.values():
+                if space.get('knowledge_base_id'):
+                    current.setdefault(space['knowledge_base_id'], set()).add(
+                        (space['scope'], space.get('mode', 'source'), space.get('name') or space['scope']))
+                    continue
                 for mode in ('wiki', 'graph'):
                     kb_id = space.get(mode + '_kb_id')
                     if kb_id:
@@ -80,14 +84,9 @@ class KnowledgeNames:
         result = dict(base)
         match = self._spaces.get(base.get('id'))
         if match:
-            scope, mode, label = match
-            if scope == 'default' and label in ('default', '默认知识空间'):
-                label = '默认知识库'
+            scope, mode, historical_name = match
+            label = label or historical_name
             result.update(space_scope=scope, space_name=label, space_mode=mode)
-            if mode == 'graph':
-                label += '（知识图谱）'
-        elif label in ('knowledge-default', 'knowledge-default-graph'):
-            label = '默认知识库' + ('（知识图谱）' if label.endswith('-graph') else '')
         result['display_name'] = label
         return result
 
@@ -191,7 +190,9 @@ class KnowledgeNames:
     def wiki_page(self, page, kb_id=None):
         base = page.get('knowledge_base_id') or page.get('kb_id') or kb_id
         sources = page.get('source_document_ids')
-        result = {**page, 'display_title': self._source_label(page.get('title'), base, sources)}
+        result = dict(page)
+        if isinstance(page.get('title'), str) and page['title']:
+            result['display_title'] = self._source_label(page['title'], base, sources)
         if isinstance(page.get('heading_path'), str):
             result['display_heading_path'] = self._source_label(page['heading_path'], base, sources)
         for key in ('ancestors', 'links', 'backlinks'):
@@ -205,7 +206,7 @@ class KnowledgeNames:
         if isinstance(payload.get('data'), dict):
             return {**payload, 'data': self.present(resource, payload['data'], kb_id=kb_id)}
         if resource == 'knowledge/knowledge_bases':
-            return {**payload, 'knowledge_bases': [self.base(item) for item in payload.get('knowledge_bases', [])]}
+            return {**payload, 'knowledge_bases': [self.base(item) for item in payload['knowledge_bases']]} if isinstance(payload.get('knowledge_bases'), list) else payload
         if resource == 'knowledge/knowledge_bases/detail':
             return self.base(payload)
         if resource == 'knowledge/documents/detail':
@@ -218,6 +219,8 @@ class KnowledgeNames:
         }
         if resource in collections:
             key, reference = collections[resource]
+            if not isinstance(payload.get(key), list):
+                return payload
             return {**payload, key: [self.document(item, reference=reference, kb_id=kb_id)
                     if resource != 'knowledge/nodes' or item.get('node_type') == 'file' else item
                     for item in payload.get(key, [])]}
@@ -229,6 +232,8 @@ class KnowledgeNames:
             return {**payload, **{key: [self.wiki_page(item, kb_id) for item in payload[key]]
                     for key in ('items', 'pages') if isinstance(payload.get(key), list)}}
         if resource == 'knowledge/wiki/index':
+            if not isinstance(payload.get('groups'), list):
+                return payload
             return {**payload, 'groups': [{**group, 'items': [self.wiki_page(item, kb_id) for item in group.get('items', [])]}
                     for group in payload.get('groups', [])]}
         if resource in ('knowledge/query', 'knowledge/documents/chunks', 'knowledge/entities/chunks'):

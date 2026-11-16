@@ -1,7 +1,54 @@
 // Native ContextDB transport and WeKnora view-field mapping; no local knowledge state.
-import { get, post, put, del, patch, getDown } from '@/utils/request'
+import { get, post, put, del, patch, getDown, postUpload } from '@/utils/request'
 import { documentDisplayName } from '@/utils/contextdbDocumentName'
-import { updateSpace } from '@/api/knowledgeSpaces'
+
+export type KnowledgeMode = 'source' | 'graph' | 'wiki'
+export interface ContextDBBase {
+  id: string
+  name: string
+  description?: string
+  wiki_enabled: boolean
+  graph_enabled: boolean
+  review_enabled: boolean
+  document_count?: number
+  created_at?: string
+  updated_at?: string
+  [key: string]: any
+}
+export interface CreateBaseInput {
+  name: string
+  description?: string
+  review_enabled?: boolean
+  indexing_strategy?: { wiki_enabled?: boolean; graph_enabled?: boolean }
+}
+export interface BasePermissionProfile {
+  member?: { member_id?: string; member_name?: string; role?: string; status?: string; role_permission?: string }
+  knowledge_base_permissions?: { knowledge_base_id: string; current_permission?: string }[]
+  [key: string]: any
+}
+export const knowledgeMode = (base: Pick<ContextDBBase, 'wiki_enabled' | 'graph_enabled'>): KnowledgeMode => base.wiki_enabled ? 'wiki' : base.graph_enabled ? 'graph' : 'source'
+export const knowledgeModeLabel = (base: Pick<ContextDBBase, 'wiki_enabled' | 'graph_enabled'>) => ({ source: '零编译', graph: '图谱编译', wiki: 'Wiki 编译' })[knowledgeMode(base)]
+
+export function knowledgeAccess(base: { id: string }, profile: BasePermissionProfile | null, contributor: boolean) {
+  if (!profile || (profile.evaluation_state && profile.evaluation_state !== 'active') || (profile.member?.status && profile.member.status !== 'active')) return { write: false, manage: false, delete: false }
+  const global = ['owner', 'admin'].includes(profile?.member?.role || '')
+  const permission = profile?.knowledge_base_permissions?.find(item => item.knowledge_base_id === base.id)?.current_permission
+  return { write: contributor && (global || ['write', 'kb_manage', 'all'].includes(permission || '')),
+    manage: contributor && (global || (profile.mode === 'personal_compatibility' && permission === 'all') || permission === 'kb_manage'),
+    delete: contributor && (global || (profile.mode === 'personal_compatibility' && permission === 'all')) }
+}
+
+export async function getBasePermissions(): Promise<BasePermissionProfile> {
+  let profile: BasePermissionProfile = {}, items: NonNullable<BasePermissionProfile['knowledge_base_permissions']> = []
+  for (let page = 1; ; page++) {
+    const response = await nativeAPI.get('workspaces/members/self/permissions', { page, page_size: 100 })
+    profile = response.data
+    const batch = profile.knowledge_base_permissions || []
+    items.push(...batch)
+    if (batch.length < 100 || (Number.isFinite(profile.total) && items.length >= profile.total)) break
+  }
+  return { ...profile, knowledge_base_permissions: items }
+}
 
 export const nativeAPI = {
   get: (path: string, params?: Record<string, any>) => get(`/api/contextdb/v1/${path}`, { params }),
@@ -22,8 +69,7 @@ export async function listMembers() {
 }
 
 export function kbView(base: any) {
-  const displayName = typeof base.display_name === 'string' ? base.display_name.trim() : ''
-  return { ...base, name: displayName || base.name, original_name: base.original_name ?? base.name,
+  return { ...base, name: base.name, original_name: base.name,
     tenant_id: 1, type: 'document',
     capabilities: { vector: true, keyword: true, wiki: !!base.wiki_enabled,
       graph: !!base.graph_enabled, faq: false, ...base.capabilities },
@@ -46,14 +92,8 @@ export function documentView(doc: any) {
 }
 
 export async function listBases() {
-  const items: any[] = []
-  for (let page = 1; ; page++) {
-    const res = await nativeAPI.get('knowledge/knowledge_bases', { page, page_size: 100 })
-    const batch = res.data.knowledge_bases || []
-    items.push(...batch)
-    if (batch.length < 100 || (Number.isFinite(res.data.total) && items.length >= res.data.total)) break
-  }
-  return { success: true, data: items.filter((b: any) => b.name !== '_governance').map(kbView) }
+  const res = await nativeAPI.get('knowledge/knowledge_bases')
+  return { success: true, data: (res.data.knowledge_bases || []).map(kbView) }
 }
 
 export async function getBase(id: string) {
@@ -61,33 +101,63 @@ export async function getBase(id: string) {
   return { success: true, data: kbView(res.data) }
 }
 
-export async function createBase(data: any) {
+export async function createBase(data: CreateBaseInput) {
   const flags = data.indexing_strategy || {}
+  if (flags.wiki_enabled && flags.graph_enabled) throw new Error('只能选择一种编译模式')
   const res = await nativeAPI.post('knowledge/knowledge_bases', { name: data.name, description: data.description,
-    wiki_enabled: !!flags.wiki_enabled, graph_enabled: !!flags.graph_enabled, review_enabled: data.review_enabled ?? true })
+    wiki_enabled: !!flags.wiki_enabled, graph_enabled: !!flags.graph_enabled, review_enabled: data.review_enabled ?? false })
   return { success: true, data: kbView(res.data) }
 }
 
-export async function updateBase(id: string, data: any) {
-  const current = (await getBase(id)).data
-  if (current.space_scope) {
-    const descriptionChanged = data.description !== undefined && data.description !== (current.description || '')
-    if (descriptionChanged) {
-      await nativeAPI.put('knowledge/knowledge_bases', {
-        knowledge_base_id: id, name: current.original_name, description: data.description })
-    }
-    if (data.name !== undefined && data.name !== (current.space_name || current.name)) {
-      try { await updateSpace(current.space_scope, { name: data.name }) }
-      catch (error) {
-        if (descriptionChanged) throw new Error(`知识库说明已保存，但名称更新失败：${error instanceof Error ? error.message : String(error)}`)
-        throw error
-      }
-    }
-    return getBase(id)
-  }
+export async function updateBase(id: string, data: { name: string; description?: string; review_enabled?: boolean }) {
   const res = await nativeAPI.put('knowledge/knowledge_bases', {
-    knowledge_base_id: id, name: data.name, description: data.description })
+    knowledge_base_id: id, name: data.name, description: data.description, review_enabled: data.review_enabled })
   return { success: true, data: kbView(res.data) }
+}
+
+export async function deleteBase(id: string) {
+  const result = await nativeAPI.del(`knowledge/knowledge_bases?knowledge_base_id=${encodeURIComponent(id)}`)
+  if (result.data?.lifecycle !== 'deleted') throw new Error('官方删除尚未确认完成，请刷新核对知识库状态后再决定是否重试')
+  return result
+}
+export const bindBase = (id: string) => post(`/api/kb/bases/${encodeURIComponent(id)}/binding`, {})
+export const deleteDocuments = (kbId: string, ids: string[]) => nativeAPI.del('knowledge/documents/batch', { knowledge_base_id: kbId, ids })
+export const retryDocument = (id: string) => nativeAPI.post('knowledge/documents/retry', { document_id: id })
+export const updateDocumentMetadata = (id: string, metadata: Record<string, unknown>) => nativeAPI.put('knowledge/documents/metadata', { document_id: id, metadata })
+
+export async function replaceDocumentFile(id: string, file: File) {
+  return transferFile(file, { document_id: id })
+}
+export async function uploadDocumentFile(kbId: string, file: File, options: { parent_node_id?: string; review_enabled?: boolean } = {}) {
+  return transferFile(file, { knowledge_base_id: kbId, ...options })
+}
+async function transferFile(file: File, target: { document_id: string } | { knowledge_base_id: string; parent_node_id?: string; review_enabled?: boolean }) {
+  if (!file.size) throw new Error('上传文件不能为空')
+  const path = '/api/contextdb/v1/knowledge/files'
+  const updating = 'document_id' in target
+  if (file.size <= 100 * 1024 * 1024) {
+    const form = new FormData(); for (const [key, value] of Object.entries(target)) if (value !== undefined) form.append(key, String(value)); form.append('file', file)
+    return updating ? put(path, form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 300000 }) : postUpload(path, form)
+  }
+  if ('review_enabled' in target) throw new Error('分片上传不支持单次知识评审设置，请先调整知识库默认评审策略')
+  const { data: upload } = await (updating ? put : post)(path + '/init-upload', { ...target, file_name: file.name, mime_type: file.type || 'application/octet-stream' })
+  if (!upload.upload_ticket || !Number.isInteger(upload.chunk_size) || upload.chunk_size < 1) throw new Error('未收到有效分片上传凭据')
+  const headers = { 'X-Upload-Ticket': upload.upload_ticket }, parts: { part_number: number; etag: string }[] = []
+  let completing = false
+  try {
+    for (let offset = 0; offset < file.size; offset += upload.chunk_size) {
+      const form = new FormData(), number = parts.length + 1
+      form.append('part_number', String(number)); form.append('data', file.slice(offset, offset + upload.chunk_size), file.name)
+      const { data: part } = await postUpload(path + '/chunks', form, undefined, { headers })
+      if (part.part_number !== number || !part.etag) throw new Error('分片上传回执不完整')
+      parts.push({ part_number: number, etag: part.etag })
+    }
+    completing = true
+    return await post(path + '/complete', { parts }, { headers, timeout: 300000 })
+  } catch (error) {
+    if (!completing) await post(path + '/abort', {}, { headers }).catch(() => {})
+    throw error
+  }
 }
 
 export async function listDocuments(kbId: string, params: any = {}) {

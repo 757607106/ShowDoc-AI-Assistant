@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { fixture, flush } from '../../../test-utils/vueFixture.ts'
 
-test('revision selection sends page IDs, opaque cursors and the chosen baseline to the official diff', async t => {
+test('revision selection sends page IDs and opaque cursors, and automatically compares the selected revision with its base', async t => {
   const f = fixture(t), calls: any[] = []
   const { vm } = f.component(new URL('./ContextDBWikiRevisions.vue', import.meta.url), {
-    '@/utils/platformPresentation': { dateTime: String, stateLabel: String },
+    '@/utils/platformPresentation': { contextdbDateTime: String, stateLabel: String },
     '@/api/contextdbWiki': {
       listWikiRevisions: async (kb: string, page: string, params: any) => {
         calls.push({ kb, page, ...params })
@@ -20,8 +20,9 @@ test('revision selection sends page IDs, opaque cursors and the chosen baseline 
   await flush(); await vm.load(true); await flush()
   assert.equal(calls.find(row => row.cursor)?.cursor, 'opaque==')
   assert.equal(calls[0].page, 'page')
-  vm.baseline = 'older'; await flush()
-  assert.equal(calls.at(-1).baseline, 'older')
+  vm.target = 'older'; await flush()
+  assert.equal(calls.at(-1).revision, 'older')
+  assert.equal(calls.at(-1).baseline, undefined)
   assert.equal(vm.diff.diff.truncated, true)
   assert.equal(vm.diff.diff.hunks[0].text, '<script>not HTML</script>')
 })
@@ -31,7 +32,7 @@ test('closing or switching the history drawer discards slow earlier responses', 
   let resolve!: (value: any) => void
   const delayed = new Promise(yes => { resolve = yes })
   const { vm } = f.component(new URL('./ContextDBWikiRevisions.vue', import.meta.url), {
-    '@/utils/platformPresentation': { dateTime: String, stateLabel: String },
+    '@/utils/platformPresentation': { contextdbDateTime: String, stateLabel: String },
     '@/api/contextdbWiki': { listWikiRevisions: () => delayed, getWikiRevisionDiff: assert.fail },
   }, { kbId: 'kb', pageId: 'page', visible: true })
   vm.$.props.visible = false

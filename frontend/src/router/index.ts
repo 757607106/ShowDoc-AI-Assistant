@@ -90,7 +90,7 @@ const router = createRouter({
     {
       path: "/knowledgeBase",
       name: "home",
-      component: () => import("../views/knowledge/KnowledgeBase.vue"),
+      redirect: "/platform/knowledge-bases",
       meta: { requiresInit: true, requiresAuth: true }
     },
     {
@@ -130,8 +130,14 @@ const router = createRouter({
         {
           path: 'knowledge-spaces/:scope',
           name: 'knowledgeSpaceDetail',
-          component: () => import('../views/knowledge/ContextDBSpaceDetail.vue'),
+          component: () => import('../views/knowledge/ContextDBLegacySpace.vue'),
           meta: { requiresInit: true, requiresAuth: true },
+        },
+        {
+          path: 'knowledge-bases/:kbId/policies',
+          name: 'knowledgeBasePolicies',
+          component: () => import('../views/knowledge/ContextDBPolicies.vue'),
+          meta: { requiresInit: true, requiresAuth: true }
         },
         {
           path: "knowledge-bases/:kbId",

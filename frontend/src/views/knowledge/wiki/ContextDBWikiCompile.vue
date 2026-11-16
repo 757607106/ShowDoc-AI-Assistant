@@ -3,26 +3,25 @@ import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watc
 import { useAuthStore } from '@/stores/auth'
 import { listWikiCompileRuns, controlWikiCompileRuns, getWikiEvent } from '@/api/contextdbWiki'
 import { getDocument } from '@/api/contextdb'
-import { dateTime } from '@/utils/platformPresentation'
+import { contextdbDateTime as dateTime } from '@/utils/platformPresentation'
 import { documentDisplayName } from '@/utils/contextdbDocumentName'
 
 const props = withDefaults(defineProps<{ kbId: string; canEdit?: boolean }>(), { canEdit: undefined })
-const emit = defineEmits<{ 'open-page': [pageId: string]; 'open-source-doc': [documentId: string] }>()
+const emit = defineEmits<{ 'open-source-doc': [documentId: string] }>()
 const auth = useAuthStore()
 const editable = computed(() => props.canEdit ?? auth.hasRole('contributor'))
 const rows = ref<any[]>([]), summary = ref<Record<string, any>>({}), cursor = ref(''), status = ref('')
 const loading = ref(false), busy = ref(false), paused = ref(false), error = ref(''), notice = ref('')
 const event = ref<any>(null), eventError = ref('')
 const states: Record<string, string> = {
-  compiled: '已编译', pending: '待编译', blocked_oversize: '文件超出编译限制',
-  waiting_budget: '等待预算或计量检查', revoked: '来源已撤回',
+  compiled: '已编译', pending: '等待编译', waiting_budget: '等待重试',
+  blocked_oversize: '超过容量限制', revoked: '已撤销',
 }
-const summaryLabels: Record<string, string> = {
-  total: '来源总数', total_documents: '来源总数', compiled: '已编译', compiled_count: '已编译',
-  pending: '待编译', pending_count: '待编译', blocked_oversize: '超出限制',
-  waiting_budget: '等待预算检查', revoked: '已撤回',
-}
-const eventLabels: Record<string, string> = { PENDING: '等待执行', RUNNING: '处理中', SUCCEEDED: '执行成功', FAILED: '执行失败', CANCELLED: '已取消' }
+const summaryCards = computed(() => [
+  ...Object.entries(states).map(([key, label]) => ({ key, label, value: summary.value[key] ?? summary.value[`${key}_count`] ?? 0 })),
+  { key: 'total', label: '来源总数', value: summary.value.total ?? summary.value.total_documents ?? 0 },
+])
+const retryAvailable = computed(() => Number(summary.value.waiting_budget ?? summary.value.waiting_budget_count ?? 0) > 0)
 const eventPending = computed(() => ['PENDING', 'RUNNING'].includes(String(event.value?.status || '').toUpperCase()))
 const hasPending = computed(() => rows.value.some(row => row.run_state === 'pending') || Object.entries(summary.value).some(([key, value]) => key.includes('pending') && Number(value) > 0))
 let alive = true, active = false, timer: ReturnType<typeof setTimeout> | undefined, request = 0, pollStarted = 0
@@ -113,30 +112,26 @@ onUnmounted(() => { alive = false; active = false; request++; stopPolling(); doc
 
 <template>
   <section class="wiki-compile">
-    <div class="toolbar">
-      <t-select v-model="status" :options="[{ value: '', label: '全部编译状态' }, ...Object.entries(states).map(([value, label]) => ({ value, label }))]" style="width:220px" />
-      <t-button variant="outline" :loading="loading" @click="refresh">刷新</t-button>
-      <span class="spacer" />
-      <t-tag :theme="paused ? 'warning' : 'success'">{{ paused ? '新编译已暂停' : '自动编译开启' }}</t-tag>
-      <t-button v-if="editable" variant="outline" :loading="busy" @click="control(paused ? 'resume' : 'pause')">{{ paused ? '恢复新编译' : '暂停新编译' }}</t-button>
-      <t-button v-if="editable" variant="outline" :disabled="paused || busy" @click="control('retry_failed')">重试失败任务</t-button>
+    <div class="summary" aria-label="编译统计">
+      <t-card v-for="item in summaryCards" :key="item.key" class="summary-card" :bordered="true">
+        <strong>{{ item.value }}</strong><span>{{ item.label }}</span>
+      </t-card>
     </div>
-    <p class="hint">暂停不会取消在途编译；恢复后不会自动补派积压来源。来源编译完成后，请打开相关主题核对正式正文。</p>
-    <div v-if="Object.keys(summary).length" class="summary">
-      <span v-for="(value, key) in summary" :key="key">{{ summaryLabels[key] || states[key] || key }} <strong>{{ value }}</strong></span>
-    </div>
+    <div class="compile-control"><span>新编译入口：{{ paused ? '已暂停' : '已允许' }}</span><t-space v-if="editable"><t-button variant="outline" :loading="busy" @click="control(paused ? 'resume' : 'pause')">{{ paused ? '恢复新编译' : '暂停新编译' }}</t-button><t-button variant="outline" :disabled="paused || busy || !retryAvailable" @click="control('retry_failed')">重试失败</t-button></t-space></div>
+    <p class="hint">这个开关不取消在途任务，也不会自动补跑暂停期间登记的文件。</p>
+    <t-alert theme="info" message="文件已编译，不代表所有知识页面已发布。" />
     <t-alert v-if="error" theme="error" :message="error" />
     <t-alert v-if="notice" theme="info" :message="notice" />
     <t-alert v-if="eventError" theme="warning" :message="eventError" />
-    <details v-if="event" class="event"><summary>最近操作：{{ eventLabels[String(event.status).toUpperCase()] || '进度待确认' }}</summary><span>任务编号：{{ event.id }}</span></details>
-    <t-table row-key="document_id" :data="rows" :loading="loading" :columns="[{ colKey: 'source', title: '来源文档' }, { colKey: 'run_state', title: '编译状态' }, { colKey: 'updated_at', title: '更新时间' }, { colKey: 'actions', title: '操作' }]">
-      <template #source="{ row }"><t-link @click="emit('open-source-doc', row.document_id)">{{ documentDisplayName(row) || row.title || '查看来源文档' }}</t-link></template>
-      <template #run_state="{ row }"><t-tag :theme="row.run_state === 'compiled' ? 'success' : 'default'">{{ states[row.run_state] || '状态待确认' }}</t-tag></template>
+    <div class="toolbar"><t-select v-model="status" aria-label="编译状态" :options="[{ value: '', label: '全部状态' }, ...Object.entries(states).map(([value, label]) => ({ value, label }))]" /><t-button variant="text" shape="square" aria-label="刷新进度" :loading="loading" @click="refresh"><t-icon name="refresh" /></t-button></div>
+    <t-table row-key="document_id" :data="rows" :loading="loading" :columns="[{ colKey: 'source', title: '文档级来源引用', width:'26%' }, { colKey: 'run_state', title: '编译状态', width:'14%' }, { colKey: 'updated_at', title: '更新时间', width:'28%' }, { colKey: 'actions', title: '操作', width:'32%' }]">
+      <template #source="{ row }">{{ documentDisplayName(row) || row.title || row.document_id }}</template>
+      <template #run_state="{ row }"><t-tag variant="light" :theme="row.run_state === 'compiled' ? 'success' : 'default'">{{ states[row.run_state] || '状态待确认' }}</t-tag></template>
       <template #updated_at="{ row }">{{ dateTime(row.updated_at || row.compiled_at || row.last_compiled_at) }}</template>
       <template #actions="{ row }">
         <t-space break-line>
-          <t-button v-if="row.page_id" variant="text" @click="emit('open-page', row.page_id)">核对主题页</t-button>
-          <t-button v-if="editable" variant="text" :disabled="paused || busy || ['revoked', 'blocked_oversize'].includes(row.run_state)" @click="control('recompile_affected', row)">重新编译</t-button>
+          <t-button variant="text" theme="primary" @click="emit('open-source-doc', row.document_id)">打开来源文件</t-button>
+          <t-dropdown v-if="editable" :options="[{content:'重新编译',value:'recompile_affected',disabled:paused || busy || ['revoked', 'blocked_oversize'].includes(row.run_state)}]" @click="control('recompile_affected', row)"><t-button variant="outline">更多<t-icon name="chevron-down" /></t-button></t-dropdown>
         </t-space>
       </template>
     </t-table>
@@ -145,9 +140,13 @@ onUnmounted(() => { alive = false; active = false; request++; stopPolling(); doc
 </template>
 
 <style scoped lang="less">
-.wiki-compile { display:flex; flex-direction:column; gap:16px; padding:24px; overflow:auto; min-height:0; }
-.toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }.spacer { flex:1; }
-.hint { margin:0; color:var(--td-text-color-secondary); line-height:1.7; }.summary { display:flex; gap:24px; flex-wrap:wrap; }
-.summary span { color:var(--td-text-color-secondary); }.summary strong { margin-left:8px; color:var(--td-text-color-primary); }
-.event { color:var(--td-text-color-secondary); font-size:var(--app-text-sm); overflow-wrap:anywhere; }.event summary { cursor:pointer; margin-bottom:8px; }
+.wiki-compile { display:flex; flex-direction:column; gap:12px; padding:12px 0 24px; overflow:auto; min-height:0; font-family:var(--app-font-family); font-size:var(--app-text-base); }
+.summary { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; margin-bottom:4px; }
+.summary-card { border-radius:var(--app-space-4); box-shadow:none; }.summary-card :deep(.t-card__body){display:flex;flex-direction:column;gap:12px;padding:18px 16px;}
+.summary-card strong{font-size:var(--app-text-4xl);line-height:28px;font-weight:600;color:var(--td-text-color-primary)}.summary-card span{color:var(--td-text-color-placeholder);font-size:var(--app-text-sm);line-height:18px}
+.compile-control {display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 16px;border:1px solid var(--td-component-stroke);border-radius:var(--app-space-4);background:var(--td-bg-color-secondarycontainer)}
+.toolbar { display:flex; align-items:center; gap:10px; }.toolbar :deep(.t-select__wrap){width:144px}.toolbar :deep(.t-button){width:32px;height:32px}
+.hint { margin:-10px 0 0; color:var(--td-text-color-placeholder); font-size:var(--app-text-sm);line-height:20px; }
+.wiki-compile :deep(.t-alert){padding:10px 14px;border-radius:var(--app-radius-lg);font-size:var(--app-text-md)}.wiki-compile :deep(.t-table){border-radius:var(--app-space-4) 16px 0 0;overflow:hidden}.wiki-compile :deep(.t-table th){height:60px;background:var(--td-bg-color-secondarycontainer);font-size:var(--app-text-base);font-weight:400}.wiki-compile :deep(.t-table td){height:80px;font-size:var(--app-text-base)}.wiki-compile :deep(.t-button){font-size:var(--app-text-base)}
+@media(max-width:900px){.summary{grid-template-columns:repeat(3,minmax(0,1fr))}.compile-control{align-items:flex-start;flex-direction:column}}
 </style>

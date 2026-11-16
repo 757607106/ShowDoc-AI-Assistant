@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
 import test from 'node:test'
 import { marked } from 'marked'
+import ts from 'typescript'
+import { IS_CONTEXTDB } from '../config/contextdb.ts'
 
 import {
   applyStreamingTailFade,
@@ -63,6 +67,39 @@ test('ContextDB citation text uses a readable label without changing its exact s
   assert.match(html, /data-kb-id="kb-a"/)
   assert.equal(refs[0].knowledge_title, 'doc-hash.html')
 })
+
+for (const file of ['chat/components/botmsg.vue', 'chat/components/AgentStreamDisplay.vue', 'embed/EmbedBotMessage.vue']) {
+  test(`${file}: the real Markdown caller uses readable citation names and exact source identities`, () => {
+    const source = readFileSync(new URL(`../views/${file}`, import.meta.url), 'utf8')
+    const agent = file.includes('AgentStreamDisplay')
+    const start = source.indexOf(agent ? 'const renderAgentMarkdown =' : 'const renderedHTML = computed(')
+    const end = source.indexOf(agent ? '// 单次渲染 Markdown 内容' : 'const hasActualContent', start)
+    const code = ts.transpileModule(source.slice(start, end), {}).outputText
+    for (const name of ['采购明细.html', '用户自定义名称.html']) {
+      const refs = [{ id: 'chunk:1', knowledge_base_id: 'kb-a', knowledge_id: 'doc-a',
+        knowledge_title: 'doc-hash.html', document_display_name: name }]
+      const original = structuredClone(refs)
+      const tag = '<kb kb_id="kb-a" chunk_id="chunk:1" doc="doc-hash.html"/>'
+        + '<kb kb_id="kb-other" chunk_id="chunk:1" doc="错误来源"/>'
+      const identity = (value: string) => value
+      const renderer = createChatMarkdownRenderer()
+      const html = runInNewContext(code + (agent ? '\nrenderAgentMarkdown(tag, safeMarkdownToHTML)' : '\nrenderedHTML.value'), {
+        computed: (render: () => string) => ({ get value() { return render() } }),
+        typedAnswer: { value: tag }, props: { session: { knowledge_references: refs, is_completed: true } },
+        renderChatMarkdown, markdownRenderer: renderer, agentRenderer: renderer, IS_CONTEXTDB,
+        safeMarkdownToHTML: identity, sanitizeMarkdownHTML: identity, tag,
+        isSegmentDone: { value: true }, getReferencesForDrawer: () => refs,
+        streamingMermaidSvgCache: { value: undefined }, prepareAgentMarkdown: identity,
+        injectCachedMermaidSvg: identity, entityLinkLabels: { value: undefined },
+      })
+      assert.match(html, new RegExp(`data-doc="${name}"`))
+      assert.match(html, /data-chunk-id="chunk:1"/)
+      assert.match(html, /data-kb-id="kb-a"/)
+      assert.equal((html.match(/class="citation citation-kb"/g) || []).length, 1)
+      assert.deepEqual(refs, original)
+    }
+  })
+}
 
 test('citation markup remains literal in code and escaped examples, including a streaming code tail', () => {
   const tag = '<kb kb_id="kb-a" chunk_id="opaque:chunk" doc="示例"/>'

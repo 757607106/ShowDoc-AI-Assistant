@@ -45,15 +45,27 @@ def knowledge_spaces():
     return jsonify(success=True, spaces=spaces, available_bases=available)
 
 
-@knowledge_bp.route('/api/kb/spaces/<scope>', methods=['GET', 'PATCH'])
+@knowledge_bp.route('/api/kb/spaces/<scope>', methods=['GET', 'PATCH', 'DELETE'])
 def knowledge_space(scope):
     from governance.spaces import get_space, save_space
     store = _space_store()
+    if request.method == 'DELETE':
+        from governance.knowledge_bases import delete_base
+        space = get_space(store, scope)
+        return jsonify(success=True, **delete_base(store, space['knowledge_base_id']))
     if request.method == 'PATCH':
         space = save_space(store, _json_body(), scope)
     else:
         space = get_space(store, scope)
     return jsonify(success=True, space=space)
+
+
+@knowledge_bp.route('/api/kb/bases/<kb_id>/binding', methods=['POST'])
+def knowledge_base_binding(kb_id):
+    from governance.spaces import ensure_base_space, require_writable_space
+    store = _space_store()
+    space = ensure_base_space(store, kb_id)
+    return jsonify(success=True, space=require_writable_space(store, space['scope']))
 
 
 @knowledge_bp.route('/api/kb/spaces/<scope>/progress')
@@ -79,7 +91,7 @@ def knowledge_space_submit(scope):
 
 @knowledge_bp.route('/api/kb/bases')
 def kb_bases():
-    result = _client().list_knowledge_bases(page=1, page_size=100)
+    result = _client().list_knowledge_bases()
     names = KnowledgeNames(user_id())
     return jsonify(success=True, bases=[
         names.base({'id': item.get('id'), 'name': item.get('name'),
@@ -162,6 +174,8 @@ def kb_reviews():
         decision=request.args.get('decision'),
         page=int(request.args.get('page', 1)),
         page_size=int(request.args.get('page_size', 50)),
+        sort_by=request.args.get('sort_by'),
+        sort_order=request.args.get('sort_order'),
     )
     reviews = result.get('reviews', result.get('data', {}).get('reviews', [])) if isinstance(result, dict) else []
     names = KnowledgeNames(user_id())
@@ -179,8 +193,13 @@ def kb_review_detail(review_id):
 @knowledge_bp.route('/api/kb/reviews/batch', methods=['POST'])
 def kb_review_batch():
     body = _json_body()
+    from integrations.contextdb.client import BATCH_REVIEW_ACTIONS
+    if not isinstance(body.get('action'), str) or body['action'] not in BATCH_REVIEW_ACTIONS:
+        raise StoreError('不支持的批量评审动作', 400)
+    from governance.knowledge_bases import batch_reviews
+    store = _space_store()
     try:
-        result = _client().batch_review_action(body.get('ids'), body.get('action'))
+        result = batch_reviews(store, body.get('ids'), lambda ids: _client().batch_review_action(ids, body['action']))
     except ValueError as exc:
         raise StoreError(str(exc), 400) from exc
     return jsonify(success=True, **result)
@@ -195,10 +214,15 @@ def kb_review_action(review_id):
     edited_content = body.get('edited_content')
     if edited_content is not None and not isinstance(edited_content, str):
         raise StoreError('edited_content 必须是字符串', 400)
-    result = _client().review_action(
-        review_id, action, edited_content=edited_content or None,
-        conflict_resolutions=_conflict_resolutions(body.get('conflict_resolutions')),
-    )
+    from governance.knowledge_bases import base_write_lock, require_writable_base, review_base_ids
+    store = _space_store()
+    kb_id = review_base_ids(store, [review_id])[0]
+    with base_write_lock(kb_id):
+        require_writable_base(store, kb_id)
+        result = _client().review_action(
+            review_id, action, edited_content=edited_content or None,
+            conflict_resolutions=_conflict_resolutions(body.get('conflict_resolutions')),
+        )
     return jsonify(success=True, review=result if isinstance(result, dict) else {'message': str(result)})
 
 
@@ -207,7 +231,12 @@ def kb_review_conflicts(review_id):
     resolutions = _conflict_resolutions(_json_body().get('resolutions'))
     if not resolutions:
         raise StoreError('resolutions 不能为空', 400)
-    result = _client().resolve_review_conflicts(review_id, resolutions)
+    from governance.knowledge_bases import base_write_lock, require_writable_base, review_base_ids
+    store = _space_store()
+    kb_id = review_base_ids(store, [review_id])[0]
+    with base_write_lock(kb_id):
+        require_writable_base(store, kb_id)
+        result = _client().resolve_review_conflicts(review_id, resolutions)
     return jsonify(success=True, result=result)
 
 
@@ -261,14 +290,20 @@ def kb_document_update(document_id):
         raise StoreError('kb_id 必须是非空字符串', 400)
     client = _client()
     detail = _editable_document(client, kb_id, document_id)
-    if detail['source_type'] == 'file':
-        with tempfile.TemporaryDirectory(prefix='contextdb-edit-') as directory:
-            path = Path(directory) / 'source'
-            path.write_text(text, encoding='utf-8')
-            result = client.update_file(document_id, detail['name'], path,
-                                        mime_type=detail.get('mime_type') or 'application/octet-stream')
-    else:
-        result = client.update_text_document(text, document_id=document_id)
+    from governance.knowledge_bases import base_write_lock, require_writable_base
+    actual_kb = detail.get('knowledge_base_id')
+    if not isinstance(actual_kb, str) or not actual_kb:
+        raise StoreError('官方文档详情未返回可核对的 knowledge_base_id', 502)
+    with base_write_lock(actual_kb):
+        require_writable_base(_space_store(), actual_kb, document_id)
+        if detail['source_type'] == 'file':
+            with tempfile.TemporaryDirectory(prefix='contextdb-edit-') as directory:
+                path = Path(directory) / 'source'
+                path.write_text(text, encoding='utf-8')
+                result = client.update_file(document_id, detail['name'], path,
+                                            mime_type=detail.get('mime_type') or 'application/octet-stream')
+        else:
+            result = client.update_text_document(text, document_id=document_id)
     return jsonify(success=True, document=result)
 
 
@@ -301,15 +336,18 @@ def kb_review_settings_update():
     kb_id = str(body.get('kb_id', '')).strip()
     if not kb_id:
         raise StoreError('缺少 kb_id 参数', 400)
-    result = _client().update_review_settings(
-        kb_id,
-        review_enabled=body.get('review_enabled'),
-        high_threshold=body.get('high_threshold'),
-        rewrite_enabled=body.get('rewrite_enabled'),
-        conflict_detection_enabled=body.get('conflict_detection_enabled'),
-        rewrite_auto_ingest_enabled=body.get('rewrite_auto_ingest_enabled'),
-        max_rewrite_iterations=body.get('max_rewrite_iterations'),
-    )
+    from governance.knowledge_bases import base_write_lock, require_writable_base
+    with base_write_lock(kb_id):
+        require_writable_base(_space_store(), kb_id)
+        result = _client().update_review_settings(
+            kb_id,
+            review_enabled=body.get('review_enabled'),
+            high_threshold=body.get('high_threshold'),
+            rewrite_enabled=body.get('rewrite_enabled'),
+            conflict_detection_enabled=body.get('conflict_detection_enabled'),
+            rewrite_auto_ingest_enabled=body.get('rewrite_auto_ingest_enabled'),
+            max_rewrite_iterations=body.get('max_rewrite_iterations'),
+        )
     return jsonify(success=True, settings=result)
 
 
@@ -326,7 +364,12 @@ def kb_events():
 
 @knowledge_bp.route('/api/kb/documents/<document_id>/retry', methods=['POST'])
 def kb_document_retry(document_id):
-    result = _client().retry_document(document_id)
+    from governance.knowledge_bases import base_write_lock, require_writable_base
+    store = _space_store()
+    space = require_writable_base(store, document_id=document_id)
+    with base_write_lock(space['knowledge_base_id']):
+        require_writable_base(store, space['knowledge_base_id'], document_id)
+        result = _client().retry_document(document_id)
     return jsonify(success=True, retry=result)
 
 

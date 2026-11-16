@@ -121,6 +121,29 @@ def test_batch_review_returns_individual_failures_and_does_not_rollback_success(
     assert fake.reviews['accepted']['lifecycle_state'] == 'auto_accepted'
 
 
+def test_batch_review_missing_item_does_not_block_valid_review(client):
+    fake, http = client
+    kb = fake.ensure_knowledge_base('partial-batch', review_enabled=True)
+    fake.reviews['valid'] = {'review_id': 'valid', 'knowledge_base_id': kb['id'], 'lifecycle_state': 'pending_human'}
+    response = http.post('/api/kb/reviews/batch', json={'ids': ['missing', 'valid', 'valid'], 'action': 'confirm'})
+    assert response.status_code == 200
+    result = response.json
+    assert (result['total'], result['succeeded'], result['failed']) == (3, 1, 2)
+    assert [item['success'] for item in result['results']] == [False, True, False]
+    assert fake.reviews['valid']['lifecycle_state'] == 'approved'
+
+
+def test_reviews_pass_optional_scope_and_official_score_sorting(client, monkeypatch):
+    from unittest.mock import Mock
+    fake, http = client
+    read = Mock(return_value={'reviews': [], 'total': 0})
+    monkeypatch.setattr(fake, 'list_reviews', read)
+    response = http.get('/api/kb/reviews?lifecycle_state=pending_human&sort_by=confidence_score&sort_order=asc&page=2&page_size=20')
+    assert response.status_code == 200
+    read.assert_called_once_with(None, review_status=None, lifecycle_state='pending_human', decision=None,
+                                 page=2, page_size=20, sort_by='confidence_score', sort_order='asc')
+
+
 @pytest.mark.parametrize('payload', [
     {'ids': [], 'action': 'confirm'}, {'ids': ['r'] * 51, 'action': 'confirm'},
     {'ids': [' '], 'action': 'confirm'}, {'ids': ['r'], 'action': 'reject_reupload'},
@@ -162,6 +185,7 @@ def test_document_text_update_uses_official_text_channel(client, monkeypatch, so
     from unittest.mock import Mock
     fake, http = client
     detail = {'id': 'text-1', 'source_type': source_type, 'name': 'guide.md',
+              'knowledge_base_id': next(iter(fake.knowledge_bases)),
               'mime_type': 'text/markdown', 'metadata': {'team': 'support'}}
     get_document = Mock(return_value=detail)
     update_text = Mock(return_value={**detail, 'id': 'returned-text-id'})
@@ -170,7 +194,7 @@ def test_document_text_update_uses_official_text_channel(client, monkeypatch, so
     # The official detail endpoint accepts document_id without a KB hint.
     result = http.put('/api/kb/documents/text-1', json={'text': '# 修订'})
     assert result.status_code == 200 and result.json['document']['id'] == 'returned-text-id'
-    get_document.assert_called_once_with(None, 'text-1')
+    assert [entry.args for entry in get_document.call_args_list] == [(None, 'text-1'), (None, 'text-1')]
     update_text.assert_called_once_with('# 修订', document_id='text-1')
 
 
@@ -178,7 +202,8 @@ def test_document_text_update_uses_official_text_channel(client, monkeypatch, so
 def test_document_file_text_update_preserves_file_contract(client, monkeypatch, mime_type):
     from unittest.mock import Mock
     fake, http = client
-    detail = {'id': 'file-1', 'source_type': 'file', 'name': '操作指南.md',
+    fake.knowledge_bases['kb-1'] = {'id': 'kb-1', 'name': '可编辑文件库', 'wiki_enabled': False, 'graph_enabled': False}
+    detail = {'id': 'file-1', 'source_type': 'file', 'name': '操作指南.md', 'knowledge_base_id': 'kb-1',
               'mime_type': mime_type, 'metadata': {'team': 'support'}}
     get_document = Mock(return_value=detail)
     monkeypatch.setattr(fake, 'get_document', get_document)
@@ -193,7 +218,7 @@ def test_document_file_text_update_preserves_file_contract(client, monkeypatch, 
     response = http.put('/api/kb/documents/file-1', json={'kb_id': 'kb-1', 'text': '# 修订正文'})
     assert response.status_code == 200 and response.json['document']['id'] == 'returned-file-id'
     assert response.json['document']['metadata'] == detail['metadata']
-    get_document.assert_called_once_with('kb-1', 'file-1')
+    assert [entry.args for entry in get_document.call_args_list] == [('kb-1', 'file-1'), (None, 'file-1')]
     assert update.call_count == 1
 
 
@@ -224,8 +249,9 @@ def test_document_update_propagates_official_file_error(client, monkeypatch):
     from unittest.mock import Mock
     from integrations.contextdb import ContextDBConflictError
     fake, http = client
+    fake.knowledge_bases['kb-1'] = {'id': 'kb-1', 'name': '可编辑文件库', 'wiki_enabled': False, 'graph_enabled': False}
     monkeypatch.setattr(fake, 'get_document', Mock(return_value={
-        'id': 'd', 'source_type': 'file', 'name': 'guide.md', 'mime_type': 'text/markdown'}))
+        'id': 'd', 'knowledge_base_id': 'kb-1', 'source_type': 'file', 'name': 'guide.md', 'mime_type': 'text/markdown'}))
     update = Mock(side_effect=ContextDBConflictError('same document upload is in progress', status_code=409))
     monkeypatch.setattr(fake, 'update_file', update)
     result = http.put('/api/kb/documents/d', json={'kb_id': 'kb-1', 'text': '# 修订'})

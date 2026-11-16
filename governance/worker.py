@@ -91,6 +91,11 @@ def process_job(store, job):
     try:
         cancel_check()
         if job['kind'] == 'ctxdb_sync':
+            if 'target_modes' in job['params'] and (not isinstance(job['params']['target_modes'], list)
+                    or len(job['params']['target_modes']) != 1):
+                store.update_job(job_id, status='cancelled', phase='cancelled', end_time=now(),
+                    message='旧双目标任务已取消，来源与回执保留；请选择一个知识库重新提交')
+                return
             from governance.contextdb_sync import run_sync
             store.update_job(job_id, status='running', phase='syncing', progress=0,
                              message='开始同步 ContextDB 知识库')
@@ -149,7 +154,7 @@ def process_job(store, job):
             publish(store, job_id)
             submission_queued = True
             store.update_job(job_id, phase='submitted',
-                message=message + '；已自动加入 ContextDB 提交队列，评审、入库与 Wiki 编译状态请查看治理进度')
+                message=message + '；已自动加入 ContextDB 提交队列，评审、入库与编译状态请查看治理进度')
     except CrawlCancelled:
         store.update_job(job_id, status='cancelled', phase='cancelled', end_time=now(), message='任务已取消，已保存的原文可重试')
     except Exception as exc:
@@ -158,7 +163,7 @@ def process_job(store, job):
             if any(key in name.lower() for key in ('token', 'password', 'secret', 'key')) and isinstance(value, str) and value:
                 message = message.replace(value, '[redacted]')
         if capture_message is not None:
-            detail = ('已加入 ContextDB 提交队列，评审、入库与 Wiki 编译状态请查看治理进度' if submission_queued else
+            detail = ('已加入 ContextDB 提交队列，评审、入库与编译状态请查看治理进度' if submission_queued else
                       f'自动提交失败: {message[:1000]}；可在任务中重试提交')
             store.update_job(job_id, status='completed', phase='submitted' if submission_queued else 'submission_failed',
                 end_time=now(), message=f'{capture_message}；{detail}')
@@ -193,8 +198,10 @@ def _publish(store, job_id):
         records, chunks, copied_assets = [], [], set()
         for doc in documents:
             artifact_base = f"artifacts/{doc['job_id']}"
-            record = {**{k: doc.get(k) for k in ('id', 'version_id', 'title', 'category', 'content', 'metadata', 'resources', 'source_format')}, 'artifact_base': artifact_base}
+            record = {**{k: doc.get(k) for k in ('id', 'version_id', 'title', 'category', 'content', 'content_format', 'metadata', 'resources', 'source_format')}, 'artifact_base': artifact_base}
             source_path = doc.get('source', {}).get('source_path')
+            if doc.get('content_format') == 'markdown' and not source_path:
+                record['source_content'] = doc.get('source', {}).get('content', doc.get('content', ''))
             if source_path:
                 original = (Path(doc['artifact_dir']) / source_path).resolve()
                 if not original.is_relative_to(Path(doc['artifact_dir']).resolve()) or not original.is_file():

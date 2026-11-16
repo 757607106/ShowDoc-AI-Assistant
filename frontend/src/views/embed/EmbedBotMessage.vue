@@ -61,6 +61,8 @@ import {
 import { useEmbedCitationPopover } from '@/composables/useEmbedCitationPopover'
 import { useTypewriter } from '@/composables/useTypewriter'
 import { vStableHtml } from '@/directives/stableHtml'
+import { IS_CONTEXTDB } from '@/config/contextdb'
+import type { CitationKnowledgeRef } from '@/utils/citationMarkdown'
 
 const RagPipelineProgress = defineAsyncComponent(
   () => import('@/views/chat/components/RagPipelineProgress.vue'),
@@ -91,7 +93,7 @@ type EmbedSession = {
   hideContent?: boolean
   is_completed?: boolean
   agentEventStream?: Array<Record<string, unknown>>
-  knowledge_references?: Array<{ chunk_type?: string; knowledge_id?: string; knowledge_title?: string }>
+  knowledge_references?: CitationKnowledgeRef[]
 }
 
 const props = withDefaults(
@@ -154,6 +156,8 @@ const renderedHTML = computed(() => {
     escapeMarkdown: safeMarkdownToHTML,
     sanitizeHtml: sanitizeMarkdownHTML,
     streaming: !props.session?.is_completed,
+    knowledgeReferences: props.session?.knowledge_references,
+    exactKnowledgeReferences: IS_CONTEXTDB,
   })
 })
 

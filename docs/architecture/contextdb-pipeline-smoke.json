@@ -1,42 +1,463 @@
 {
-  "scope": "smoke-cec72e857ca6",
-  "targets": {
-    "graph": {
-      "knowledge_base_id": "089c834d-7de1-48ad-9ce1-2f75322a9af5",
-      "ingest_states": [
-        "succeeded"
+  "schema_version": 2,
+  "checked_at": "2026-11-16T15:27:44.838918+08:00",
+  "run_id": "20261116-19d26bcd26",
+  "status": "passed",
+  "mutations": true,
+  "isolation": {
+    "production_store_or_database": false,
+    "cleanup_by_returned_ids_only": true
+  },
+  "fixtures": [
+    {
+      "id": "6e58cd47-e4b8-4157-814b-304f775118cb",
+      "name": "ctxdb-accept-20261116-19d26bcd26-graph-0-renamed",
+      "owned_names": [
+        "ctxdb-accept-20261116-19d26bcd26-graph-0",
+        "ctxdb-accept-20261116-19d26bcd26-graph-0-renamed"
       ],
-      "graph_states": [
-        "succeeded"
+      "run_id": "20261116-19d26bcd26",
+      "mode": "graph",
+      "review_enabled": false,
+      "document_ids": [
+        "10656005-fbe9-48a0-aae1-adbb2b34d309"
       ],
-      "entities": 9,
-      "relations": 9
+      "documents": [
+        {
+          "id": "10656005-fbe9-48a0-aae1-adbb2b34d309",
+          "case": "original",
+          "conversion_fingerprint": ""
+        }
+      ]
     },
-    "wiki": {
-      "knowledge_base_id": "03bfc680-c68f-4ae6-8226-fce9e21f6a63",
-      "ingest_states": [
-        "succeeded"
+    {
+      "id": "7ac69307-a6bf-4f3f-aeaa-b8ef53b9aa6b",
+      "name": "ctxdb-accept-20261116-19d26bcd26-source-1-renamed",
+      "owned_names": [
+        "ctxdb-accept-20261116-19d26bcd26-source-1",
+        "ctxdb-accept-20261116-19d26bcd26-source-1-renamed"
       ],
-      "pages_returned": 4
+      "run_id": "20261116-19d26bcd26",
+      "mode": "source",
+      "review_enabled": true,
+      "document_ids": [
+        "a993dd26-1938-4fb6-b300-e9ce0920c70c",
+        "b9ded7e9-062b-48a2-ada1-6e02fc804dde",
+        "7233a291-1875-43a2-b4b4-3b478426a54c"
+      ],
+      "documents": [
+        {
+          "id": "a993dd26-1938-4fb6-b300-e9ce0920c70c",
+          "case": "ai-rewrite",
+          "conversion_fingerprint": ""
+        },
+        {
+          "id": "b9ded7e9-062b-48a2-ada1-6e02fc804dde",
+          "case": "edited",
+          "conversion_fingerprint": ""
+        },
+        {
+          "id": "7233a291-1875-43a2-b4b4-3b478426a54c",
+          "case": "original",
+          "conversion_fingerprint": "ee74f1990cf459116e4e6e38c1050d41d3c890f76759fea320a6e5239d1646bd"
+        }
+      ]
+    },
+    {
+      "id": "8fd0f544-9d13-4106-8991-e6453af62422",
+      "name": "ctxdb-accept-20261116-19d26bcd26-graph-1-renamed",
+      "owned_names": [
+        "ctxdb-accept-20261116-19d26bcd26-graph-1",
+        "ctxdb-accept-20261116-19d26bcd26-graph-1-renamed"
+      ],
+      "run_id": "20261116-19d26bcd26",
+      "mode": "graph",
+      "review_enabled": true,
+      "document_ids": [
+        "330c017b-d7e8-4cc7-a43c-ca3099add091"
+      ],
+      "documents": [
+        {
+          "id": "330c017b-d7e8-4cc7-a43c-ca3099add091",
+          "case": "original",
+          "conversion_fingerprint": ""
+        }
+      ]
+    },
+    {
+      "id": "a2752b15-921c-4a88-9b6f-e4cd787be4ef",
+      "name": "ctxdb-accept-20261116-19d26bcd26-source-0-renamed",
+      "owned_names": [
+        "ctxdb-accept-20261116-19d26bcd26-source-0",
+        "ctxdb-accept-20261116-19d26bcd26-source-0-renamed"
+      ],
+      "run_id": "20261116-19d26bcd26",
+      "mode": "source",
+      "review_enabled": false,
+      "document_ids": [
+        "0392d11b-cc15-485a-81c2-c6e3d82f0841",
+        "27d6b4d6-f90e-4591-bacb-84d21cc47d91",
+        "27d6b4d6-f90e-4591-bacb-84d21cc47d91",
+        "27d6b4d6-f90e-4591-bacb-84d21cc47d91",
+        "dafb1f62-e3e3-40b3-9983-d241dd46728a",
+        "27d6b4d6-f90e-4591-bacb-84d21cc47d91",
+        "27d6b4d6-f90e-4591-bacb-84d21cc47d91"
+      ],
+      "documents": [
+        {
+          "id": "0392d11b-cc15-485a-81c2-c6e3d82f0841",
+          "case": "original",
+          "conversion_fingerprint": ""
+        },
+        {
+          "id": "27d6b4d6-f90e-4591-bacb-84d21cc47d91",
+          "case": "multipart",
+          "conversion_fingerprint": ""
+        },
+        {
+          "id": "27d6b4d6-f90e-4591-bacb-84d21cc47d91",
+          "case": "multipart-update",
+          "conversion_fingerprint": ""
+        }
+      ]
+    },
+    {
+      "id": "8cac76da-ba46-49ab-9070-b7c841901aa8",
+      "name": "ctxdb-accept-20261116-19d26bcd26-wiki-1-renamed",
+      "owned_names": [
+        "ctxdb-accept-20261116-19d26bcd26-wiki-1",
+        "ctxdb-accept-20261116-19d26bcd26-wiki-1-renamed"
+      ],
+      "run_id": "20261116-19d26bcd26",
+      "mode": "wiki",
+      "review_enabled": true,
+      "document_ids": [
+        "e6834f47-1dc2-42e9-b769-b44b49f614ce"
+      ],
+      "documents": [
+        {
+          "id": "e6834f47-1dc2-42e9-b769-b44b49f614ce",
+          "case": "original",
+          "conversion_fingerprint": ""
+        }
+      ]
+    },
+    {
+      "id": "4a86a151-3202-49be-ba7b-454b9b55a293",
+      "name": "ctxdb-accept-20261116-19d26bcd26-wiki-0-renamed",
+      "owned_names": [
+        "ctxdb-accept-20261116-19d26bcd26-wiki-0",
+        "ctxdb-accept-20261116-19d26bcd26-wiki-0-renamed"
+      ],
+      "run_id": "20261116-19d26bcd26",
+      "mode": "wiki",
+      "review_enabled": false,
+      "document_ids": [
+        "6bf63cb3-b08f-4f6a-a8b4-c5a5023715e2"
+      ],
+      "documents": [
+        {
+          "id": "6bf63cb3-b08f-4f6a-a8b4-c5a5023715e2",
+          "case": "original",
+          "conversion_fingerprint": ""
+        }
+      ]
+    },
+    {
+      "id": "a638d2fb-5a28-4493-b6de-080e27461c57",
+      "name": "ctxdb-accept-20261116-19d26bcd26-graph-crud-ab6d54",
+      "owned_names": [
+        "ctxdb-accept-20261116-19d26bcd26-graph-crud-ab6d54"
+      ],
+      "run_id": "20261116-19d26bcd26",
+      "mode": "graph",
+      "review_enabled": false,
+      "document_ids": [],
+      "purpose": "focused_graph_crud_after_fixture_name_collision"
     }
-  },
-  "cleanup": {
-    "wiki": true,
-    "graph": true
-  },
-  "errors": [],
-  "delivery": {
-    "targets": {
-      "wiki": "03bfc680-c68f-4ae6-8226-fce9e21f6a63",
-      "graph": "089c834d-7de1-48ad-9ce1-2f75322a9af5"
-    },
-    "uploaded": 2,
-    "skipped": 0,
-    "total": 2,
-    "errors": []
-  },
-  "first_attempt_errors": [
-    "graph 官方入库未成功：None"
   ],
-  "verified_after_async_completion": true
+  "checks": [
+    {
+      "name": "create-rename-graph-0",
+      "status": "checked",
+      "knowledge_base_id": "6e58cd47-e4b8-4157-814b-304f775118cb",
+      "mode": "graph",
+      "review_enabled": false
+    },
+    {
+      "name": "create-rename-source-1",
+      "status": "checked",
+      "knowledge_base_id": "7ac69307-a6bf-4f3f-aeaa-b8ef53b9aa6b",
+      "mode": "source",
+      "review_enabled": true
+    },
+    {
+      "name": "create-rename-graph-1",
+      "status": "checked",
+      "knowledge_base_id": "8fd0f544-9d13-4106-8991-e6453af62422",
+      "mode": "graph",
+      "review_enabled": true
+    },
+    {
+      "name": "create-rename-source-0",
+      "status": "checked",
+      "knowledge_base_id": "a2752b15-921c-4a88-9b6f-e4cd787be4ef",
+      "mode": "source",
+      "review_enabled": false
+    },
+    {
+      "name": "create-rename-wiki-1",
+      "status": "checked",
+      "knowledge_base_id": "8cac76da-ba46-49ab-9070-b7c841901aa8",
+      "mode": "wiki",
+      "review_enabled": true
+    },
+    {
+      "name": "create-rename-wiki-0",
+      "status": "checked",
+      "knowledge_base_id": "4a86a151-3202-49be-ba7b-454b9b55a293",
+      "mode": "wiki",
+      "review_enabled": false
+    },
+    {
+      "name": "file-tree-CAS-CRUD",
+      "status": "checked",
+      "knowledge_base_id": "a2752b15-921c-4a88-9b6f-e4cd787be4ef",
+      "stale_version_rejected": true,
+      "create_move_rename_delete": true
+    },
+    {
+      "name": "multipart-create",
+      "status": "checked",
+      "knowledge_base_id": "a2752b15-921c-4a88-9b6f-e4cd787be4ef",
+      "document_id": "27d6b4d6-f90e-4591-bacb-84d21cc47d91",
+      "init_document_id": "27d6b4d6-f90e-4591-bacb-84d21cc47d91",
+      "operation": "POST"
+    },
+    {
+      "name": "official-review-edited",
+      "status": "checked",
+      "knowledge_base_id": "7ac69307-a6bf-4f3f-aeaa-b8ef53b9aa6b",
+      "document_id": "b9ded7e9-062b-48a2-ada1-6e02fc804dde"
+    },
+    {
+      "name": "official-review-original",
+      "status": "checked",
+      "knowledge_base_id": "7ac69307-a6bf-4f3f-aeaa-b8ef53b9aa6b",
+      "document_id": "7233a291-1875-43a2-b4b4-3b478426a54c"
+    },
+    {
+      "name": "official-review-original",
+      "status": "checked",
+      "knowledge_base_id": "8cac76da-ba46-49ab-9070-b7c841901aa8",
+      "document_id": "e6834f47-1dc2-42e9-b769-b44b49f614ce"
+    },
+    {
+      "name": "adopt-existing-ai-rewrite",
+      "status": "checked",
+      "document_id": "a993dd26-1938-4fb6-b300-e9ce0920c70c"
+    },
+    {
+      "name": "official-review-ai-rewrite",
+      "status": "checked",
+      "knowledge_base_id": "7ac69307-a6bf-4f3f-aeaa-b8ef53b9aa6b",
+      "document_id": "a993dd26-1938-4fb6-b300-e9ce0920c70c"
+    },
+    {
+      "name": "official-review-original",
+      "status": "checked",
+      "knowledge_base_id": "8fd0f544-9d13-4106-8991-e6453af62422",
+      "document_id": "330c017b-d7e8-4cc7-a43c-ca3099add091"
+    },
+    {
+      "name": "source-evidence-source-0-original",
+      "status": "checked",
+      "knowledge_base_id": "a2752b15-921c-4a88-9b6f-e4cd787be4ef",
+      "document_id": "0392d11b-cc15-485a-81c2-c6e3d82f0841",
+      "chunk_ids": [
+        "0392d11b-cc15-485a-81c2-c6e3d82f0841_chunk_0"
+      ],
+      "adopted_content_sha256": "40eb92af0409e948802396178c2d22ab35be21e2f112d665d121fb7d8131e0b7"
+    },
+    {
+      "name": "source-evidence-source-1-ai-rewrite",
+      "status": "checked",
+      "knowledge_base_id": "7ac69307-a6bf-4f3f-aeaa-b8ef53b9aa6b",
+      "document_id": "a993dd26-1938-4fb6-b300-e9ce0920c70c",
+      "chunk_ids": [
+        "a993dd26-1938-4fb6-b300-e9ce0920c70c_chunk_0"
+      ],
+      "adopted_content_sha256": "d65aa227d6ccee83be4eb85cd0e320850902b529929982f1d4ba8c75b9e0cd8d"
+    },
+    {
+      "name": "source-evidence-source-1-edited",
+      "status": "checked",
+      "knowledge_base_id": "7ac69307-a6bf-4f3f-aeaa-b8ef53b9aa6b",
+      "document_id": "b9ded7e9-062b-48a2-ada1-6e02fc804dde",
+      "chunk_ids": [
+        "b9ded7e9-062b-48a2-ada1-6e02fc804dde_chunk_0"
+      ],
+      "adopted_content_sha256": "fc687e0132620a7bfc9ff32f5a519e1f3e83716b6ce6db175d8ced70d562a27c"
+    },
+    {
+      "name": "source-evidence-graph-1-original",
+      "status": "checked",
+      "knowledge_base_id": "8fd0f544-9d13-4106-8991-e6453af62422",
+      "document_id": "330c017b-d7e8-4cc7-a43c-ca3099add091",
+      "chunk_ids": [
+        "330c017b-d7e8-4cc7-a43c-ca3099add091_chunk_0"
+      ],
+      "adopted_content_sha256": "40eb92af0409e948802396178c2d22ab35be21e2f112d665d121fb7d8131e0b7"
+    },
+    {
+      "name": "source-evidence-graph-0-original",
+      "status": "checked",
+      "knowledge_base_id": "6e58cd47-e4b8-4157-814b-304f775118cb",
+      "document_id": "10656005-fbe9-48a0-aae1-adbb2b34d309",
+      "chunk_ids": [
+        "10656005-fbe9-48a0-aae1-adbb2b34d309_chunk_0"
+      ],
+      "adopted_content_sha256": "40eb92af0409e948802396178c2d22ab35be21e2f112d665d121fb7d8131e0b7"
+    },
+    {
+      "name": "source-evidence-wiki-1-original",
+      "status": "checked",
+      "knowledge_base_id": "8cac76da-ba46-49ab-9070-b7c841901aa8",
+      "document_id": "e6834f47-1dc2-42e9-b769-b44b49f614ce",
+      "chunk_ids": [
+        "e6834f47-1dc2-42e9-b769-b44b49f614ce_chunk_0"
+      ],
+      "adopted_content_sha256": "40eb92af0409e948802396178c2d22ab35be21e2f112d665d121fb7d8131e0b7"
+    },
+    {
+      "name": "source-evidence-wiki-0-original",
+      "status": "checked",
+      "knowledge_base_id": "4a86a151-3202-49be-ba7b-454b9b55a293",
+      "document_id": "6bf63cb3-b08f-4f6a-a8b4-c5a5023715e2",
+      "chunk_ids": [
+        "6bf63cb3-b08f-4f6a-a8b4-c5a5023715e2_chunk_0"
+      ],
+      "adopted_content_sha256": "40eb92af0409e948802396178c2d22ab35be21e2f112d665d121fb7d8131e0b7"
+    },
+    {
+      "name": "source-evidence-source-1-original",
+      "status": "checked",
+      "knowledge_base_id": "7ac69307-a6bf-4f3f-aeaa-b8ef53b9aa6b",
+      "document_id": "7233a291-1875-43a2-b4b4-3b478426a54c",
+      "chunk_ids": [
+        "7233a291-1875-43a2-b4b4-3b478426a54c_chunk_0"
+      ],
+      "adopted_content_sha256": "40eb92af0409e948802396178c2d22ab35be21e2f112d665d121fb7d8131e0b7"
+    },
+    {
+      "name": "source-evidence-source-0-multipart",
+      "status": "checked",
+      "knowledge_base_id": "a2752b15-921c-4a88-9b6f-e4cd787be4ef",
+      "document_id": "27d6b4d6-f90e-4591-bacb-84d21cc47d91",
+      "chunk_ids": [
+        "27d6b4d6-f90e-4591-bacb-84d21cc47d91_chunk_0"
+      ],
+      "adopted_content_sha256": "f1c68b207168e9e24f4af429f798dc78242e0cd668014fa695dfb9d82073aca8"
+    },
+    {
+      "name": "multipart-update-final-id",
+      "status": "checked",
+      "knowledge_base_id": "a2752b15-921c-4a88-9b6f-e4cd787be4ef",
+      "document_id": "27d6b4d6-f90e-4591-bacb-84d21cc47d91",
+      "init_document_id": "dafb1f62-e3e3-40b3-9983-d241dd46728a",
+      "operation": "PUT"
+    },
+    {
+      "name": "multipart-update-source-evidence",
+      "status": "checked",
+      "knowledge_base_id": "a2752b15-921c-4a88-9b6f-e4cd787be4ef",
+      "document_id": "27d6b4d6-f90e-4591-bacb-84d21cc47d91",
+      "chunk_ids": [
+        "27d6b4d6-f90e-4591-bacb-84d21cc47d91_chunk_0"
+      ],
+      "adopted_content_sha256": "8d4d992fc441419605f995e5efbb10ed1e37e56f54b496270af49857bf0c5dbd"
+    },
+    {
+      "name": "graph-entity-relation-CRUD",
+      "status": "checked",
+      "initial_attempt_error": "COMMON_CONFLICT: knowledge graph entity already exists: 验收应用 (errorCode=1003)",
+      "knowledge_base_id": "a638d2fb-5a28-4493-b6de-080e27461c57",
+      "entity_crud": true,
+      "relation_crud": true,
+      "entity_total": 0,
+      "relation_total": 0
+    },
+    {
+      "name": "graph-real-source-chunks",
+      "status": "checked",
+      "knowledge_base_id": "6e58cd47-e4b8-4157-814b-304f775118cb",
+      "source_chunk_ids": [
+        "10656005-fbe9-48a0-aae1-adbb2b34d309_chunk_0"
+      ]
+    },
+    {
+      "name": "wiki-edit-CAS-history-compile-control",
+      "status": "checked",
+      "knowledge_base_id": "4a86a151-3202-49be-ba7b-454b9b55a293",
+      "page_id": "9a9a6cf7-2900-46b8-b2e5-4abdd1940cc9",
+      "formal_content_verified": true,
+      "stale_version_rejected": true,
+      "revisions": 2,
+      "issue_count_returned": 0
+    }
+  ],
+  "cleanup": [
+    {
+      "knowledge_base_id": "8cac76da-ba46-49ab-9070-b7c841901aa8",
+      "name": "ctxdb-accept-20261116-19d26bcd26-wiki-1-renamed",
+      "status": "deleted",
+      "initial_error": "COMMON_BAD_REQUEST: knowledge base still has 1 document(s), delete them first (errorCode=1001)",
+      "identity_checked": true
+    },
+    {
+      "knowledge_base_id": "4a86a151-3202-49be-ba7b-454b9b55a293",
+      "status": "deleted",
+      "identity_checked": true
+    },
+    {
+      "knowledge_base_id": "8fd0f544-9d13-4106-8991-e6453af62422",
+      "status": "deleted",
+      "identity_checked": true
+    },
+    {
+      "knowledge_base_id": "a2752b15-921c-4a88-9b6f-e4cd787be4ef",
+      "status": "deleted",
+      "identity_checked": true
+    },
+    {
+      "knowledge_base_id": "7ac69307-a6bf-4f3f-aeaa-b8ef53b9aa6b",
+      "status": "deleted",
+      "identity_checked": true
+    },
+    {
+      "knowledge_base_id": "6e58cd47-e4b8-4157-814b-304f775118cb",
+      "status": "deleted",
+      "identity_checked": true
+    },
+    {
+      "knowledge_base_id": "a638d2fb-5a28-4493-b6de-080e27461c57",
+      "status": "deleted",
+      "identity_checked": true
+    }
+  ],
+  "not_checked": [
+    "Real Wiki conflict resolution requires a naturally occurring conflict.",
+    "No concurrency/load test or production migration.",
+    "Ontology invitation-only APIs are outside this acceptance."
+  ],
+  "elapsed_seconds": 395.56,
+  "initial_matrix_fixture_count": 6,
+  "focused_retry_fixture_count": 1,
+  "finished_at": "2026-11-16T15:34:20.403737+08:00",
+  "initial_run_elapsed_seconds": 190.72,
+  "final_readback": {
+    "checked_at": "2026-11-16T15:36:42.197477+08:00",
+    "owned_fixtures_confirmed_absent": 7,
+    "report_secret_check": "passed"
+  }
 }

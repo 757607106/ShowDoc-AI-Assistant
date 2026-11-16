@@ -4,7 +4,7 @@ import { nativeAPI } from '@/api/contextdb'
 import { useAuthStore } from '@/stores/auth'
 import { graphDocumentLabel } from '@/utils/contextdbDocumentName'
 
-const props = defineProps<{ kbId: string; active: boolean; documents: any[]; attach?: () => HTMLElement }>()
+const props = defineProps<{ kbId: string; active: boolean; documents: any[]; canEdit?: boolean; attach?: () => HTMLElement }>()
 const emit = defineEmits<{
   (e: 'inspect', id: string, relation: boolean): void
   (e: 'expand', entity: any): void
@@ -54,7 +54,7 @@ function retainEndpoint(id: any) {
   if (item) selectedEndpoints.value = [...selectedEndpoints.value.filter(item => item.entity_id !== id), item]
 }
 async function edit(resource: 'entity' | 'relation', item?: any, sourceEntity?: any) {
-  if (!auth.hasRole('contributor') || saving.value) return
+  if (!(props.canEdit ?? auth.hasRole('contributor')) || saving.value) return
   const request = ++editRequest, kb = props.kbId
   endpointRequest++; kind.value = resource; editingId.value = item?.[`${resource}_id`] || ''
   form.value = { entity_name: '', entity_type: '', description: '', aliases: [], source_entity_id: sourceEntity?.entity_id || '', target_entity_id: '', relation_type: '', keywords: [], weight: 1 }
@@ -99,7 +99,7 @@ function fields() {
     relation_type: value.relation_type.trim(), description: value.description, keywords, weight: value.weight }
 }
 async function save() {
-  if (!auth.hasRole('contributor') || !editorOpen.value || saving.value || editorLoading.value || !detailReady.value) return
+  if (!(props.canEdit ?? auth.hasRole('contributor')) || !editorOpen.value || saving.value || editorLoading.value || !detailReady.value) return
   const request = editRequest, kb = props.kbId, resource = kind.value, id = editingId.value
   editError.value = ''
   try {
@@ -116,13 +116,13 @@ async function save() {
   finally { if (request === editRequest) saving.value = false }
 }
 function askDelete(resource: 'entity' | 'relation', item: any) {
-  if (!auth.hasRole('contributor') || removing.value || !item?.[`${resource}_id`]) return
+  if (!(props.canEdit ?? auth.hasRole('contributor')) || removing.value || !item?.[`${resource}_id`]) return
   deleteRequest++; deleteError.value = ''; deleting.value = { kind: resource, id: item[`${resource}_id`], name: resource === 'entity' ? label(item.entity_name) : item.relation_type }
 }
 const deleteEntity = (entity: any) => askDelete('entity', entity)
 const deleteRelation = (relation: any) => askDelete('relation', relation)
 async function remove() {
-  if (!auth.hasRole('contributor') || !deleting.value || removing.value) return
+  if (!(props.canEdit ?? auth.hasRole('contributor')) || !deleting.value || removing.value) return
   const request = deleteRequest, kb = props.kbId, target = deleting.value
   removing.value = true; deleteError.value = ''
   try {
@@ -153,14 +153,14 @@ defineExpose({ editEntity, editRelation, deleteEntity, deleteRelation, load })
       <t-input v-model="keyword" clearable placeholder="搜索实体名称、ID、类型或别名" aria-label="搜索管理实体" @enter="query" />
       <t-select :popup-props="{ attach: attach || 'body' }" v-model="mode" aria-label="匹配方式" :options="[{value:'fuzzy',label:'模糊匹配'},{value:'exact',label:'精确匹配'},{value:'semantic',label:'语义匹配'}]" />
       <t-button :loading="loading" @click="query">查询</t-button>
-      <t-button v-if="auth.hasRole('contributor')" variant="outline" @click="editEntity()">新建实体</t-button>
+      <t-button v-if="(props.canEdit ?? auth.hasRole('contributor'))" variant="outline" @click="editEntity()">新建实体</t-button>
     </div>
     <p class="management-hint">{{ searchHint }}</p>
     <t-alert v-if="error" theme="error" :message="error"><template #operation><t-button variant="text" @click="load">重试</t-button></template></t-alert>
     <t-table row-key="entity_id" :data="items" :loading="loading" :columns="[{colKey:'entity_name',title:'实体名称',width:220},{colKey:'entity_type',title:'实体类型',width:120},{colKey:'description',title:'描述',ellipsis:true},{colKey:'operations',title:'操作',width:160}]">
       <template #entity_name="{row}"><t-link @click="emit('inspect',row.entity_id,false)">{{ label(row.entity_name) }}</t-link></template>
       <template #entity_type="{row}"><t-tag variant="light">{{ row.entity_type || '未分类' }}</t-tag></template>
-      <template #operations="{row}"><t-button variant="text" @click="emit('expand',row)">查看子图</t-button><t-button v-if="auth.hasRole('contributor')" variant="text" @click="editEntity(row)">编辑</t-button></template>
+      <template #operations="{row}"><t-button variant="text" @click="emit('expand',row)">查看子图</t-button><t-button v-if="(props.canEdit ?? auth.hasRole('contributor'))" variant="text" @click="editEntity(row)">编辑</t-button></template>
     </t-table>
     <t-pagination :total="total" :current="page" :page-size="20" :show-page-size="false" @current-change="(value:number)=>{page=value;load()}" />
   </section>

@@ -12,6 +12,18 @@ from webapi.auth import create_user, cipher
 import app as app_module
 
 
+
+def mock_writable_library(monkeypatch, client, kb_id, mode='wiki'):
+    """Keep proxy tests on a real-shaped library while mocking the target operation."""
+    client.find_knowledge_base.return_value = None
+    client.get_knowledge_base.side_effect = lambda identifier: {
+        'id': identifier, 'name': 'Official library', 'wiki_enabled': mode == 'wiki',
+        'graph_enabled': mode == 'graph'}
+    client.get_document.side_effect = lambda _kb, doc, **kwargs: {
+        'id': doc, 'knowledge_base_id': kb_id, 'name': 'source.md'}
+    monkeypatch.setattr(app_module, 'client_for_user', lambda: client)
+
+
 def test_batch_download_preserves_read_only_access_and_safe_distinct_names(authenticated_client, monkeypatch):
     import webapi.contextdb as proxy
     client = Mock()
@@ -139,6 +151,7 @@ def test_native_knowledge_and_event_routes_remain_available(authenticated_client
 def test_native_graph_queries_preserve_official_parameters_and_reader_access(authenticated_client, monkeypatch):
     import webapi.contextdb as proxy
     client = Mock()
+    mock_writable_library(monkeypatch, client, 'graph-kb', mode='graph')
     client._request.return_value = {'official': True}
     monkeypatch.setattr(proxy, 'client_for_user', lambda: client)
     _, reader = login_as('graph-reader@example.com')
@@ -217,6 +230,7 @@ def test_official_auth_failure_keeps_platform_session(authenticated_client,monke
 def test_native_wiki_reads_full_page_and_preserves_conflict_version(authenticated_client,monkeypatch):
     import webapi.contextdb as proxy
     client=Mock()
+    mock_writable_library(monkeypatch, client, 'kb')
     content='\n'.join(f'## 章节 {n}\n完整正文' for n in range(100))
     client._request.return_value={'content':content,'version':42,'page_id':'page'}
     monkeypatch.setattr(proxy,'client_for_user',lambda:client)
@@ -263,6 +277,7 @@ def test_native_wiki_reads_preserve_cursors_filters_and_reader_access(authentica
 def test_native_wiki_writes_preserve_official_payloads_and_block_readers(authenticated_client,monkeypatch):
     import webapi.contextdb as proxy
     client=Mock()
+    mock_writable_library(monkeypatch, client, 'wiki-kb')
     client._request.return_value={'event_id':'official-event'}
     monkeypatch.setattr(proxy,'client_for_user',lambda:client)
     _,reader=login_as('wiki-write-reader@example.com')
@@ -312,6 +327,7 @@ def test_native_wiki_rejects_undocumented_http_methods(authenticated_client,monk
 def test_native_wiki_errors_preserve_official_details_and_platform_session(authenticated_client,monkeypatch):
     import webapi.contextdb as proxy
     client=Mock()
+    mock_writable_library(monkeypatch, client, 'wiki-kb')
     monkeypatch.setattr(proxy,'client_for_user',lambda:client)
     cases=[
         ('GET','search',ContextDBError('invalid query',status_code=400,error_code=1001),400),

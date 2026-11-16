@@ -14,6 +14,23 @@ import pytest
 from governance.database import close_pool, connection, initialize
 
 
+def test_existing_knowledge_sync_schema_upgrades_source_mode_without_losing_receipts():
+    from governance.database import _initialize_schema
+    with connection() as conn:
+        conn.execute('ALTER TABLE knowledge_sync DROP COLUMN conversion_fingerprint')
+        conn.execute('ALTER TABLE knowledge_sync DROP CONSTRAINT knowledge_sync_target_mode_check')
+        conn.execute("ALTER TABLE knowledge_sync ADD CONSTRAINT knowledge_sync_target_mode_check CHECK (target_mode IN ('wiki','graph'))")
+        conn.execute("INSERT INTO knowledge_sync(owner_id,scope,source_id,target_mode,knowledge_base_id,document_id,status) VALUES ('owner','legacy','source','wiki','original-kb','original-doc','succeeded')")
+    _initialize_schema()
+    _initialize_schema()
+    with connection() as conn:
+        old = conn.execute("SELECT * FROM knowledge_sync WHERE scope='legacy'").fetchone()
+        assert old['knowledge_base_id'] == 'original-kb' and old['document_id'] == 'original-doc'
+        assert old['conversion_fingerprint'] == '' and old['status'] == 'succeeded'
+        conn.execute("INSERT INTO knowledge_sync(owner_id,scope,source_id,target_mode,knowledge_base_id,status) VALUES ('owner','new','source','source','zero-kb','queued')")
+        assert conn.execute("SELECT count(*) AS n FROM knowledge_sync").fetchone()['n'] == 2
+
+
 def test_agent_and_platform_use_separate_databases_and_nonprivileged_roles():
     with psycopg.connect(os.environ['DATABASE_URL']) as platform:
         platform_db, platform_role = platform.execute('SELECT current_database(),current_user').fetchone()

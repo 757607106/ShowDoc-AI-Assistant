@@ -196,6 +196,7 @@ import { useChatCitationPopover } from '@/composables/useChatCitationPopover';
 import { useTypewriter } from '@/composables/useTypewriter';
 import { vStableHtml } from '@/directives/stableHtml';
 import { SKILL_ICON } from '@/types/mention';
+import { IS_CONTEXTDB } from '@/config/contextdb';
 
 ensureMermaidInitialized();
 
@@ -459,6 +460,7 @@ const renderedHTML = computed(() => {
         sanitizeHtml: sanitizeMarkdownHTML,
         streaming: !props.session?.is_completed,
         knowledgeReferences: props.session?.knowledge_references,
+        exactKnowledgeReferences: IS_CONTEXTDB,
     });
 });
 

@@ -227,30 +227,25 @@ def document_picker():
     limit = min(100, max(1, request.args.get('limit', 20, type=int)))
     types = set(filter(None, request.args.get('file_types', '').lower().split(',')))
     matches = []
-    page = 1
-    while True:
-        bases = client.list_knowledge_bases(page=page, page_size=100).get('knowledge_bases', [])
-        for base in bases:
-            if base.get('name', '').startswith('_governance'):
-                continue
-            base_label = names.base(base)['display_name']
-            doc_page = 1
-            while True:
-                docs = client.list_documents(base['id'], page=doc_page, page_size=100).get('documents', [])
-                for item in docs:
-                    name = item.get('name', '')
-                    display = names.document(item, kb_id=base['id'])['display_name']
-                    extension = Path(name).suffix.lstrip('.').lower()
-                    if (query in name.casefold() or query in display.casefold()) and (not types or extension in types):
-                        matches.append({**item, 'id': item['id'], 'title': display, 'file_name': display,
-                            'file_type': extension, 'knowledge_base_id': base['id'], 'knowledge_base_name': base_label,
-                            'parse_status': 'completed' if item.get('ingest_status') == 'succeeded' else item.get('ingest_status')})
-                if len(docs) < 100:
-                    break
-                doc_page += 1
-        if len(bases) < 100:
-            break
-        page += 1
+    bases = client.list_knowledge_bases().get('knowledge_bases', [])
+    for base in bases:
+        if base.get('name', '').startswith('_governance'):
+            continue
+        base_label = names.base(base)['display_name']
+        doc_page = 1
+        while True:
+            docs = client.list_documents(base['id'], page=doc_page, page_size=100).get('documents', [])
+            for item in docs:
+                name = item.get('name', '')
+                display = names.document(item, kb_id=base['id'])['display_name']
+                extension = Path(name).suffix.lstrip('.').lower()
+                if (query in name.casefold() or query in display.casefold()) and (not types or extension in types):
+                    matches.append({**item, 'id': item['id'], 'title': display, 'file_name': display,
+                        'file_type': extension, 'knowledge_base_id': base['id'], 'knowledge_base_name': base_label,
+                        'parse_status': 'completed' if item.get('ingest_status') == 'succeeded' else item.get('ingest_status')})
+            if len(docs) < 100:
+                break
+            doc_page += 1
     return jsonify(success=True, data=matches[offset:offset + limit], total=len(matches))
 
 

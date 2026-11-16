@@ -39,50 +39,48 @@ def mapped_document(store, fake, mode='wiki', **fields):
     return space, doc
 
 
-def test_create_space_is_metadata_only_and_defaults_to_wiki(spaces):
+def test_create_space_immediately_creates_one_wiki_library(spaces):
     store, fake, http, _ = spaces
     response = http.post('/api/kb/spaces', json={'name': '产品资料'})
     assert response.status_code == 201
     space = response.json['space']
-    assert space['scope'].startswith('space-') and space['graph_enabled'] is False
-    assert space['wiki_kb_id'] is None and fake.knowledge_bases == {}
+    assert space['scope'].startswith('space-') and space['mode'] == 'wiki'
+    assert space['knowledge_base_id'] == space['wiki_kb_id'] and len(fake.knowledge_bases) == 1
+    assert fake.get_knowledge_base(space['knowledge_base_id'])['name'] == '产品资料'
     assert http.get('/api/kb/spaces').json['spaces'][0]['scope'] == space['scope']
     assert http.get('/api/kb/spaces/unknown').status_code == 404
     assert http.patch('/api/kb/spaces/' + space['scope'], json={'graph_enabled': 'false'}).status_code == 400
 
 
-def test_file_capture_auto_submits_and_later_graph_enable_shares_the_same_source(spaces, monkeypatch):
+def test_file_capture_auto_submits_to_fixed_wiki_and_repetition_preserves_document(spaces, monkeypatch):
     from governance.worker import process_job
     store, fake, http, _ = spaces
     monkeypatch.setattr('webapi.auth.client_for_user', lambda *args: fake)
     space = http.post('/api/kb/spaces', json={'name':'完整流程'}).json['space']
     scope = space['scope']
-    source = b'component,depends_on\nAPI,Database\n'
-    response = http.post('/api/uploads', data={'space_scope':scope, 'files':(io.BytesIO(source),'dependencies.csv')})
+    source = b'# Components\nAPI depends on Database.\n'
+    response = http.post('/api/uploads', data={'space_scope':scope, 'files':(io.BytesIO(source),'dependencies.md')})
     assert response.status_code == 200
     capture = store.claim()
     assert capture['task_id'] == response.json['task_id'] and capture['attempt_token']
     process_job(Store(client=fake, owner_id=store.owner_id), capture)
-    assert store.get_job(capture['task_id'])['status'] == 'completed'
-    assert fake.documents == {}, 'capture completion only queues delivery; cloud ingestion is asynchronous'
+    assert store.get_job(capture['task_id'])['status'] == 'completed' and fake.documents == {}
     status = http.get(f"/task_status/{capture['task_id']}").json
     assert status['phase'] == 'submitted' and not status['submit_available'] and status['submission_id']
-    assert len([job for job in store.list_jobs() if job['kind'] == 'ctxdb_sync']) == 1
-    sync_job = next(job for job in store.list_jobs() if job['kind'] == 'ctxdb_sync')
-    assert sync_job['params']['target_modes'] == ['wiki']
-    result = run_sync(store, sync_job)
+    sync_jobs = [job for job in store.list_jobs() if job['kind'] == 'ctxdb_sync']
+    assert len(sync_jobs) == 1
+    assert sync_jobs[0]['params']['target_mode'] == 'wiki'
+    result = run_sync(store, sync_jobs[0])
     assert result['uploaded'] == 1 and len(fake.documents) == 1
     wiki_doc = next(iter(fake.documents.values()))
     assert wiki_doc['text'].encode() == source
-    assert http.patch('/api/kb/spaces/' + scope, json={'graph_enabled':True}).status_code == 200
+    assert http.patch('/api/kb/spaces/' + scope, json={'graph_enabled':True}).status_code == 409
     response = http.post('/api/kb/spaces/' + scope + '/submit')
     assert response.status_code == 200
-    result = run_sync(store, store.get_job(response.json['result']['task_id']))
-    assert result['uploaded'] == 1 and result['skipped'] == 1 and len(fake.documents) == 2
+    again = run_sync(store, store.get_job(response.json['result']['task_id']))
+    assert again['uploaded'] == 0 and again['skipped'] == 1 and len(fake.documents) == 1
     rows = http.get('/api/kb/spaces/' + scope + '/progress').json['mappings']
-    assert {row['target_mode'] for row in rows} == {'wiki','graph'}
-    assert len({row['source_version'] for row in rows}) == 1
-    assert wiki_doc['id'] == next(row['document_id'] for row in rows if row['target_mode'] == 'wiki')
+    assert len(rows) == 1 and rows[0]['document_id'] == wiki_doc['id']
 
 
 def test_auto_submission_failure_preserves_capture_and_retries_existing_release(spaces, monkeypatch):
@@ -168,18 +166,19 @@ def test_auto_submission_keeps_queued_result_when_status_write_fails(spaces, mon
     assert len([row for row in store.list_jobs() if row['kind'] == 'ctxdb_sync']) == 1
 
 
-def test_legacy_space_preserves_existing_ids_without_cloud_mutation(spaces):
+def test_legacy_pair_is_listed_as_independent_official_libraries_without_cloud_mutation(spaces):
     store, fake, _, _ = spaces
     wiki = fake.create_knowledge_base('knowledge-default', wiki_enabled=True, graph_enabled=False)
     graph = fake.create_knowledge_base('knowledge-default-graph', wiki_enabled=False, graph_enabled=True)
     extra = fake.create_knowledge_base('another-wiki', wiki_enabled=True, graph_enabled=False)
     spaces_list, available = list_spaces(store)
-    assert len(spaces_list) == 1 and spaces_list[0]['graph_enabled'] is True
-    assert spaces_list[0]['wiki_kb_id'] == wiki['id'] and spaces_list[0]['graph_kb_id'] == graph['id']
-    assert [item['id'] for item in available] == [extra['id']]
+    assert {item['knowledge_base_id'] for item in spaces_list} == {wiki['id'], graph['id'], extra['id']}
+    default = next(item for item in spaces_list if item['scope'] == 'default')
+    assert default['wiki_kb_id'] == wiki['id'] and default['graph_kb_id'] is None
+    assert default['legacy_targets']['graph'] == graph['id'] and available == []
     assert store._list({'type': 'knowledge_space'}) == []
     changed = save_space(store, {'graph_enabled': False}, 'default')
-    assert changed['graph_kb_id'] == graph['id'] and graph['id'] in fake.knowledge_bases
+    assert changed['knowledge_base_id'] == wiki['id'] and graph['id'] in fake.knowledge_bases
 
 
 def test_binding_validates_mode_and_cannot_replace_existing_ids(spaces):
@@ -191,54 +190,51 @@ def test_binding_validates_mode_and_cannot_replace_existing_ids(spaces):
     response = http.post('/api/kb/spaces', json={'name': '绑定', 'wiki_kb_id': wiki['id']})
     scope = response.json['space']['scope']
     assert http.patch('/api/kb/spaces/' + scope, json={'wiki_kb_id': other['id']}).status_code == 409
-    assert http.post('/api/kb/spaces', json={'name': '重复绑定', 'wiki_kb_id': wiki['id']}).status_code == 409
+    again = http.post('/api/kb/spaces', json={'name': '重复绑定', 'wiki_kb_id': wiki['id']})
+    assert again.status_code == 201 and again.json['space']['scope'] == scope
     assert get_space(store, scope)['wiki_kb_id'] == wiki['id']
     with pytest.raises(StoreError, match='不存在'):
         get_space(Store(client=fake, owner_id='another-user'), scope)
 
 
-def test_target_snapshot_respects_scope_toggle_and_keeps_existing_libraries(spaces):
+def test_target_snapshot_rejects_mode_switch_and_keeps_existing_library(spaces):
     store, fake, _, tmp_path = spaces
-    space = save_space(store, {'name': 'Wiki 优先'})
+    space = save_space(store, {'name': 'Wiki 固定目标'})
     scope = space['scope']
     release_id = release(store, tmp_path, scope)
     first = enqueue_sync(store, release_id, scope)
-    assert first['params']['target_modes'] == ['wiki']
-    save_space(store, {'graph_enabled': True}, scope)
+    assert first['params']['target_mode'] == 'wiki'
+    assert first['params']['knowledge_base_id'] == space['knowledge_base_id']
+    with pytest.raises(StoreError, match='不能切换'):
+        save_space(store, {'graph_enabled': True}, scope)
     assert run_sync(store, first)['uploaded'] == 1
-    assert not any(kb.get('graph_enabled') for kb in fake.knowledge_bases.values())
     second = enqueue_sync(store, release_id, scope)
-    save_space(store, {'graph_enabled': False}, scope)
     result = run_sync(store, second)
-    assert result['uploaded'] == 1 and result['skipped'] == 1
-    graph_id = get_space(store, scope)['graph_kb_id']
-    assert graph_id in fake.knowledge_bases
-    assert enqueue_sync(store, release_id, scope)['params']['target_modes'] == ['wiki']
+    assert result['uploaded'] == 0 and result['skipped'] == 1
+    assert len(fake.knowledge_bases) == len(fake.documents) == 1
 
 
-def test_upload_retry_targets_failed_side_and_rejects_duplicate_active_job(spaces, monkeypatch):
+def test_upload_retry_pins_single_failed_library_and_rejects_duplicate_active_job(spaces, monkeypatch):
     store, fake, _, tmp_path = spaces
-    space = save_space(store, {'name': '双库', 'graph_enabled': True})
+    space = save_space(store, {'name': '图谱', 'mode': 'graph'})
     scope = space['scope']
     upload = fake.upload_file
-    def fail_graph(kb_id, *args, **kwargs):
-        if fake.get_knowledge_base(kb_id).get('graph_enabled'):
-            raise ContextDBError('quota exceeded', status_code=429)
-        return upload(kb_id, *args, **kwargs)
-    monkeypatch.setattr(fake, 'upload_file', fail_graph)
+    def fail_upload(*args, **kwargs):
+        raise ContextDBError('quota exceeded', status_code=429)
+    monkeypatch.setattr(fake, 'upload_file', fail_upload)
     job = enqueue_sync(store, release(store, tmp_path, scope), scope)
     result = run_sync(store, job)
-    assert result['uploaded'] == 1 and len(result['errors']) == 1
-    with pytest.raises(StoreError, match='提交成功'):
+    assert result['uploaded'] == 0 and len(result['errors']) == 1
+    with pytest.raises(StoreError, match='模式不一致'):
         retry(store, scope, {'stage': 'upload', 'target_mode': 'wiki', 'task_id': job['task_id']})
     queued = retry(store, scope, {'stage': 'upload', 'target_mode': 'graph', 'task_id': job['task_id']})
     with pytest.raises(StoreError, match='已有重试'):
         retry(store, scope, {'stage': 'upload', 'target_mode': 'graph', 'task_id': job['task_id']})
     monkeypatch.setattr(fake, 'upload_file', upload)
     retried = store.get_job(queued['task_id'])
-    assert retried['params']['target_modes'] == ['graph']
-    assert run_sync(store, retried)['uploaded'] == 1
-    assert len(fake.documents) == 2
+    assert retried['params']['target_mode'] == 'graph'
+    assert retried['params']['knowledge_base_id'] == space['knowledge_base_id']
+    assert run_sync(store, retried)['uploaded'] == 1 and len(fake.documents) == 1
 
 
 def test_native_ingest_retry_requires_official_recovery_hint_and_deduplicates(spaces, monkeypatch):
@@ -269,9 +265,11 @@ def test_graph_retry_calls_only_official_build_and_requires_scope_enabled(spaces
     result = retry(store, space['scope'], {'stage': 'graph', 'target_mode': 'graph', 'source_id': 'source-1'})
     assert result['status'] == 'queued'
     assert calls == [('POST', '/v1/knowledge/events', {'document_id': doc['id'], 'event_type': 'graph_build'})]
-    save_space(store, {'graph_enabled': False}, space['scope'])
-    assert progress(store, space['scope'])['mappings'][0]['retry_stages'] == []
-    with pytest.raises(StoreError, match='关闭'):
+    assert save_space(store, {'graph_enabled': False}, space['scope'])['mode'] == 'source'
+    with pytest.raises(StoreError, match='未启用图谱'):
+        retry(store, space['scope'], {'stage': 'graph', 'target_mode': 'graph', 'source_id': 'source-1'})
+    save_space(store, {'graph_enabled': True}, space['scope'])
+    with pytest.raises(StoreError, match='结果未知'):
         retry(store, space['scope'], {'stage': 'graph', 'target_mode': 'graph', 'source_id': 'source-1'})
 
 
@@ -315,6 +313,33 @@ def test_unbuilt_graph_cannot_build_when_official_library_disabled(spaces, monke
     assert calls == []
 
 
+def test_non_wiki_graph_switch_preserves_queued_upload_and_existing_receipts(spaces, monkeypatch):
+    store, fake, _, tmp_path = spaces
+    space = save_space(store, {'name': '图谱开关', 'mode': 'source'})
+    scope, kb_id = space['scope'], space['knowledge_base_id']
+    release_id = release(store, tmp_path, scope)
+    queued = enqueue_sync(store, release_id, scope)
+    fake.update_knowledge_base(kb_id, graph_enabled=True)
+    current = get_space(store, scope)
+    assert current['mode'] == 'graph' and current['targets']['graph']['status'] == 'available'
+    assert run_sync(store, queued)['uploaded'] == 1
+    assert run_sync(store, enqueue_sync(store, release_id, scope))['skipped'] == 1
+    rows = progress(store, scope)['mappings']
+    assert len(rows) == 1 and rows[0]['target_mode'] == 'source'
+    document_id = rows[0]['document_id']
+    fake.documents[document_id].update(ingest_status='succeeded', graph_status='skipped', latest_graph_event_id=None)
+    assert progress(store, scope)['mappings'][0]['retry_stages'] == ['graph']
+    calls = []
+    monkeypatch.setattr(fake, '_request', lambda method, path, **kwargs:
+        calls.append(kwargs['json_body']) or {'event_id': 'graph-new', 'status': 'queued'})
+    assert retry(store, scope, {'stage': 'graph', 'source_id': 'source-1'})['status'] == 'queued'
+    assert calls == [{'document_id': document_id, 'event_type': 'graph_build'}]
+    save_space(store, {'graph_enabled': False}, scope)
+    assert run_sync(store, enqueue_sync(store, release_id, scope))['skipped'] == 1
+    assert len(progress(store, scope)['mappings']) == len(fake.documents) == 1
+    assert get_space(store, scope)['knowledge_base_id'] == kb_id
+
+
 @pytest.mark.parametrize('stage', ['ingest', 'graph'])
 def test_unknown_native_retry_result_is_not_blindly_repeated(spaces, monkeypatch, stage):
     store, fake, _, _ = spaces
@@ -345,31 +370,31 @@ def test_progress_preserves_official_unknown_states_and_no_wiki_retry(spaces):
     assert fake.documents[doc['id']]['ingest_status'] == 'succeeded'
 
 
-def test_legacy_default_cannot_be_shadowed_or_bound_twice(spaces):
+def test_legacy_default_cannot_be_shadowed_and_idempotent_binding_reuses_scope(spaces):
     store, fake, http, _ = spaces
     original = fake.create_knowledge_base('knowledge-default', wiki_enabled=True)
     other = fake.create_knowledge_base('other', wiki_enabled=True)
     assert http.post('/api/kb/spaces', json={'scope': 'default', 'name': '覆盖', 'wiki_kb_id': other['id']}).status_code == 409
-    assert http.post('/api/kb/spaces', json={'name': '重复', 'wiki_kb_id': original['id']}).status_code == 409
+    response = http.post('/api/kb/spaces', json={'name': '重复', 'wiki_kb_id': original['id']})
+    assert response.status_code == 201 and response.json['space']['scope'] == 'default'
     assert get_space(store, 'default')['wiki_kb_id'] == original['id']
 
 
-def test_current_submission_can_fill_new_graph_target_without_recapture(spaces):
+def test_current_submission_reuses_fixed_library_without_recapture(spaces):
     store, fake, http, tmp_path = spaces
-    space = save_space(store, {'name': '补全图谱'})
+    space = save_space(store, {'name': '重提资料'})
     assert space['has_submission'] is False
     scope = space['scope']
     assert http.post(f'/api/kb/spaces/{scope}/submit').status_code == 409
-    job = enqueue_sync(store, release(store, tmp_path, scope), scope)
-    run_sync(store, job)
-    save_space(store, {'graph_enabled': True}, scope)
+    run_sync(store, enqueue_sync(store, release(store, tmp_path, scope), scope))
     assert get_space(store, scope)['has_submission'] is True
+    with pytest.raises(StoreError, match='不能切换'):
+        save_space(store, {'graph_enabled': True}, scope)
     queued = submit_current(store, scope)
     with pytest.raises(StoreError, match='已有同步'):
         submit_current(store, scope)
     result = run_sync(store, store.get_job(queued['task_id']))
-    assert result['uploaded'] == 1 and result['skipped'] == 1
-    assert len(fake.documents) == 2
+    assert result['uploaded'] == 0 and result['skipped'] == 1 and len(fake.documents) == 1
 
 
 def test_obsolete_submission_cannot_retry_or_run_after_newer_batch(spaces):
@@ -428,7 +453,8 @@ def test_concurrent_bindings_cannot_attach_one_library_to_two_spaces(spaces):
             return exc
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(bind, ['first', 'second']))
-    assert sum(isinstance(result, StoreError) for result in results) == 1
+    assert all(not isinstance(result, StoreError) for result in results)
+    assert results[0]['scope'] == results[1]['scope']
     assert len(store._list({'type': 'knowledge_space'})) == 1
 
 
@@ -440,7 +466,7 @@ def test_deleted_target_is_reconciled_without_deleting_configuration_or_history(
     fake.delete_knowledge_base(original)
     monkeypatch.setattr(fake, 'get_document', lambda *args: pytest.fail('deleted targets must not be polled per document'))
     current = http.get(f"/api/kb/spaces/{space['scope']}").json['space']
-    assert current['wiki_kb_id'] is None
+    assert current['wiki_kb_id'] == original and current['lifecycle'] == 'missing'
     assert current['targets']['wiki']['status'] == 'missing'
     assert current['targets']['wiki']['missing_knowledge_base_id'] == original
     assert http.get('/api/kb/spaces').json['spaces'][0]['targets']['wiki']['status'] == 'missing'
@@ -449,7 +475,7 @@ def test_deleted_target_is_reconciled_without_deleting_configuration_or_history(
     assert state['mappings'][0]['target_status'] == 'missing'
     assert state['mappings'][0]['retry_stages'] == []
     record = store._find('knowledge_space', scope=space['scope'])
-    assert store._body(record['id'])['wiki_kb_id'] == original
+    assert store._body(record['id'])['knowledge_base_id'] == original
     assert store.get_release(release_id)['active']
     assert store._list({'type': 'knowledge_sync_history'}) == []
     assert fake.knowledge_bases == {}
@@ -472,50 +498,37 @@ def test_unconfirmed_target_failure_never_unbinds_or_creates_a_replacement(space
     monkeypatch.setattr(fake, 'get_knowledge_base', unavailable)
     current = get_space(store, scope)
     assert current['wiki_kb_id'] == original and current['targets']['wiki']['status'] == expected
-    result = run_sync(store, enqueue_sync(store, release_id, scope))
-    assert result['errors'] and len(fake.knowledge_bases) == 1
+    with pytest.raises(StoreError):
+        enqueue_sync(store, release_id, scope)
+    assert len(fake.knowledge_bases) == 1
     assert store._list({'type': 'knowledge_sync_history'}) == []
-    assert store._body(store._find('knowledge_space', scope=scope)['id'])['wiki_kb_id'] == original
+    assert store._body(store._find('knowledge_space', scope=scope)['id'])['knowledge_base_id'] == original
 
 
-def test_rebuilding_deleted_wiki_reuploads_sources_and_preserves_graph_and_old_receipts(spaces):
+def test_deleted_wiki_never_rebuilds_and_preserves_other_library_and_receipts(spaces):
     from pathlib import Path
-    from governance.database import connection
     store, fake, _, tmp_path = spaces
-    space = save_space(store, {'name': '恢复已删主库', 'graph_enabled': True})
+    space = save_space(store, {'name': '已删主库'})
+    graph = fake.create_knowledge_base('独立图谱', graph_enabled=True)
+    graph_doc = fake.create_text_document(graph['id'], 'graph.md', '# retained graph')
     scope = space['scope']; release_id = release(store, tmp_path, scope)
     first_job = enqueue_sync(store, release_id, scope)
     initial = run_sync(store, first_job)
-    original, graph = initial['targets']['wiki'], initial['targets']['graph']
-    old = enqueue_sync(store, release_id, scope)
-    store.update_job(old['task_id'], status='failed')
+    original = initial['targets']['wiki']
     old_doc = next(doc for doc in fake.documents.values() if doc['knowledge_base_id'] == original)
     fake.delete_knowledge_base(original)
-    queued = submit_current(store, scope)
-    recovery = store.get_job(queued['task_id'])
-    assert recovery['params']['target_ids'] == {'wiki': None, 'graph': graph}
-    restored = run_sync(store, recovery)
-    replacement = restored['targets']['wiki']
-    assert replacement != original and restored['targets']['graph'] == graph
-    assert restored['uploaded'] == 1 and restored['skipped'] == 1 and restored['errors'] == []
-    archives = store._list({'type': 'knowledge_sync_history'})
-    assert len(archives) == 1
-    receipt = store._body(archives[0]['id'])
-    assert receipt['knowledge_base_id'] == original and receipt['document_id'] == old_doc['id']
-    assert receipt['source_hash'] and receipt['source_version'] == 'v1'
-    with connection() as conn:
-        row = conn.execute("SELECT * FROM knowledge_sync WHERE owner_id=%s AND scope=%s AND target_mode='wiki'", (store.owner_id, scope)).fetchone()
-    assert row['knowledge_base_id'] == replacement and row['document_id'] != old_doc['id']
+    with pytest.raises(StoreError):
+        submit_current(store, scope)
+    assert get_space(store, scope)['knowledge_base_id'] == original
+    assert progress(store, scope)['mappings'][0]['document_id'] == old_doc['id']
+    assert fake.get_document(graph['id'], graph_doc['id'])
+    assert len(fake.knowledge_bases) == 1
     assert store.get_job(first_job['task_id'])['status'] == 'completed'
     assert store.get_release(release_id)['active'] and Path(store.get_release(release_id)['archive_path']).is_file()
-    stale = run_sync(store, old)
-    assert stale['errors'] and 'wiki' not in stale['targets']
-    again = run_sync(store, store.get_job(submit_current(store, scope)['task_id']))
-    assert again['uploaded'] == 0 and again['skipped'] == 2 and again['errors'] == []
-    assert len(fake.knowledge_bases) == 2 and len(store._list({'type': 'knowledge_sync_history'})) == 1
 
 
-def test_missing_target_recovery_waits_for_active_jobs_and_only_missing_bindings_can_be_replaced(spaces):
+def test_missing_target_cannot_rebind_even_after_active_jobs_stop(spaces):
+    from governance.spaces import ensure_base_space
     store, fake, _, tmp_path = spaces
     space = save_space(store, {'name': '活动任务保护'})
     scope = space['scope']; release_id = release(store, tmp_path, scope)
@@ -523,16 +536,15 @@ def test_missing_target_recovery_waits_for_active_jobs_and_only_missing_bindings
     active = enqueue_sync(store, release_id, scope)
     fake.delete_knowledge_base(original)
     replacement = fake.create_knowledge_base('new-target', wiki_enabled=True)
-    with pytest.raises(StoreError, match='已有同步任务'):
+    with pytest.raises(StoreError):
         submit_current(store, scope)
-    with pytest.raises(StoreError, match='已有同步任务'):
+    with pytest.raises(StoreError):
         save_space(store, {'wiki_kb_id': replacement['id']}, scope)
     store.update_job(active['task_id'], status='failed')
-    updated = save_space(store, {'wiki_kb_id': replacement['id']}, scope)
-    assert updated['wiki_kb_id'] == replacement['id']
-    another = fake.create_knowledge_base('another-target', wiki_enabled=True)
-    with pytest.raises(StoreError, match='不能直接替换'):
-        save_space(store, {'wiki_kb_id': another['id']}, scope)
+    with pytest.raises(StoreError):
+        save_space(store, {'wiki_kb_id': replacement['id']}, scope)
+    new = ensure_base_space(store, replacement['id'])
+    assert new['scope'] != scope and get_space(store, scope)['knowledge_base_id'] == original
 
 
 def test_stale_delivery_cannot_overwrite_a_new_target_mapping(spaces):
@@ -548,75 +560,39 @@ def test_stale_delivery_cannot_overwrite_a_new_target_mapping(spaces):
     assert row['knowledge_base_id'] == replacement['id'] and row['document_id'] == 'new-doc'
 
 
-def test_deleted_wiki_can_be_rebuilt_without_reading_or_resubmitting_graph_documents(spaces, monkeypatch):
-    from governance.database import connection
+def test_deleted_wiki_progress_does_not_read_or_resubmit_independent_graph(spaces, monkeypatch):
     store, fake, http, tmp_path = spaces
-    scope = save_space(store, {'name': '仅恢复 Wiki', 'graph_enabled': True})['scope']
-    release_id = release(store, tmp_path, scope)
-    initial = run_sync(store, enqueue_sync(store, release_id, scope))
-    original, graph = initial['targets']['wiki'], initial['targets']['graph']
-    with connection() as conn:
-        graph_receipt = conn.execute("SELECT * FROM knowledge_sync WHERE owner_id=%s AND scope=%s AND target_mode='graph'",
-                                     (store.owner_id, scope)).fetchone()
-    get_document = fake.get_document
-    def wiki_documents_only(kb_id, document_id):
-        assert kb_id != graph, 'Wiki recovery must leave graph documents untouched'
-        return get_document(kb_id, document_id)
-    monkeypatch.setattr(fake, 'get_document', wiki_documents_only)
+    space = save_space(store, {'name': '仅 Wiki'})
+    scope = space['scope']; release_id = release(store, tmp_path, scope)
+    original = run_sync(store, enqueue_sync(store, release_id, scope))['targets']['wiki']
+    graph = fake.create_knowledge_base('separate-graph', graph_enabled=True)
+    graph_doc = fake.create_text_document(graph['id'], 'graph.md', 'retained')
     fake.delete_knowledge_base(original)
-    response = http.post(f'/api/kb/spaces/{scope}/submit', json={'target_modes': ['wiki']})
-    assert response.status_code == 200
-    job = store.get_job(response.json['result']['task_id'])
-    assert job['params']['target_modes'] == ['wiki'] and job['params']['target_ids'] == {'wiki': None}
-    assert get_space(store, scope)['targets']['wiki']['status'] == 'missing'
-    assert store._list({'type': 'knowledge_sync_history'}) == []
-    restored = run_sync(store, job)
-    assert restored['errors'] == [] and restored['uploaded'] == 1 and restored['skipped'] == 0
-    assert set(restored['targets']) == {'wiki'} and restored['targets']['wiki'] != original
-    current_space = get_space(store, scope)
-    assert current_space['graph_kb_id'] == graph
-    assert current_space['targets']['wiki']['previous_knowledge_base_ids'] == [original]
-    with connection() as conn:
-        current = conn.execute("SELECT * FROM knowledge_sync WHERE owner_id=%s AND scope=%s AND target_mode='graph'",
-                               (store.owner_id, scope)).fetchone()
-    assert current == graph_receipt
-    history = store._list({'type': 'knowledge_sync_history'})
-    assert len(history) == 1 and store._body(history[0]['id'])['knowledge_base_id'] == original
+    monkeypatch.setattr(fake, 'get_document', lambda *args: pytest.fail('Missing library progress must not fetch any document'))
+    response = http.get(f'/api/kb/spaces/{scope}/progress')
+    assert response.status_code == 200 and response.json['mappings'][0]['target_status'] == 'missing'
+    assert http.post(f'/api/kb/spaces/{scope}/submit', json={'target_modes': ['wiki']}).status_code == 409
+    assert graph_doc['id'] in fake.documents and graph['id'] in fake.knowledge_bases
 
 
 @pytest.mark.parametrize('rebind_existing', [True, False])
-def test_explicit_missing_target_recovery_preserves_old_receipts_until_sources_are_delivered(spaces, monkeypatch, rebind_existing):
+def test_missing_target_replacement_attempt_preserves_old_receipts(spaces, monkeypatch, rebind_existing):
     from governance.database import connection
-    store, fake, _, tmp_path = spaces
+    store, fake, _, _ = spaces
     space, old_document = mapped_document(store, fake, ingest_status='failed', recovery_actions=['retry'])
-    scope, original = space['scope'], space['wiki_kb_id']
-    release(store, tmp_path, scope)
+    scope, original = space['scope'], space['knowledge_base_id']
     fake.delete_knowledge_base(original)
     replacement = fake.create_knowledge_base('replacement', wiki_enabled=True)['id'] if rebind_existing else None
-    updated = save_space(store, {'wiki_kb_id': replacement}, scope)
-    assert updated['wiki_kb_id'] == replacement
-    assert updated['targets']['wiki']['status'] == ('available' if replacement else 'unbound')
-    assert updated['targets']['wiki']['previous_knowledge_base_ids'] == [original]
-    get_document = fake.get_document
-    def no_old_document(kb_id, document_id):
-        assert kb_id != original, 'A retired receipt is not a current target document'
-        return get_document(kb_id, document_id)
-    monkeypatch.setattr(fake, 'get_document', no_old_document)
+    with pytest.raises(StoreError):
+        save_space(store, {'wiki_kb_id': replacement}, scope)
+    monkeypatch.setattr(fake, 'get_document', lambda *args: pytest.fail('Missing targets must not read old documents'))
     row = progress(store, scope)['mappings'][0]
     assert row['knowledge_base_id'] == original and row['document_id'] == old_document['id']
-    assert row['target_status'] == 'pending_submission' and row['retry_stages'] == [] and 'official' not in row
-    assert store._list({'type': 'knowledge_sync_history'}) == []
-    with pytest.raises(StoreError, match='重新提交最近批次'):
-        retry(store, scope, {'stage': 'ingest', 'target_mode': 'wiki', 'source_id': 'source-1'})
-    result = run_sync(store, store.get_job(submit_current(store, scope, target_modes=['wiki'])['task_id']))
-    assert result['uploaded'] == 1 and result['errors'] == []
-    if replacement:
-        assert result['targets']['wiki'] == replacement
+    assert row['target_status'] == 'missing' and row['retry_stages'] == [] and 'official' not in row
     with connection() as conn:
-        current = conn.execute("SELECT * FROM knowledge_sync WHERE owner_id=%s AND scope=%s AND target_mode='wiki'",
-                               (store.owner_id, scope)).fetchone()
-    assert current['knowledge_base_id'] == result['targets']['wiki'] and current['document_id'] != old_document['id']
-    assert len(store._list({'type': 'knowledge_sync_history'})) == 1
+        stored = conn.execute('SELECT * FROM knowledge_sync WHERE owner_id=%s AND knowledge_base_id=%s',
+                              (store.owner_id, original)).fetchone()
+    assert stored['document_id'] == old_document['id'] and store._list({'type': 'knowledge_sync_history'}) == []
 
 
 @pytest.mark.parametrize('target_modes', [[], 'wiki', ['other'], {'wiki': True}, True])
@@ -629,24 +605,20 @@ def test_submission_rejects_invalid_target_selection_without_queuing(spaces, tar
     assert store._list({'type': 'job'}) == []
 
 
-def test_recovered_target_aliases_resolve_only_the_original_owner_and_space_even_without_documents(spaces):
+def test_missing_ids_and_replacement_ids_keep_independent_scopes_and_owner_history(spaces):
+    from governance.spaces import ensure_base_space
     store, fake, _, _ = spaces
     original = fake.create_knowledge_base('retired-empty-wiki', wiki_enabled=True)['id']
     replacement = fake.create_knowledge_base('replacement-wiki', wiki_enabled=True)['id']
     unrelated = fake.create_knowledge_base('unrelated-wiki', wiki_enabled=True)['id']
-    first = save_space(store, {'name': '原空间', 'wiki_kb_id': original})
-    second = save_space(store, {'name': '另一空间', 'wiki_kb_id': unrelated})
-    before = get_space(store, first['scope'])
-    assert before['wiki_kb_id'] == original and before['targets']['wiki']['previous_knowledge_base_ids'] == []
+    first = ensure_base_space(store, original)
+    second = ensure_base_space(store, unrelated)
     fake.delete_knowledge_base(original)
-    missing = get_space(store, first['scope'])
-    assert missing['targets']['wiki']['missing_knowledge_base_id'] == original
-    save_space(store, {'wiki_kb_id': replacement}, first['scope'])
+    assert get_space(store, first['scope'])['targets']['wiki']['missing_knowledge_base_id'] == original
+    replacement_space = ensure_base_space(store, replacement)
     _save('another-owner', first['scope'], 'foreign-source', 'wiki', 'foreign-library-id', status='succeeded')
     items = list_spaces(store)[0]
-    def resolve(kb_id):
-        return [space['scope'] for space in items if kb_id == space['wiki_kb_id'] or
-                kb_id in space['targets']['wiki']['previous_knowledge_base_ids']]
-    assert resolve(original) == resolve(replacement) == [first['scope']]
-    assert resolve(unrelated) == [second['scope']]
-    assert resolve('foreign-library-id') == []
+    ids = {space['knowledge_base_id']: space['scope'] for space in items}
+    assert ids[original] == first['scope'] and ids[unrelated] == second['scope']
+    assert ids[replacement] == replacement_space['scope'] != first['scope']
+    assert 'foreign-library-id' not in ids

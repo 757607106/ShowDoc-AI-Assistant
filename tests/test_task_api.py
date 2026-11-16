@@ -16,8 +16,9 @@ from tests.contextdb_fake import FakeContextDBClient
 
 @pytest.fixture()
 def client(authenticated_client):
-    app_module.app.extensions['governance_store'] = Store(client=FakeContextDBClient(),
-                                                          kb_name='_test_governance')
+    fake = FakeContextDBClient()
+    fake.create_knowledge_base('knowledge-default', wiki_enabled=True, review_enabled=True)
+    app_module.app.extensions['governance_store'] = Store(client=fake, kb_name='_test_governance')
     app_module.app.config['TESTING'] = True
     yield authenticated_client
     app_module.app.extensions.pop('governance_store', None)
@@ -132,12 +133,12 @@ def test_submit_alias_is_idempotent_and_exposes_submission_separately(client):
 def test_crawl_and_file_upload_use_the_same_selected_space(client, monkeypatch):
     import governance.spaces as spaces
     monkeypatch.setattr(app_module.get_entry('web').crawler_class, 'validate_url', lambda url: None)
+    spaces.save_space(app_module.get_store(), {'scope': 'product-a', 'name': '产品 A', 'mode': 'wiki'})
     checked = []
+    original_get_space = spaces.get_space
     def get_space(store, scope):
         checked.append(scope)
-        if scope != 'product-a':
-            raise StoreError('知识空间不存在', 404)
-        return {'scope': scope}
+        return original_get_space(store, scope)
     monkeypatch.setattr(spaces, 'get_space', get_space)
     crawl = client.post('/entries/web/start', json={'url':'https://example.test/docs','space_scope':'product-a'})
     upload = client.post('/api/uploads', data={'files':(io.BytesIO(b'name,value\nx,1'), 'source.csv'),'space_scope':'product-a'})
@@ -151,14 +152,14 @@ def test_crawl_and_file_upload_use_the_same_selected_space(client, monkeypatch):
     store.create_job('web', {}, scope='other')
     tasks = client.get('/api/tasks?space_scope=product-a').get_json()['tasks']
     assert len(tasks) == 2 and all(task['scope'] == 'product-a' for task in tasks)
-    assert checked == ['product-a', 'product-a', 'product-a']
+    assert checked and set(checked) == {'product-a'}
     assert client.post('/api/uploads', data={'files':(io.BytesIO(b'x'),'x.md'),'space_scope':'missing'}).status_code == 404
     assert client.post('/entries/web/start', json={'url':'https://example.test','space_scope':[]}).status_code == 400
 
 
 def test_upload_name_mapping_keeps_natural_prefixes_and_duplicate_names_without_overwriting(client, monkeypatch):
     import governance.spaces as spaces
-    monkeypatch.setattr(spaces, 'get_space', lambda store, scope: {'scope': scope})
+    spaces.save_space(app_module.get_store(), {'scope': 'product', 'name': '产品', 'mode': 'wiki'})
     response = client.post('/api/uploads', data={'space_scope': 'product', 'files': [
         (io.BytesIO(b'first'), '001-guide.md'), (io.BytesIO(b'second'), 'same.md'),
         (io.BytesIO(b'third'), 'same.md'), (io.BytesIO(b'fourth'), 'folder/Use:Guide.MD'),

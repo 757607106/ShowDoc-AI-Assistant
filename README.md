@@ -2,6 +2,8 @@
 
 最新架构边界、整改结果与验收见[2026-11-16 修正总报告](docs/architecture/architecture-remediation-final-20261116.md)。
 
+本轮知识库三模式、单目标投递及评审对齐见[实施与验收记录](docs/guides/contextdb-knowledge-alignment-20261116.md)。
+
 以固定提交 `cbdcebabf48c5ee2d6868b370326aa8341703f62` 的 **WeKnora 前端**为基线，使用 Vue 3、TDesign、原有布局、知识库卡片、文档列表与预览、Wiki Markdown 编辑、对话流及确认卡片。源码与许可记录在 [frontend/UPSTREAM.json](frontend/UPSTREAM.json) 和 [frontend/UPSTREAM-LICENSE](frontend/UPSTREAM-LICENSE)。
 
 知识解析、切片、检索、评审、Wiki、图谱和评审模板全部使用 **ContextDB 官方 REST/MCP**，产品入口聚焦知识库与知识评审。deepagents 的知识工具仅来自官方 MCP，连接失败会停止知识访问。同一 PostgreSQL 服务使用独立数据库和受限账号：平台保存账号、任务、同步映射、会话元数据与操作记录，Agent 专库保存官方 LangGraph checkpoint 和 Store。知识正文不迁入 PostgreSQL；采集原件与发布 ZIP 留在受控产物目录。
@@ -38,8 +40,8 @@ cd ..
 
 1. **成员与权限**：管理员在设置中创建账号，绑定各自的 ContextDB 成员密钥；服务端验证成员并加密保存。官方成员/密钥开通在 ContextDB 控制台完成。有效权限、用户组和知识库授权使用官方结果；本程序不切换工作空间权限模式。
 2. **采集与任务**：支持 ShowDoc、CYB、天瞳、通用网页和文件。平台只采集源内容、整理必要格式并检查完整性；云端承担资料解析和语义治理。失败和取消可重试，原件与来源标识保留。
-3. **自动提交治理**：采集和文件上传统一选择业务知识库，完整采集成功后自动创建 ContextDB 提交任务。采集不完整先重试；自动提交失败保留原件，可在资料任务补交。新建默认只启用 Wiki，实体图谱按需开启；既有范围保留原双库关联。分别记录文档 ID、源版本、上传及官方处理状态，未变化资料跳过，失败按目标重试。提交完成不等于官方治理或 Wiki 发布完成。
-4. **统一知识库入口**：WeKnora 卡片展示业务知识库，默认打开 Wiki，文档、图谱和治理进度在同一详情查看。独立“来源资料”入口已移除，旧 URL 转到知识库；本地原件及历史快照仍供恢复与追溯，任务支持下载资料包，Wiki 保留官方文档引用。内部 `space/scope` 只是官方库的关联及采集范围，不保存另一份知识正文。未绑定的官方库在“关联已有库”中查看或关联，原库 ID 和引用深链保留。图谱启用后会分别投递两库，形成独立评审状态；关闭仅影响后续提交，不删除已有库。
+3. **自动提交治理**：采集和文件上传选择一个真实 ContextDB 知识库，完整采集成功后自动提交到该固定 ID。采集不完整先重试；自动提交失败保留原件，可在资料任务补交。创建时三选一：零编译（原文检索）、图谱编译（原文及实体关系）或 Wiki 编译（原文及主题页），默认 Wiki，创建后本平台不允许切换模式。评审开关独立，默认开启；新库开启重写建议、关闭重写稿自动入库，初始高分阈值 0.85，已有库保持官方策略。同源未变化跳过，变化使用官方更新及评审流程。提交受理、评审通过、正文入库及派生内容完成分别显示。
+4. **统一知识库入口**：卡片与列表直接展示官方库名和 ID，提供搜索、排序、分页、真实改名和安全删除。原生库可以直接作为资料目标，无需先关联另一层业务空间。内部 `scope` 仅用于来源、任务和回执；旧 Wiki、图谱库按真实 ID 独立保留，旧地址兼容跳转，不再双投。删除先检查文档和在途任务，非空库需先清理；结果不明确保持待确认，删除或缺失后不自动重建，也不按同名库替换旧 ID。原件、历史任务和回执继续保留。
 5. **知识评审**：默认打开官方评审队列，展示原生评审状态与冲突处置、原文/重写稿、确认/拒绝/撤回/重试；完整人工编辑稿通过官方 `edited_content` 提交。决定受理后保留详情，分别刷新文档入库和 Wiki 编译状态，再打开同库 Wiki 核对。修订不回写采集原件、外部站点或另一图谱库。评审策略和模板由 ContextDB 执行。长期记忆、记忆整理、记忆晋升的页面、接口与 Agent 工具已移除；聊天历史、会话恢复及已入库的历史知识文档保留。
 6. **Wiki 与 Agent**：编辑器读取完整正文和真实版本，保存携带原版本；冲突保留草稿，比较合并后保存。Agent 后端直接使用官方开源免费的 Python Deep Agents Harness；前端使用 WeKnora 原组件和流处理器，由 API Adapter 转换原生流与状态。没有显式 @ 提及时采用 Agent 默认知识库策略；知识工具通过官方 MCP，文档 ID 校验归属。提问和工具确认使用官方 interrupt/Command；连接断开后结束本次请求，刷新读取 checkpoint，不在后台续跑或重放旧执行。
 
@@ -53,7 +55,7 @@ SDK 固定为 `langchain-litellm==0.11.1`、`litellm==1.109.1`。`langchain-lite
 
 Wiki 编译器接管准入结果为 **未通过**：完整受影响页定位、编译来源/链接写入及云端编译隔离仍未确认，继续使用 ContextDB 官方编译。独立切片分页、页面版本冲突与读回实测见[准入报告](docs/architecture/contextdb-wiki-compiler-readiness.md)；未增加本地编译器或 Worker 编译阶段。
 
-**治理格式边界**：官方明确支持 TXT、Markdown、PDF、DOC、DOCX 的知识评审。HTML、PPT、Excel、图片和音视频等使用官方现有上传、解析与检索能力，治理支持未确认；不将上传或入库成功显示为完成治理，不增加本地格式转换。
+**治理格式边界**：开启评审时，TXT、Markdown、PDF、DOC、DOCX 直接使用官方评审；已有单篇 Markdown 直接复用，HTML 复用项目现有 Docling 转为送审 Markdown，原件保留，不执行本地切片或评分。无法生成可评审正文及其他未支持评审的格式阻止投递，并显示原因。关闭评审时，按官方文件格式规则上传原件，不标记为已评审。合并 Markdown 是旧爬虫 CLI 的离线导出产物，不与单篇资料重复入库。
 
 **已确认的限制**：Wiki 搜索单次最多 50 页，页面会说明范围；官方类别列表不能冒充全量页面列表。修订必须按页面读取，返回章节元数据。官方控制台支持候选接受/拒绝和历史查看/比较，但公开 API 未提供审批写入、历史全文/原生回滚及严格人工发布的完整契约，对应入口禁用。当前官方 MCP 未提供 Wiki 修订工具，Agent 不以自建 REST 工具绕过该限制。阈值及关闭重写自动入库不保证全量人工发布。详见[专项核对与实测证据](docs/architecture/contextdb-wiki-support.md)。
 
@@ -69,12 +71,12 @@ Wiki 编译器接管准入结果为 **未通过**：完整受影响页定位、�
 cd frontend && npm run type-check && npm run build-only
 ```
 
-默认测试不会访问 ContextDB 云端。平台与 Agent 分别在 `showdoc_knowledge_test`、`showdoc_agent_test` 使用独立临时账号和每例 schema，验证双向跨库连接被拒绝；`TEST_DATABASE_URL` 必须指向以 `_test` 结尾的测试库，并有创建临时数据库和账号的权限。真实云端验证需显式执行 `.venv/bin/python -m scripts.contextdb_probe --write` 或 `.venv/bin/python -m scripts.contextdb_pipeline_smoke`，仅操作新建探测资源并记录清理结果。
+默认测试不会访问 ContextDB 云端。平台与 Agent 分别在 `showdoc_knowledge_test`、`showdoc_agent_test` 使用独立临时账号和每例 schema，验证双向跨库连接被拒绝；`TEST_DATABASE_URL` 必须指向以 `_test` 结尾的测试库，并有创建临时数据库和账号的权限。单目标知识库的云端验收需显式执行 `.venv/bin/python -m scripts.contextdb_pipeline_smoke --execute`，只操作本次新建且精确记录 ID 的探测资源，并记录清理结果。
 
 新会话在既有 `agent_sessions.agent_config` 标记 `runtime=deepagents`，执行状态只保存在 Agent 专库的官方 LangGraph checkpoint。WeKnora 聊天、历史、审批与提问接口由 API Adapter 对接；审批 POST 只提交协议决定，随后的续接 GET 调用原生 `Command` 并流式返回。旧会话、运行记录和沙箱卷保留，旧执行入口继续拒绝执行。官方 StateBackend 提供虚拟会话文件；OpenSandbox 提供隔离文件和 Shell，接入步骤及附件解析镜像见[沙箱部署说明](deploy/opensandbox.md)。附件原始字节保存在所属账号的归档记录中，解析在无外网的临时沙箱执行，无沙箱时明确拒绝，不回退宿主解析。原生文件记忆、子代理轨迹、应用层 fork/rewind 已接入；浏览器/桌面、运行中 steering、自动安装、结构化记忆及后台续跑仍明确拒绝。源码核对与验证见 [官方对齐审计](docs/architecture/agent-official-alignment-audit.md)。
 
 旧 `_governance` 保留只读。迁移记录见 `downloads/migrations/`。数据库备份可使用 `docker compose -f compose.postgres.yml exec -T postgres pg_dump -U showdoc showdoc_knowledge > <private-backup.sql>`；同时备份 `.env` 的加密密钥和产物目录。Agent 必须经 ASGI 启动：`app.py` 已默认启动 Uvicorn，也可执行 `.venv/bin/uvicorn asgi:create_app --factory --host 127.0.0.1 --port 8000`。本方案不部署生产 Agent Server、Redis 或 Helm，也不需要其部署许可；模型及 ContextDB 服务仍使用已配置账号。详见 [Agent 验证边界](docs/guides/agent-interaction-validation.md)。
 
-原独立爬虫 CLI `main.py` 的 Docling 导出流程继续保留，供离线导出；平台 Worker 不调用该解析与切片链路。
+原独立爬虫 CLI `main.py` 的逐篇 Markdown、完整合集与 Docling 导出流程保留。平台采集使用 `source_only=True` 保存原件，不运行这套导出及切片流程；只有开启评审的 HTML 投递调用现有转换器生成送审稿。
 
 更多边界与验收状态见 [当前架构与接口清单](docs/architecture/agent-platform.md)。

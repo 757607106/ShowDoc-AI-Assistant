@@ -54,9 +54,15 @@ export function dateTime(value: unknown): string {
   }).format(date)
 }
 
+export function contextdbDateTime(value: unknown): string {
+  if (!value) return '-'
+  const date = new Date(String(value))
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString('zh-CN', { hour12: false })
+}
+
 export const reviewActionLabels: Record<string, string> = {
-  confirm: '通过原文', force_accept: '强制通过', accept_rewrite: '采纳重写稿',
-  reject: '拒绝并删除', reject_reupload: '拒绝并等待重新上传', retract: '撤回至待人工评审', retry_review: '重新评审',
+  confirm: '原样入库', force_accept: '强制接纳原文', accept_rewrite: '采纳重写',
+  reject: '拒绝', reject_reupload: '要求重新上传', retract: '撤回', retry_review: '重新评审',
 }
 
 const contextdbTools: Record<string,string> = {

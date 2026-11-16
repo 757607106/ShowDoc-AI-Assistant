@@ -9,7 +9,7 @@ import * as documentName from '../../utils/contextdbDocumentName.ts'
 
 const source = readFileSync(new URL('./ContextDBGraph.vue', import.meta.url), 'utf8')
 const script = source.slice(source.indexOf('<script setup lang="ts">') + '<script setup lang="ts">'.length, source.indexOf('</script>'))
-const compiled = ts.transpileModule(script + '\nexports.state = { changed, appliedHops, maxNodes, maxEdges, settingsError, applySettings, locate, locatedId, displayName, loadRelations, changeRelationPage, relations, relationPage, relationTotal, relationType, relationError, relationLoading, props, graph, root, hops, documentId, entities, documents, documentTotal, error, busy, detail, detailOpen, detailLoading, detailError, sources, sourceLoading, sourceError, sourceResult, graphCanvas, graphScale, nodes, edges, types, scopeLabel, graphNotice, searchEntities, loadDocuments, load, changeDocument, inspect, closeDetail, expandEntity, zoom, fit, consolidate, pollConsolidation, consolidating, consolidationNotice, consolidationError, consolidationEventId };', {
+const compiled = ts.transpileModule(script + '\nexports.state = { changed, appliedHops, maxNodes, maxEdges, settingsError, applySettings, locate, locatedId, displayName, loadRelations, changeRelationPage, relations, relationPage, relationTotal, relationType, relationError, relationLoading, props, graph, root, hops, documentId, entities, documents, documentTotal, error, busy, detail, detailOpen, detailLoading, detailError, sources, sourceLoading, sourceError, sourceResult, graphCanvas, graphScale, nodes, edges, types, scopeLabel, graphNotice, searchEntities, loadDocuments, load, changeDocument, inspect, closeDetail, expandEntity, zoom, fit };', {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText
 
@@ -127,94 +127,6 @@ test('document overview uses plain scope guidance while truncated and neighbor n
   assert.equal(f.graphNotice.value, f.graph.value.note)
   f.graph.value.truncated = false; f.root.value = '产品甲'
   assert.equal(f.graphNotice.value, f.graph.value.note)
-})
-
-test('consolidation requires contributor and a false dispatch never reports completion or polls', async t => {
-  const reader = fixture(undefined, undefined, false); t.after(reader.dispose); await reader.flush(); await reader.consolidate()
-  assert.equal(reader.posts.length, 0)
-  const f = fixture(); t.after(f.dispose); await f.flush(); await f.consolidate()
-  assert.equal(f.posts.length, 1); assert.equal(f.posts[0]!.path, 'knowledge/graph/consolidate')
-  assert.equal(f.posts[0]!.params.kb_id, 'kb-a'); assert.equal(f.consolidating.value, false)
-  assert.match(f.consolidationNotice.value, /未派发新任务/); assert.doesNotMatch(f.consolidationNotice.value, /完成/)
-  assert.equal(f.calls.filter((call: Call) => call.path.startsWith('event/')).length, 0); assert.equal(f.timers.size, 0)
-})
-
-test('one dispatched task polls to success, blocks duplicate posts and refreshes graph, entities and all loaded document pages', async t => {
-  const statuses = ['PENDING', 'RUNNING', 'SUCCEEDED']
-  const f = fixture(async ({ path, params }) => {
-    if (path.startsWith('event/')) return { data: { status: statuses.shift() } }
-    if (path === 'knowledge/documents') return { data: { documents: [{ id: `doc-${params.page}`, name: `文档${params.page}` }], total: 200 } }
-    return { data: path === 'knowledge/graph-visual' ? sampleGraph : { entities: [] } }
-  }, async () => ({ data: { dispatched: true, event_id: 'event-1' } }))
-  t.after(f.dispose); await f.flush(); await f.loadDocuments(true); f.documentId.value = 'doc-2'
-  const started = f.consolidate(); await f.consolidate(); await started
-  assert.equal(f.consolidating.value, true); assert.match(f.consolidationNotice.value, /正在更新/); assert.equal(f.posts.length, 1)
-  await f.tick(); await f.consolidate(); assert.equal(f.posts.length, 1); assert.equal(f.consolidating.value, true)
-  await f.tick()
-  assert.equal(f.consolidating.value, false); assert.match(f.consolidationNotice.value, /更新完成/); assert.equal(f.timers.size, 0)
-  assert.equal(f.calls.filter((call: Call) => call.path === 'knowledge/graph-visual').length, 2)
-  assert.equal(f.calls.filter((call: Call) => call.path === 'knowledge/entities').length, 2)
-  assert.deepEqual(f.calls.filter((call: Call) => call.path === 'knowledge/documents').map((call: Call) => call.params.page), [1, 2, 1, 2])
-  assert.equal(f.documentId.value, 'doc-2'); assert.match(f.scopeLabel.value, /文档2/)
-})
-
-test('failed and cancelled events stop polling without reporting success or refreshing the graph', async t => {
-  for (const status of ['FAILED', 'CANCELLED']) {
-    const f = fixture(async ({ path }) => ({ data: path.startsWith('event/') ? { status } : {} }),
-      async () => ({ data: { dispatched: true, event_id: 'event-1' } }))
-    t.after(f.dispose); await f.flush(); await f.consolidate()
-    assert.equal(f.consolidating.value, false); assert.equal(f.consolidationNotice.value, '')
-    assert.match(f.consolidationError.value, /失败|取消/); assert.equal(f.timers.size, 0)
-    assert.equal(f.calls.filter((call: Call) => call.path === 'knowledge/graph-visual').length, 1)
-  }
-})
-
-test('event query failure keeps the task locked and retry queries the same event without another POST', async t => {
-  let fails = true
-  const f = fixture(async ({ path }) => {
-    if (path.startsWith('event/')) { if (fails) throw new Error('查询中断'); return { data: { status: 'SUCCEEDED' } } }
-    return { data: {} }
-  }, async () => ({ data: { dispatched: true, event_id: 'event-1' } }))
-  t.after(f.dispose); await f.flush(); await f.consolidate()
-  assert.equal(f.consolidationError.value, '查询中断'); assert.equal(f.consolidating.value, true); assert.equal(f.consolidationEventId.value, 'event-1')
-  await f.consolidate(); assert.equal(f.posts.length, 1)
-  fails = false; await f.pollConsolidation()
-  assert.equal(f.consolidating.value, false); assert.equal(f.consolidationError.value, '')
-  assert.deepEqual(f.calls.filter((call: Call) => call.path.startsWith('event/')).map((call: Call) => call.path), ['event/event-1', 'event/event-1'])
-})
-
-test('polling has a bounded wait and an unknown status never unlocks or reports completion', async t => {
-  let status = 'RUNNING'
-  const f = fixture(async ({ path }) => ({ data: path.startsWith('event/') ? { status } : {} }),
-    async () => ({ data: { dispatched: true, event_id: 'event-1' } }))
-  t.after(f.dispose); await f.flush(); await f.consolidate()
-  for (let attempt = 1; attempt < 100; attempt++) await f.tick()
-  assert.equal(f.timers.size, 0); assert.equal(f.consolidating.value, true); assert.match(f.consolidationError.value, /等待时间较长/)
-  await f.consolidate(); assert.equal(f.posts.length, 1)
-  status = 'UNKNOWN'; await f.pollConsolidation()
-  assert.equal(f.consolidating.value, true); assert.match(f.consolidationError.value, /无法确认任务状态/)
-  assert.doesNotMatch(f.consolidationNotice.value, /更新完成/); assert.equal(f.timers.size, 0)
-})
-
-test('switching libraries and unmounting reject late dispatch and event replies and clear poll timers', async t => {
-  let reply!: (value: any) => void
-  const f = fixture(undefined, () => new Promise(resolve => { reply = resolve })); t.after(f.dispose); await f.flush()
-  const submitting = f.consolidate(); f.props.kbId = 'kb-b'; await f.flush()
-  reply({ data: { dispatched: true, event_id: 'old-event' } }); await submitting
-  assert.equal(f.consolidating.value, false); assert.equal(f.consolidationEventId.value, ''); assert.equal(f.timers.size, 0)
-  assert.equal(f.calls.filter((call: Call) => call.path.startsWith('event/')).length, 0)
-  let eventReply!: (value: any) => void
-  let delayed = false
-  const g = fixture(async ({ path }) => path.startsWith('event/')
-    ? delayed ? new Promise(resolve => { eventReply = resolve }) : { data: { status: 'RUNNING' } }
-    : { data: {} }, async () => ({ data: { dispatched: true, event_id: 'event-1' } }))
-  t.after(g.dispose); await g.flush(); await g.consolidate(); assert.equal(g.timers.size, 1)
-  g.props.kbId = 'kb-b'; await g.flush(); assert.equal(g.timers.size, 0)
-  delayed = true; const querying = g.consolidate(); await g.flush(); g.dispose()
-  const graphRequests = g.calls.filter((call: Call) => call.path === 'knowledge/graph-visual').length
-  eventReply({ data: { status: 'SUCCEEDED' } }); await querying
-  assert.equal(g.consolidationNotice.value, ''); assert.equal(g.timers.size, 0)
-  assert.equal(g.calls.filter((call: Call) => call.path === 'knowledge/graph-visual').length, graphRequests)
 })
 
 test('document names resolve beyond the first page without changing opaque graph IDs', async t => {

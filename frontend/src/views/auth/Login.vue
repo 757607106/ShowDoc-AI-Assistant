@@ -1,98 +1,59 @@
 <template>
   <div class="login-layout">
-    <div class="animated-bg">
-      <div class="knowledge-node node-1">
-        <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-        </svg>
-      </div>
-      <div class="knowledge-node node-2">
-        <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-        </svg>
-      </div>
-      <div class="knowledge-node node-3">
-        <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2L2 7l10 5 10-5-10-5z" />
-          <path d="M2 17l10 5 10-5" />
-          <path d="M2 12l10 5 10-5" />
-        </svg>
-      </div>
-      <div class="knowledge-node node-4">
-        <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <ellipse cx="12" cy="5" rx="9" ry="3" />
-          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-        </svg>
-      </div>
-      <div class="knowledge-node node-5">
-        <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.35-4.35" />
-        </svg>
-      </div>
-      <div class="knowledge-node node-6">
-        <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path
-            d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-          <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-          <line x1="12" y1="22.08" x2="12" y2="12" />
-        </svg>
-      </div>
-      <div class="knowledge-node node-7">
-        <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-        </svg>
-      </div>
-      <div class="knowledge-node node-8">
-        <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-          <circle cx="9" cy="7" r="4" />
-          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-        </svg>
-      </div>
-      <div class="knowledge-node node-9">
-        <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>
-      </div>
-      <div class="knowledge-node node-10">
-        <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3" />
-          <path
-            d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24" />
-        </svg>
-      </div>
-      <div class="knowledge-node node-11">
-        <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 11l3 3L22 4" />
-          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-        </svg>
-      </div>
-      <div class="knowledge-node node-12">
-        <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon
-            points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-        </svg>
-      </div>
-
-      <svg class="knowledge-lines" viewBox="0 0 100 100" preserveAspectRatio="none">
-        <line class="connection-line line-1" x1="20" y1="15" x2="35" y2="25" />
-        <line class="connection-line line-2" x1="35" y1="25" x2="55" y2="20" />
-        <line class="connection-line line-3" x1="55" y1="20" x2="85" y2="12" />
-        <line class="connection-line line-4" x1="8" y1="35" x2="25" y2="45" />
-        <line class="connection-line line-5" x1="25" y1="45" x2="65" y2="48" />
-        <line class="connection-line line-6" x1="20" y1="60" x2="60" y2="75" />
-        <line class="connection-line line-7" x1="20" y1="15" x2="20" y2="60" />
-        <line class="connection-line line-8" x1="55" y1="20" x2="45" y2="50" />
-        <line class="connection-line line-9" x1="65" y1="48" x2="90" y2="38" />
-        <line class="connection-line line-10" x1="40" y1="70" x2="75" y2="80" />
-        <line class="connection-line line-11" x1="35" y1="25" x2="25" y2="45" />
-        <line class="connection-line line-12" x1="75" y1="30" x2="65" y2="48" />
+    <div class="animated-bg" aria-hidden="true">
+      <div class="knowledge-atmosphere"></div>
+      <svg class="knowledge-lines" viewBox="0 0 1000 650" preserveAspectRatio="none" aria-hidden="true">
+        <g style="--phase:0">
+          <path class="connection-line" d="M390 78 C466 22 554 33 640 52" />
+          <path class="connection-flow" pathLength="100" d="M390 78 C466 22 554 33 640 52" />
+        </g>
+        <g style="--phase:-.85">
+          <path class="connection-line" d="M640 52 C728 35 810 42 880 97.5" />
+          <path class="connection-flow" pathLength="100" d="M640 52 C728 35 810 42 880 97.5" />
+        </g>
+        <g style="--phase:-.7">
+          <path class="connection-line" d="M880 97.5 C768 196 592 112 500 247" />
+          <path class="connection-flow" pathLength="100" d="M880 97.5 C768 196 592 112 500 247" />
+        </g>
+        <g style="--phase:-.7">
+          <path class="connection-line" d="M500 247 C492 300 548 326 540 390" />
+          <path class="connection-flow" pathLength="100" d="M500 247 C492 300 548 326 540 390" />
+        </g>
+        <g style="--phase:-.4">
+          <path class="connection-line" d="M540 390 C532 456 482 476 490 546" />
+          <path class="connection-flow" pathLength="100" d="M540 390 C532 456 482 476 490 546" />
+        </g>
+        <g class="connection-branch" style="--phase:-.85">
+          <path class="connection-line" d="M390 78 C430 138 454 174 500 247" />
+          <path class="connection-flow" pathLength="100" d="M390 78 C430 138 454 174 500 247" />
+        </g>
+        <g class="connection-branch" style="--phase:-.7">
+          <path class="connection-line" d="M640 52 C586 100 518 138 500 247" />
+          <path class="connection-flow" pathLength="100" d="M640 52 C586 100 518 138 500 247" />
+        </g>
+        <g class="connection-branch" style="--phase:-.1">
+          <path class="connection-line" d="M490 546 C428 480 422 332 500 247" />
+          <path class="connection-flow" pathLength="100" d="M490 546 C428 480 422 332 500 247" />
+        </g>
       </svg>
+      <div class="knowledge-node" style="left:39%;top:12%;--phase:0">
+        <img src="@/assets/img/knowledge-flow/crawler.svg" alt="" class="node-icon" />
+      </div>
+      <div class="knowledge-node" style="left:64%;top:8%;--phase:-.85">
+        <img src="@/assets/img/knowledge-flow/document.svg" alt="" class="node-icon" />
+      </div>
+      <div class="knowledge-node" style="left:88%;top:15%;--phase:-.7">
+        <img src="@/assets/img/knowledge-flow/archive.svg" alt="" class="node-icon" />
+      </div>
+      <div class="knowledge-node knowledge-hub" style="left:50%;top:38%;--phase:-.7">
+        <img src="@/assets/img/knowledge-flow/knowledge.svg" alt="" class="node-icon" />
+      </div>
+      <div class="knowledge-node" style="left:54%;top:60%;--phase:-.4">
+        <img src="@/assets/img/knowledge-flow/search.svg" alt="" class="node-icon" />
+      </div>
+      <div class="knowledge-node" style="left:49%;top:84%;--phase:-.1">
+        <img src="@/assets/img/knowledge-flow/answer.svg" alt="" class="node-icon" />
+      </div>
     </div>
 
     <!-- Logo - Top Left -->
@@ -176,7 +137,6 @@
           </div>
           <div class="form-header">
             <h2 class="form-title">{{ $t('auth.login') }}</h2>
-            <p class="form-welcome">{{ $t('auth.subtitle') }}</p>
             <p v-if="registrationEnabled" class="form-hint">{{ $t('auth.loginHint') }}</p>
           </div>
 
@@ -812,12 +772,23 @@ onMounted(async () => {
 
 <style lang="less" scoped>
 .login-layout {
+  --td-brand-color: #326986;
+  --td-brand-color-hover: #3b7894;
+  --td-brand-color-active: #254e6a;
+  --td-brand-color-disabled: #adc3d1;
+  --td-brand-color-focus: rgba(50, 105, 134, 0.2);
+  --td-brand-color-light: #e7eff5;
+  --td-text-color-brand: #285c7d;
+  --td-text-color-link: var(--td-brand-color);
+  --td-success-color: var(--td-brand-color);
+  --td-success-color-light: var(--td-brand-color-light);
+  --td-component-stroke: #cbd9e3;
   display: flex;
   width: 100%;
   min-height: 100%;
   overflow: hidden;
   position: relative;
-  background: linear-gradient(225deg, #022c22 0%, #064e3b 15%, #065f46 25%, #047857 38%, #059669 50%, #07C05F 65%, #10B981 78%, #34D399 90%, #6EE7B7 100%);
+  background: linear-gradient(225deg, #0b2035 0%, #12344e 15%, #184561 25%, #205b7b 38%, #2d7395 50%, #3b8eb0 65%, #5ca7c4 78%, #8ac2d8 90%, #b9ddeb 100%);
 
   &::before {
     content: '';
@@ -833,217 +804,161 @@ onMounted(async () => {
 }
 
 .animated-bg {
+  --flow-duration: 14s;
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   pointer-events: none;
   z-index: 1;
   overflow: hidden;
   contain: strict;
 }
 
-.knowledge-node {
+.knowledge-atmosphere {
   position: absolute;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  box-shadow:
-    0 0 15px rgba(255, 255, 255, 0.35),
-    0 0 30px rgba(16, 185, 129, 0.2),
-    inset 0 0 8px rgba(255, 255, 255, 0.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: nodePulse 5s infinite ease-in-out;
-  will-change: transform, opacity;
-}
-
-.node-icon {
-  width: 20px;
-  height: 20px;
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.node-1 {
-  top: 15%;
-  left: 20%;
-  animation-delay: 0s;
-}
-
-.node-2 {
-  top: 25%;
-  left: 35%;
-  animation-delay: 0.5s;
-}
-
-.node-3 {
-  top: 20%;
-  left: 55%;
-  animation-delay: 1s;
-}
-
-.node-4 {
-  top: 30%;
-  left: 75%;
-  animation-delay: 1.5s;
-}
-
-.node-5 {
-  top: 45%;
-  left: 25%;
-  animation-delay: 2s;
-}
-
-.node-6 {
-  top: 50%;
-  left: 45%;
-  animation-delay: 2.5s;
-}
-
-.node-7 {
-  top: 48%;
-  left: 65%;
-  animation-delay: 3s;
-}
-
-.node-8 {
-  top: 60%;
-  left: 20%;
-  animation-delay: 0.3s;
-}
-
-.node-9 {
-  top: 12%;
-  right: 15%;
-  animation-delay: 1.8s;
-}
-
-.node-10 {
-  top: 38%;
-  right: 10%;
-  animation-delay: 2.3s;
-}
-
-.node-11 {
-  top: 70%;
-  left: 40%;
-  animation-delay: 0.8s;
-}
-
-.node-12 {
-  top: 65%;
-  left: 80%;
-  animation-delay: 1.3s;
-}
-
-@keyframes nodePulse {
-
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 0.65;
-  }
-
-  50% {
-    transform: scale(1.08);
-    opacity: 0.9;
-  }
+  inset: 0 3% 0 30%;
+  background: radial-gradient(ellipse at 30% 58%, rgba(151, 204, 235, 0.1), transparent 65%);
 }
 
 .knowledge-lines {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   width: 100%;
   height: 100%;
-  opacity: 0.35;
+  overflow: visible;
+  // 固定像素遮罩让流光在不同屏幕下都停在节点边缘。
+  mask-image:
+    radial-gradient(circle 32px at 39% 12%, transparent 98%, #000 100%),
+    radial-gradient(circle 32px at 64% 8%, transparent 98%, #000 100%),
+    radial-gradient(circle 32px at 88% 15%, transparent 98%, #000 100%),
+    radial-gradient(circle 37px at 50% 38%, transparent 98%, #000 100%),
+    radial-gradient(circle 32px at 54% 60%, transparent 98%, #000 100%),
+    radial-gradient(circle 32px at 49% 84%, transparent 98%, #000 100%);
+  mask-composite: intersect;
 }
 
 .connection-line {
-  stroke: rgba(255, 255, 255, 0.5);
-  stroke-width: 1.5;
-  stroke-dasharray: 6, 3;
+  fill: none;
+  stroke: rgba(180, 213, 234, 0.16);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.connection-branch {
+  opacity: 0.6;
+}
+
+.connection-flow {
+  fill: none;
+  stroke: #dcf3ff;
+  stroke-width: 1.6;
   stroke-linecap: round;
-  animation: lineFlow 10s infinite linear;
-  will-change: stroke-dashoffset;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 3.5 116.5;
+  stroke-dashoffset: 8;
+  opacity: 0;
+  filter: drop-shadow(0 0 3px rgba(166, 219, 250, 0.5));
+  animation: lineFlow var(--flow-duration) linear infinite;
+  animation-delay: calc(var(--flow-duration)*var(--phase));
 }
 
-.line-1 {
-  animation-delay: 0s;
+.knowledge-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 60px;
+  height: 60px;
+  border: 1px solid rgba(207, 237, 255, 0.34);
+  border-radius: calc(var(--app-radius-xl) + var(--app-radius-sm));
+  background: linear-gradient(145deg, rgba(198, 233, 252, 0.15), rgba(91, 151, 187, 0.06));
+  box-shadow: inset 0 2px 0 rgba(235, 249, 255, 0.12), 0 4px 14px rgba(8, 30, 48, 0.09);
+  backdrop-filter: blur(8px);
+  transform: translate(-50%, -50%);
+  animation: nodePulse var(--flow-duration) ease-in-out infinite;
+  animation-delay: calc(var(--flow-duration)*var(--phase));
 }
 
-.line-2 {
-  animation-delay: 0.5s;
+.knowledge-node .node-icon {
+  display: block;
+  width: 86%;
+  height: 86%;
+  filter: drop-shadow(0 2px 3px rgba(8, 30, 48, 0.16));
 }
 
-.line-3 {
-  animation-delay: 1s;
+.knowledge-node::after {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(181, 227, 255, 0.18), transparent 68%);
+  opacity: 0;
+  animation: nodeArrival var(--flow-duration) ease-out infinite;
+  animation-delay: calc(var(--flow-duration)*var(--phase));
 }
 
-.line-4 {
-  animation-delay: 0.3s;
-}
-
-.line-5 {
-  animation-delay: 0.8s;
-}
-
-.line-6 {
-  animation-delay: 1.3s;
-}
-
-.line-7 {
-  animation-delay: 1.8s;
-}
-
-.line-8 {
-  animation-delay: 2.3s;
-}
-
-.line-9 {
-  animation-delay: 0.2s;
-}
-
-.line-10 {
-  animation-delay: 0.7s;
-}
-
-.line-11 {
-  animation-delay: 0.9s;
-}
-
-.line-12 {
-  animation-delay: 1.5s;
+.knowledge-hub {
+  width: 70px;
+  height: 70px;
+  border-radius: calc(var(--app-radius-xl) + var(--app-radius-lg));
 }
 
 @keyframes lineFlow {
-  0% {
-    stroke-dashoffset: 0;
+  0%, 2% {
+    stroke-dashoffset: 8;
+    opacity: 0;
   }
+  4% {
+    opacity: 0.95;
+  }
+  34% {
+    stroke-dashoffset: -108;
+    opacity: 0.95;
+  }
+  38%, 100% {
+    stroke-dashoffset: -108;
+    opacity: 0;
+  }
+}
 
-  100% {
-    stroke-dashoffset: 18;
+@keyframes nodePulse {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.78;
+  }
+  2% {
+    transform: translate(-50%, -50%) scale(1.025);
+    opacity: 1;
+  }
+  12% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.84;
+  }
+  20% {
+    opacity: 0.78;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .knowledge-node {
-    animation: none;
-    opacity: 0.65;
+@keyframes nodeArrival {
+  0%, 3% {
+    transform: scale(0.98);
+    opacity: 0;
   }
-
-  .connection-line {
-    animation: none;
+  7% {
+    opacity: 0.42;
+  }
+  22%, 100% {
+    transform: scale(1.14);
+    opacity: 0;
   }
 }
+
 
 /* Left Showcase Section */
 .showcase-section {
   flex: 0 0 52%;
+  min-width: 0;
   display: flex;
   align-items: flex-end;
   padding: 100px 30px 100px 50px;
@@ -1053,6 +968,7 @@ onMounted(async () => {
 
 .showcase-content {
   width: 100%;
+  min-width: 0;
   max-width: 600px;
   position: relative;
   z-index: 2;
@@ -1082,14 +998,14 @@ onMounted(async () => {
 .feature-tags {
   display: flex;
   gap: 12px;
-  margin-bottom: 40px;
+  margin-bottom: 0;
   flex-wrap: wrap;
 }
 
 .tag {
   display: inline-block;
   padding: 8px 20px;
-  background: rgba(255, 255, 255, 0.2);
+  background: linear-gradient(120deg, rgba(202, 225, 240, 0.23), rgba(102, 155, 184, 0.22));
   border-radius: 20px;
   color: var(--td-text-color-anti);
   font-size: var(--app-text-base);
@@ -1107,7 +1023,8 @@ onMounted(async () => {
   width: 100%;
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  background: linear-gradient(135deg, rgba(211, 229, 241, 0.18), rgba(37, 78, 106, 0.28));
+  box-shadow: 0 20px 60px rgba(11, 32, 53, 0.3);
   padding-bottom: 40px;
 
   :deep(.swiper-wrapper) {
@@ -1122,14 +1039,14 @@ onMounted(async () => {
   :deep(.swiper-pagination-bullet) {
     width: 10px;
     height: 10px;
-    background: rgba(255, 255, 255, 0.5);
+    background: rgba(194, 219, 235, 0.55);
     opacity: 1;
     transition: all var(--app-motion-slow) ease;
     margin: 0 6px !important;
   }
 
   :deep(.swiper-pagination-bullet-active) {
-    background: var(--td-bg-color-container);
+    background: #e7f2fa;
     width: 28px;
     border-radius: 5px;
   }
@@ -1156,6 +1073,7 @@ onMounted(async () => {
 /* Right Form Section */
 .form-section {
   flex: 0 0 48%;
+  min-width: 0;
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -1177,10 +1095,19 @@ onMounted(async () => {
   top: 32px;
   left: 50px;
   z-index: 100;
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
 
   .logo-image {
-    width: 120px;
-    height: auto;
+    display: block;
+    width: 232px;
+    height: 36px;
+    // 裁掉原 Logo 画布上下的透明留白，保留图形轮廓。
+    object-fit: cover;
+    object-position: center;
+    transform: translateX(-4%);
+    filter: brightness(0) invert(1);
   }
 }
 
@@ -1302,10 +1229,10 @@ onMounted(async () => {
 }
 
 .form-card {
-  background: rgba(255, 255, 255, 0.97);
+  background: linear-gradient(145deg, rgba(252, 253, 254, 0.98), rgba(233, 240, 245, 0.98));
   border-radius: 16px;
-  padding: 40px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  padding: 48px 40px;
+  box-shadow: 0 10px 40px rgba(11, 32, 53, 0.18);
   box-sizing: border-box;
   border: none;
   width: 100%;
@@ -1364,21 +1291,14 @@ onMounted(async () => {
 
 .form-header {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .form-title {
   font-size: var(--app-text-4xl);
   font-weight: 600;
-  color: var(--td-text-color-primary);
+  color: var(--td-text-color-brand);
   margin: 0 0 6px 0;
-  font-family: var(--app-font-family);
-}
-
-.form-welcome {
-  font-size: var(--app-text-md);
-  color: var(--td-text-color-secondary);
-  margin: 0;
   font-family: var(--app-font-family);
 }
 
@@ -1410,7 +1330,7 @@ onMounted(async () => {
       position: relative;
       z-index: 1;
       padding: 0 12px;
-      background: rgba(255, 255, 255, 0.97);
+      background: #f3f7fa;
     }
 
     &::before {
@@ -1513,6 +1433,20 @@ onMounted(async () => {
   font-weight: 500;
   font-family: var(--app-font-family);
   margin: 20px 0 16px 0;
+
+  &:not(.t-is-disabled) {
+    background: linear-gradient(120deg, #254e6a, #39738f);
+    border-color: transparent;
+
+    &:hover,
+    &:focus-visible {
+      background: linear-gradient(120deg, #2c5d7a, #3b7894);
+    }
+
+    &:active {
+      background: linear-gradient(120deg, #1d3e56, #2d647e);
+    }
+  }
 }
 
 .oidc-divider {
@@ -1526,7 +1460,7 @@ onMounted(async () => {
     position: relative;
     z-index: 1;
     padding: 0 12px;
-    background: rgba(255, 255, 255, 0.95);
+    background: #f3f7fa;
   }
 
   &::before {
@@ -1613,25 +1547,24 @@ onMounted(async () => {
 }
 
 /* Responsive Design */
+@media (max-width: 1440px) {
+  .animated-bg {
+    display: none;
+  }
+}
+
 @media (max-width: 1024px) {
-  .knowledge-node:nth-of-type(n + 13) {
-    display: none;
-  }
-
-  .connection-line:nth-of-type(n + 13) {
-    display: none;
-  }
-
   .showcase-subtitle {
     font-size: var(--app-text-2xl);
   }
 
   .header-logo {
     top: 26px;
-    left: 40px;
+    left: 50px;
 
     .logo-image {
-      width: 100px;
+      width: 212px;
+      height: 32px;
     }
   }
 
@@ -1658,14 +1591,6 @@ onMounted(async () => {
     box-sizing: border-box;
   }
 
-  .knowledge-node:nth-of-type(n + 9) {
-    display: none;
-  }
-
-  .connection-line:nth-of-type(n + 9) {
-    display: none;
-  }
-
   .showcase-section {
     flex: 0 0 auto;
     min-height: 50vh;
@@ -1674,14 +1599,16 @@ onMounted(async () => {
 
   .showcase-content {
     max-width: 100%;
+    margin-bottom: 0;
   }
 
   .header-logo {
-    top: 22px;
-    left: 30px;
+    top: 12px;
+    left: 24px;
 
     .logo-image {
-      width: 80px;
+      width: 196px;
+      height: 30px;
     }
   }
 
@@ -1691,7 +1618,7 @@ onMounted(async () => {
   }
 
   .feature-tags {
-    margin-bottom: 24px;
+    margin-bottom: 0;
   }
 
   .carousel-container {
@@ -1702,6 +1629,10 @@ onMounted(async () => {
     order: -1;
     flex: 0 0 auto;
     padding: 24px;
+  }
+
+  .form-panel {
+    margin-bottom: 0;
   }
 
   .header-links {
@@ -1729,20 +1660,17 @@ onMounted(async () => {
 }
 
 @media (max-width: 480px) {
-  .animated-bg {
-    display: none;
-  }
-
   .showcase-section {
     padding: 32px 20px;
   }
 
   .header-logo {
-    top: 18px;
+    top: 12px;
     left: 20px;
 
     .logo-image {
-      width: 70px;
+      width: 180px;
+      height: 28px;
     }
   }
 
@@ -1787,7 +1715,8 @@ onMounted(async () => {
 @media (prefers-reduced-motion: reduce) {
 
   .knowledge-node,
-  .connection-line {
+  .knowledge-node::after,
+  .connection-flow {
     animation: none !important;
     transition: none !important;
   }
@@ -1801,21 +1730,15 @@ onMounted(async () => {
 <style lang="less">
 html[theme-mode="dark"] {
   .login-layout {
-    background: linear-gradient(225deg, #011a14 0%, #032e22 15%, #043a2c 25%, #05503d 38%, #046647 50%, #038a56 65%, #049b60 78%, #06a06a 90%, #07b074 100%);
-  }
-
-  .knowledge-node {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
-    box-shadow: 0 0 8px rgba(255, 255, 255, 0.15);
-  }
-
-  .connection-line {
-    stroke: rgba(255, 255, 255, 0.25);
-  }
-
-  .header-logo .logo-image {
-    filter: invert(1) hue-rotate(180deg) brightness(1.1);
+    --td-brand-color: #8eb9d2;
+    --td-brand-color-hover: #a2cce3;
+    --td-brand-color-active: #75a7c4;
+    --td-brand-color-disabled: #334e63;
+    --td-brand-color-focus: rgba(142, 185, 210, 0.22);
+    --td-brand-color-light: #243f52;
+    --td-text-color-brand: #b4d1e3;
+    --td-component-stroke: #3b566a;
+    background: linear-gradient(225deg, #081827 0%, #0c2337 15%, #103046 25%, #153e56 38%, #1d506a 50%, #28647f 65%, #367d98 78%, #5096ad 90%, #74b2c5 100%);
   }
 
   .header-link {
@@ -1843,21 +1766,22 @@ html[theme-mode="dark"] {
   }
 
   .tag {
-    background: rgba(255, 255, 255, 0.12);
+    background: linear-gradient(120deg, rgba(153, 192, 216, 0.2), rgba(56, 98, 127, 0.2));
   }
 
   .form-card {
-    background: rgba(36, 36, 36, 0.97) !important;
+    background: linear-gradient(145deg, rgba(23, 44, 60, 0.98), rgba(32, 62, 81, 0.98)) !important;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4) !important;
   }
 
-  .register-cta__divider span {
-    background: rgba(36, 36, 36, 0.97);
+  .register-cta__divider span,
+  .oidc-divider span {
+    background: #1c3547;
   }
 
   .form-content .t-input {
-    background: var(--td-bg-color-page) !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
+    background: #152b3b !important;
+    border-color: var(--td-component-stroke) !important;
 
     &:hover {
       border-color: var(--td-brand-color) !important;
@@ -1873,7 +1797,7 @@ html[theme-mode="dark"] {
   }
 
   .login-features .feature-icon {
-    background: rgba(6, 176, 77, 0.15);
+    background: var(--td-brand-color-light);
   }
 }
 </style>

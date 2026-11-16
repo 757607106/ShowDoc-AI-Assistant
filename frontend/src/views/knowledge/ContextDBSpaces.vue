@@ -1,89 +1,105 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { MessagePlugin } from 'tdesign-vue-next'
 import ResourceIcon from '@/components/icons/ResourceIcon.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import KbTypeAvatar from './components/KbTypeAvatar.vue'
-import { createSpace, getSpaces, type KnowledgeSpace, spaceTargetStatus, spaceTargetNotice } from '@/api/knowledgeSpaces'
-import { spaceName } from '@/utils/platformPresentation'
+import ContextDBBaseEditor from './ContextDBBaseEditor.vue'
+import { deleteBase, getBasePermissions, knowledgeAccess, knowledgeModeLabel, listBases, updateBase, type ContextDBBase, type BasePermissionProfile } from '@/api/contextdb'
+import { dateTime } from '@/utils/platformPresentation'
 
 const router = useRouter(), auth = useAuthStore()
-const spaces = ref<KnowledgeSpace[]>([]), availableBases = ref<any[]>([])
-const loading = ref(false), error = ref(''), query = ref(''), dialog = ref(false), saving = ref(false)
-const linking = ref(false)
-const name = ref(''), wikiId = ref(''), graphId = ref(''), graphEnabled = ref(false)
-const filtered = computed(() => spaces.value.filter(space => `${spaceName(space.scope,spaces.value)} ${space.scope}`.toLowerCase().includes(query.value.trim().toLowerCase())))
-const wikiBases = computed(() => availableBases.value.filter(base => base.wiki_enabled))
-const graphBases = computed(() => availableBases.value.filter(base => base.graph_enabled && !base.wiki_enabled))
+const bases = ref<ContextDBBase[]>([]), profile = ref<BasePermissionProfile | null>(null)
+const loading = ref(false), error = ref(''), permissionError = ref(''), query = ref(''), order = ref('updated_desc'), view = ref('cards'), page = ref(1)
+const editor = ref(false), renaming = ref<ContextDBBase | null>(null), name = ref(''), deleting = ref<ContextDBBase | null>(null), saving = ref(false), actionError = ref('')
+const canCreate = computed(() => auth.hasRole('contributor') && !!profile.value && (!profile.value.evaluation_state || profile.value.evaluation_state === 'active') && (!profile.value.member?.status || profile.value.member.status === 'active') && (profile.value.mode === 'personal_compatibility' || ['owner', 'admin'].includes(profile.value.member?.role || '')))
+const access = (base: ContextDBBase) => knowledgeAccess(base, profile.value, auth.hasRole('contributor'))
+function permissionLabel(base: ContextDBBase) {
+  if (!profile.value) return '权限待确认'
+  const rights=access(base)
+  if(rights.manage)return '可管理'
+  if(rights.write)return '可写'
+  return profile.value.knowledge_base_permissions?.find(item=>item.knowledge_base_id===base.id)?.current_permission==='none'?'无权限':'只读'
+}
+const filtered = computed(() => {
+  const items = bases.value.filter(base => `${base.name} ${base.description || ''}`.toLowerCase().includes(query.value.trim().toLowerCase()))
+  return items.sort((a, b) => order.value === 'name' ? a.name.localeCompare(b.name, 'zh-CN') : String(b[order.value === 'created_desc' ? 'created_at' : 'updated_at'] || '').localeCompare(String(a[order.value === 'created_desc' ? 'created_at' : 'updated_at'] || '')))
+})
+const visibleBases = computed(() => filtered.value.slice((page.value - 1) * 12, page.value * 12))
+watch([query, order], () => { page.value = 1 })
+let requestId = 0
 async function load() {
-  loading.value = true; error.value = ''
-  try { const result = await getSpaces(); spaces.value = result.spaces; availableBases.value = result.available_bases || [] }
-  catch (e: any) { error.value = e.message }
-  finally { loading.value = false }
+  const request = ++requestId
+  loading.value = true; error.value = ''; permissionError.value = ''; profile.value = null
+  const [libraries, permissions] = await Promise.allSettled([listBases(), getBasePermissions()])
+  if (request !== requestId) return
+  if (libraries.status === 'fulfilled') {
+    bases.value = libraries.value.data
+    page.value = Math.min(page.value, Math.max(1, Math.ceil(filtered.value.length / 12)))
+  } else error.value = libraries.reason.message || '知识库读取失败'
+  if (permissions.status === 'fulfilled') profile.value = permissions.value
+  else permissionError.value = '暂时无法核对官方权限，写入操作已停用。请刷新重试。'
+  loading.value = false
 }
-function openCreate(base?: any) {
-  name.value = base?.name || ''; wikiId.value = base?.wiki_enabled ? base.id : ''
-  graphId.value = ''; graphEnabled.value = false; linking.value = false; dialog.value = true
+const open = (base: ContextDBBase, tab?: string) => router.push({ path: `/platform/knowledge-bases/${encodeURIComponent(base.id)}`, ...(tab ? { query: { tab } } : {}) })
+async function saved(id: string) { editor.value = false; await load(); await router.push(`/platform/knowledge-bases/${encodeURIComponent(id)}`) }
+function menu(base: ContextDBBase) {
+  return [...(base.wiki_enabled ? [{ content: '知识 Wiki', value: 'wiki' }] : []),
+    ...(access(base).manage ? [{ content: '重命名', value: 'rename' }] : []), ...(access(base).delete ? [{ content: '删除', value: 'delete', theme: 'error' as const }] : [])]
 }
-async function save() {
-  if (saving.value) return
-  if (!name.value.trim()) { MessagePlugin.warning('请输入知识库名称'); return }
-  saving.value = true
-  try {
-    const result = await createSpace({ name: name.value.trim(), graph_enabled: graphEnabled.value,
-      ...(wikiId.value ? { wiki_kb_id: wikiId.value } : {}), ...(graphEnabled.value && graphId.value ? { graph_kb_id: graphId.value } : {}) })
-    dialog.value = false
-    await router.push(`/platform/knowledge-spaces/${encodeURIComponent(result.space.scope)}`)
-  } catch (e: any) { MessagePlugin.error(e.message) }
+function act(base: ContextDBBase, action: string) {
+  if (action === 'wiki' && base.wiki_enabled) return open(base, 'wiki')
+  if (!access(base).manage) return
+  actionError.value = ''
+  if (action === 'rename') { renaming.value = base; name.value = base.name }
+  if (action === 'delete' && access(base).delete) deleting.value = base
+}
+async function rename() {
+  if (saving.value || !renaming.value || !access(renaming.value).manage) return
+  if (!name.value.trim()) { actionError.value = '请输入知识库名称'; return }
+  saving.value = true; actionError.value = ''
+  try { await updateBase(renaming.value.id, { name: name.value.trim() }); renaming.value = null; await load(); MessagePlugin.success('名称已更新') }
+  catch (e: any) { actionError.value = e.message }
   finally { saving.value = false }
 }
-const open = (space: KnowledgeSpace) => router.push(`/platform/knowledge-spaces/${encodeURIComponent(space.scope)}`)
-function refreshAvailability(){if(document.visibilityState!=='hidden'&&!loading.value)void load()}
-onMounted(()=>{void load();window.addEventListener('focus',refreshAvailability);document.addEventListener('visibilitychange',refreshAvailability)})
-onUnmounted(()=>{window.removeEventListener('focus',refreshAvailability);document.removeEventListener('visibilitychange',refreshAvailability)})
+async function remove() {
+  if (saving.value || !deleting.value || !access(deleting.value).delete) return
+  saving.value = true; actionError.value = ''
+  try { await deleteBase(deleting.value.id); deleting.value = null; await load(); MessagePlugin.success('删除请求已完成') }
+  catch (e: any) { actionError.value = `${e.message}。若库非空或仍有处理任务，请先在文档中核对并处理后再重试。` }
+  finally { saving.value = false }
+}
+function refreshAvailability() { if (document.visibilityState !== 'hidden' && !loading.value) void load() }
+onMounted(() => { void load(); window.addEventListener('focus', refreshAvailability); document.addEventListener('visibilitychange', refreshAvailability) })
+onUnmounted(() => { requestId++; window.removeEventListener('focus', refreshAvailability); document.removeEventListener('visibilitychange', refreshAvailability) })
 </script>
 
 <template>
   <div class="kb-list-container"><div class="kb-list-content">
-    <header class="header">
-      <div class="header-title"><h2><ResourceIcon type="knowledge" :size="24" />知识库</h2></div>
-      <t-space><t-button variant="text" :loading="loading" @click="load">刷新</t-button><t-button variant="outline" @click="linking=true">关联已有库</t-button><t-button v-if="auth.hasRole('contributor')" @click="openCreate()"><template #icon><t-icon name="folder-add" /></template>新建知识库</t-button></t-space>
-    </header>
-    <t-input v-model="query" class="space-search" clearable placeholder="搜索知识库"><template #prefix-icon><t-icon name="search" /></template></t-input>
-    <t-alert v-if="error" theme="error" :message="error" />
+    <header class="header"><h2><ResourceIcon type="knowledge" :size="24" />知识库</h2><t-space><t-button variant="text" :loading="loading" @click="load">刷新</t-button><t-button v-if="canCreate" @click="editor=true"><template #icon><t-icon name="folder-add" /></template>新建知识库</t-button></t-space></header>
+    <div class="list-toolbar"><t-input class="kb-search" v-model="query" clearable placeholder="搜索知识库名称或说明"><template #prefix-icon><t-icon name="search" /></template></t-input><t-select class="kb-order" v-model="order" aria-label="知识库排序" :options="[{value:'updated_desc',label:'最近更新'},{value:'created_desc',label:'最近创建'},{value:'name',label:'名称'}]" /><t-radio-group class="kb-view" v-model="view" variant="default-filled"><t-radio-button value="cards">卡片</t-radio-button><t-radio-button value="list">列表</t-radio-button></t-radio-group></div>
+    <t-alert v-if="error" theme="error" :message="error" /><t-alert v-if="permissionError" theme="warning" :message="permissionError" />
     <t-loading :loading="loading" class="kb-list-main">
-      <div class="kb-card-wrap">
-        <div v-for="space in filtered" :key="space.scope" class="kb-card" role="link" tabindex="0" @click="open(space)" @keydown.enter.self.prevent="open(space)" @keydown.space.self.prevent="open(space)">
-          <div class="card-header"><KbTypeAvatar type="document" /><span class="card-title">{{ spaceName(space.scope,spaces) }}</span></div>
-          <div class="card-content"><t-space break-line><t-tag :theme="spaceTargetStatus(space,'wiki')==='missing'?'warning':'primary'" variant="light">{{spaceTargetStatus(space,'wiki')==='missing'?'Wiki 库不存在':'Wiki'}}</t-tag><t-tag v-if="space.graph_enabled" :theme="spaceTargetStatus(space,'graph')==='missing'?'warning':'success'" variant="light">{{spaceTargetStatus(space,'graph')==='missing'?'图谱库不存在':'知识图谱'}}</t-tag></t-space></div>
-          <div class="card-bottom"><span>{{ spaceTargetStatus(space,'wiki')==='available' ? '查看资料与 Wiki' : spaceTargetNotice(space,'wiki') }}</span><t-icon name="chevron-right" /></div>
-        </div>
-      </div>
-      <EmptyState v-if="!loading && !filtered.length" :icon="query ? 'search' : 'folder'" :title="query ? '没有匹配的知识库' : '暂无知识库'"><t-button v-if="!query && auth.hasRole('contributor')" @click="openCreate()">新建知识库</t-button></EmptyState>
+      <div v-if="view==='cards'" class="kb-card-wrap"><div v-for="base in visibleBases" :key="base.id" class="kb-card" role="link" tabindex="0" @click="open(base)" @keydown.enter.self.prevent="open(base)" @keydown.space.self.prevent="open(base)">
+        <div class="card-header"><KbTypeAvatar type="document" /><strong class="card-title">{{base.name}}</strong><div v-if="menu(base).length" class="card-menu" @click.stop @keydown.stop><t-dropdown :options="menu(base)" @click="(item: any)=>act(base,String(item.value))"><t-button variant="text" shape="square" :aria-label="base.name+'的操作'"><t-icon name="more" /></t-button></t-dropdown></div></div>
+        <p class="card-description">{{base.description || '暂无说明'}}</p><t-space break-line><t-tag variant="light">{{knowledgeModeLabel(base)}}</t-tag><t-tag :theme="base.review_enabled?'success':'default'" variant="light">{{base.review_enabled?'评审已开启':'评审已关闭'}}</t-tag><t-tag variant="outline">{{permissionLabel(base)}}</t-tag></t-space>
+        <div class="card-bottom"><span>{{base.document_count ?? 0}} 份文档</span><span>{{dateTime(base.updated_at || base.created_at)}}</span></div>
+      </div></div>
+      <t-table v-else row-key="id" :data="visibleBases" :columns="[{colKey:'name',title:'知识库'},{colKey:'mode',title:'编译模式'},{colKey:'review',title:'知识评审'},{colKey:'permission',title:'当前权限'},{colKey:'document_count',title:'文档数'},{colKey:'updated_at',title:'更新时间'},{colKey:'actions',title:'操作'}]">
+        <template #name="{row}"><t-link @click="open(row)">{{row.name}}</t-link></template><template #mode="{row}">{{knowledgeModeLabel(row)}}</template><template #permission="{row}">{{permissionLabel(row)}}</template><template #review="{row}">{{row.review_enabled?'开启':'关闭'}}</template><template #updated_at="{row}">{{dateTime(row.updated_at || row.created_at)}}</template><template #actions="{row}"><t-space><t-button variant="text" @click="open(row)">详情</t-button><t-dropdown v-if="menu(row).length" :options="menu(row)" @click="(item: any)=>act(row,String(item.value))"><t-button variant="text">更多<t-icon name="chevron-down" /></t-button></t-dropdown></t-space></template>
+      </t-table>
+      <EmptyState v-if="!loading&&!error&&!filtered.length" :icon="query?'search':'folder'" :title="query?'没有匹配的知识库':'暂无知识库'"><t-button v-if="!query&&canCreate" @click="editor=true">新建知识库</t-button></EmptyState>
     </t-loading>
-    <t-dialog v-model:visible="linking" header="关联已有库" width="760px" :footer="false">
-      <p class="hint">可将已有 Wiki 库关联为业务知识库。其他模式的库可直接查看资料，已有内容与引用保持可用。</p>
-      <t-loading :loading="loading">
-        <t-table row-key="id" :data="availableBases" :columns="[{colKey:'name',title:'名称'},{colKey:'mode',title:'类型'},{colKey:'actions',title:'操作',width:240}]">
-          <template #mode="{row}">{{row.wiki_enabled ? 'Wiki' : row.graph_enabled ? '知识图谱' : '文档检索'}}</template>
-          <template #actions="{row}"><t-space><t-button variant="text" @click="router.push(`/platform/knowledge-bases/${row.id}`)">查看资料</t-button><t-button v-if="row.wiki_enabled && auth.hasRole('contributor')" variant="text" @click="openCreate(row)">关联为知识库</t-button></t-space></template>
-        </t-table>
-      </t-loading>
-    </t-dialog>
-    <t-dialog v-model:visible="dialog" header="新建知识库" :confirm-btn="{content:'创建',loading:saving}" :close-on-overlay-click="!saving" @confirm="save">
-      <t-form label-align="top">
-        <t-form-item label="知识库名称"><t-input v-model="name" :maxlength="100" placeholder="例如：产品交付知识" /></t-form-item>
-        <t-form-item label="Wiki 主库"><t-select v-model="wikiId" clearable placeholder="首次提交资料时创建，也可关联已有 Wiki 库" :options="wikiBases.map(base=>({label:base.name,value:base.id}))" /></t-form-item>
-        <t-form-item label="启用知识图谱" help="启用后，同一资料分别投递到 Wiki 库和图谱库，产生两份入库和独立评审状态；Wiki 修订不会自动同步到图谱。"><t-switch v-model="graphEnabled" /></t-form-item>
-        <t-form-item v-if="graphEnabled" label="关联已有图谱库"><t-select v-model="graphId" clearable placeholder="首次提交资料时创建" :options="graphBases.map(base=>({label:base.name,value:base.id}))" /></t-form-item>
-      </t-form>
-    </t-dialog>
+    <t-pagination v-if="filtered.length" :current="page" :total="filtered.length" :page-size="12" :show-page-size="false" @current-change="(value: number)=>page=value" />
+    <ContextDBBaseEditor :visible="editor" mode="create" @update:visible="editor=$event" @success="saved" />
+    <t-dialog :visible="!!renaming" header="重命名知识库" :confirm-btn="{content:'保存',loading:saving}" :close-on-overlay-click="!saving" @update:visible="(value: boolean)=>{if(!value&&!saving)renaming=null}" @confirm="rename"><t-input v-model="name" :maxlength="255" @enter="rename" /><t-alert v-if="actionError" theme="error" :message="actionError" /></t-dialog>
+    <t-dialog :visible="!!deleting" header="删除知识库" :confirm-btn="{content:'删除',theme:'danger',loading:saving}" :close-on-overlay-click="!saving" @update:visible="(value: boolean)=>{if(!value&&!saving)deleting=null}" @confirm="remove"><p>确认删除“{{deleting?.name}}”？此操作不可恢复。非空或正在处理的知识库可能被官方服务拒绝，请先核对文档与任务。</p><t-alert v-if="actionError" theme="error" :message="actionError" /></t-dialog>
   </div></div>
 </template>
 
 <style scoped lang="less">
 @import (reference) '@/components/css/resource-card.less';
-.kb-list-container{height:100%;display:flex;min-height:0;min-width:0}.kb-list-content{.resource-list-content()}.kb-list-main{.resource-list-main();display:block}.kb-card-wrap{.resource-card-grid()}.kb-card{.resource-card();.resource-card-footer()}.header{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:20px}.header-title h2{display:flex;align-items:center;gap:10px;font-size:var(--app-text-3xl);margin:0}.header-title p,.hint,.existing-bases p,.card-description{color:var(--td-text-color-secondary);line-height:1.6}.space-search{max-width:360px;margin-bottom:24px}.card-header{display:flex;align-items:center;gap:10px}.card-title{font-weight:600;overflow-wrap:anywhere}.card-content{margin:16px 0}.card-description{overflow-wrap:anywhere;margin:0 0 12px}.card-bottom{display:flex;justify-content:space-between;color:var(--td-text-color-secondary);font-size:var(--app-text-sm)}.existing-bases{margin-top:32px}.switch-description{margin-left:10px}.hint{font-size:var(--app-text-md)}@media(max-width:700px){.header{align-items:flex-start;flex-direction:column}}
+.kb-list-container{font-family:var(--app-font-family);font-size:var(--app-text-base);height:100%;display:flex;min-height:0;min-width:0}.kb-list-content{.resource-list-content()}.kb-list-main{.resource-list-main();display:block}.kb-card-wrap{.resource-card-grid()}.kb-card{.resource-card();.resource-card-footer()}.header,.list-toolbar,.card-header,.card-bottom{display:flex;align-items:center;gap:12px}.header{justify-content:space-between;margin-bottom:20px}.header h2{display:flex;align-items:center;gap:10px;margin:0;font-size:var(--app-text-4xl);font-weight:600}.list-toolbar{margin-bottom:20px}.list-toolbar>.kb-search{width:440px;max-width:100%;flex:0 1 440px}.list-toolbar>.kb-order{width:160px;flex:none}.list-toolbar>.kb-view{display:inline-flex;flex:none;white-space:nowrap}.card-title{overflow-wrap:anywhere;flex:1}.card-menu{margin-left:auto}.card-description{color:var(--td-text-color-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:24px}.kb-card .card-description{font-size:var(--app-text-md)}.card-bottom{justify-content:space-between;color:var(--td-text-color-secondary);font-size:var(--app-text-sm);margin-top:20px}.t-alert{margin-bottom:16px}.kb-card:focus-visible{outline:2px solid var(--td-brand-color);outline-offset:3px}@media(max-width:700px){.list-toolbar{flex-wrap:wrap}.header{align-items:flex-start;gap:16px}}
 </style>

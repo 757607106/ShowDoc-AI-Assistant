@@ -116,7 +116,7 @@ def test_body_cas_and_complete_chunks_do_not_authorize_compiler_takeover(compile
     assert report['checks']['page_cas']['status'] == 'available'
     assert report['cleanup'] == {'status': 'deleted', 'probe_kb_id': 'disposable-kb'}
     compiler_client.delete_knowledge_base.assert_called_once_with('disposable-kb')
-    compiler_client.list_knowledge_bases.assert_called_once_with(page=1, page_size=100)
+    compiler_client.list_knowledge_bases.assert_called_once_with()
     compiler_client.delete_documents.assert_called_once_with('disposable-kb', ['disposable-doc'])
     assert all(call.args[:2] == ('disposable-kb', 'disposable-page')
                for call in compiler_client.update_wiki_page.call_args_list)
