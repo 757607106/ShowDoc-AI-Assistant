@@ -228,6 +228,25 @@ test('Wiki link titles are inert text and malicious reference strings stay encod
   } finally { f.close() }
 })
 
+test('Wiki labels use additive titles while editing and original content keep native values', async () => {
+  const rawTitle = `doc-${'e'.repeat(64)}.html - Summary`
+  const native = page({ title: rawTitle, display_title: '采购单.html - Summary',
+    content: `# ${rawTitle}\n\n保留正式原文`,
+    links: [{ page_id: 'related', title: rawTitle, display_title: '关联采购单.html - Summary' }] })
+  const f = await fixture({ api: { getWikiPage: async () => native } })
+  try {
+    assert.equal(f.vm.linkTitle(f.vm.page.links[0]), '关联采购单.html - Summary')
+    assert.equal(f.vm.linkTitle({ page_id: 'legacy', title: '历史页面' }), '历史页面')
+    f.vm.openAction('rename')
+    assert.equal(f.vm.actionTitle, rawTitle, 'A displayed alias must never become an implicit rename')
+    f.vm.action = ''
+    f.vm.startEditing()
+    assert.equal(f.vm.draft, native.content)
+    assert.equal(f.vm.page.title, rawTitle)
+    assert.equal(f.vm.page.page_id, native.page_id)
+  } finally { f.close() }
+})
+
 test('late comparison responses cannot restore a cancelled draft or replace another page', async () => {
   const old = deferred<any>()
   let reads = 0

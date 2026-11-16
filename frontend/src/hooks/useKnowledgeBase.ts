@@ -10,6 +10,7 @@ import {
 import { knowledgeStore } from "@/stores/knowledge";
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
+import { IS_CONTEXTDB } from '@/config/contextdb';
 
 export default function (knowledgeBaseId?: string) {
   const usemenuStore = knowledgeStore();
@@ -59,7 +60,7 @@ export default function (knowledgeBaseId?: string) {
     const cardList_ = data.map((item: any) => {
       const rawName = item.file_name || item.title || item.source || t('knowledgeBase.untitledDocument')
       const dotIndex = rawName.lastIndexOf('.')
-      const displayName = dotIndex > 0 ? rawName.substring(0, dotIndex) : rawName
+      const displayName = !IS_CONTEXTDB && dotIndex > 0 ? rawName.substring(0, dotIndex) : rawName
       const fileTypeSource = item.file_type || (item.type === 'manual' ? 'MANUAL' : '')
       return {
         ...item,

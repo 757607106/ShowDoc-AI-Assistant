@@ -102,6 +102,22 @@ def _find_document(client, kb, name, scope):
         page += 1
 
 
+def _document_metadata(record, scope, source, digest, existing=None):
+    metadata = dict(existing or {})
+    captured = record.get('metadata') or {}
+    applicability = captured.get('scope') or {}
+    # These fields follow the capture; unrelated cloud annotations stay intact.
+    for key in ('product', 'version', 'role', 'url', 'filename'):
+        metadata.pop(key, None)
+        value = applicability.get(key) if key in ('product', 'version', 'role') else captured.get(key)
+        if value:
+            metadata[key] = value
+    metadata.update(source='crawler', governance_scope=scope[:200], platform_source_id=source[:200],
+                    source_version=str(record.get('version_id', ''))[:200], source_content_hash=digest,
+                    title=str(record.get('title', ''))[:200])
+    return metadata
+
+
 def _deliver(store, record, archive, mode, kb, scope):
     owner = store.owner_id or ''
     source = str(record['id'])
@@ -144,41 +160,40 @@ def _deliver(store, record, archive, mode, kb, scope):
         doc = _find_document(store.client, kb['id'], name, scope)
         if doc is None and row['status'] in ('uploading', 'uncertain'):
             raise StoreError('上次上传结果未知，官方列表尚未返回该文档；请核实后重试，防止重复提交', 409)
-    if doc and (doc.get('metadata', {}).get('source_content_hash') == digest or
-                (row and row['source_hash'] == digest and row['source_version'] == str(record.get('version_id', '')))):
-        _save(owner, scope, source, mode, kb['id'], document_id=doc['id'], source_hash=digest,
-              source_version=str(record.get('version_id', '')), status=doc.get('ingest_status', 'unknown'), error=doc.get('ingest_error_message'))
-        return False
-    if row and row['status'] in ('uploading', 'uncertain'):
+    unchanged = doc and (doc.get('metadata', {}).get('source_content_hash') == digest or
+                         (row and row['source_hash'] == digest and row['source_version'] == str(record.get('version_id', ''))))
+    if not unchanged and row and row['status'] in ('uploading', 'uncertain'):
         raise StoreError('上次写入结果未知，官方文档尚未确认目标内容版本；请核实后重试，防止覆盖或重复提交', 409)
-    metadata = {'source': 'crawler', 'governance_scope': scope[:200], 'platform_source_id': source[:200],
-                'source_version': str(record.get('version_id', ''))[:200],
-                'source_content_hash': digest, 'title': str(record.get('title', ''))[:200]}
-    filename = (record.get('metadata') or {}).get('filename')
-    if filename:
-        metadata['filename'] = str(filename)[:200]
-    _save(owner, scope, source, mode, kb['id'], status='uploading', error=None)
+    metadata = _document_metadata(record, scope, source, digest, doc.get('metadata') if doc else None)
+    metadata_changed = doc is not None and metadata != doc.get('metadata', {})
     try:
-        with tempfile.TemporaryDirectory(prefix='ctxdb-sync-') as directory:
-            path = Path(directory) / name
-            path.write_bytes(content)
-            mime = mimetypes.guess_type(name)[0] or 'application/octet-stream'
-            if doc:
-                result = store.client.update_file(doc['id'], name, path, metadata=metadata, mime_type=mime)
-            else:
-                try:
-                    result = store.client.upload_file(kb['id'], name, path, file_path=scope, metadata=metadata, mime_type=mime)
-                except ContextDBConflictError as exc:
-                    if exc.error_code != 1003:
-                        raise
-                    existing = _find_document(store.client, kb['id'], name, scope)
-                    if existing is None:
-                        raise
-                    result = store.client.update_file(existing['id'], name, path, metadata=metadata, mime_type=mime)
+        if unchanged:
+            result = doc
+            if metadata_changed:
+                result = {**doc, **store.client.update_document_metadata(metadata, document_id=doc['id'])}
+        else:
+            _save(owner, scope, source, mode, kb['id'], status='uploading', error=None)
+            with tempfile.TemporaryDirectory(prefix='ctxdb-sync-') as directory:
+                path = Path(directory) / name
+                path.write_bytes(content)
+                mime = mimetypes.guess_type(name)[0] or 'application/octet-stream'
+                if doc:
+                    result = store.client.update_file(doc['id'], name, path, metadata=metadata, mime_type=mime)
+                else:
+                    try:
+                        result = store.client.upload_file(kb['id'], name, path, file_path=scope, metadata=metadata, mime_type=mime)
+                    except ContextDBConflictError as exc:
+                        if exc.error_code != 1003:
+                            raise
+                        existing = _find_document(store.client, kb['id'], name, scope)
+                        if existing is None:
+                            raise
+                        metadata = _document_metadata(record, scope, source, digest, existing.get('metadata'))
+                        result = store.client.update_file(existing['id'], name, path, metadata=metadata, mime_type=mime)
         _save(owner, scope, source, mode, kb['id'], document_id=result['id'], source_hash=digest,
               source_version=str(record.get('version_id', '')), status=result.get('ingest_status', 'unknown'),
-              event_id=result.get('latest_ingest_event_id'), error=None)
-        return True
+              event_id=result.get('latest_ingest_event_id'), error=result.get('ingest_error_message'))
+        return not unchanged or metadata_changed
     except Exception as exc:
         definite = isinstance(exc, ContextDBError) and exc.status_code is not None and 400 <= exc.status_code < 500
         _save(owner, scope, source, mode, kb['id'], status='rejected' if definite else 'uncertain', error=str(exc)[:1000])

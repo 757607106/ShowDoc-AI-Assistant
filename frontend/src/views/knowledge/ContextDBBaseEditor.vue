@@ -13,7 +13,7 @@ watch(() => [props.visible, props.kbId], async () => {
   try {
     if (props.mode === 'edit' && props.kbId) {
       const { data } = await getBase(props.kbId)
-      name.value = data.name; description.value = data.description || ''
+      name.value = data.space_name || data.name; description.value = data.description || ''
       mode.value = data.wiki_enabled ? 'wiki' : data.graph_enabled ? 'graph' : 'search'
     }
   } catch (e: any) { MessagePlugin.error(e.message) }

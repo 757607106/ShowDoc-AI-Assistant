@@ -14,7 +14,7 @@ type Request = {
   reject: (error: unknown) => void
 }
 
-function setup(t: TestContext) {
+function setup(t: TestContext, contextdbDeployment = true) {
   const f = fixture(t)
   const metadata: Request[] = []
   const chunks: Request[] = []
@@ -29,6 +29,7 @@ function setup(t: TestContext) {
   const contextdb = f.evaluate(readFileSync(new URL('../api/contextdb.ts', import.meta.url), 'utf8'), {
     '@/utils/request': request,
     '@/utils/contextdbDocumentName': contextdbDocumentName,
+    '@/api/knowledgeSpaces': {},
   })
   const apiSource = readFileSync(new URL('../api/knowledge-base/index.ts', import.meta.url), 'utf8')
   const api = f.evaluate(`import { URLSearchParams } from 'node:url'\n${apiSource}`, {
@@ -37,6 +38,7 @@ function setup(t: TestContext) {
     '../../utils/request': request,
     './knowledgeFileListQuery': {},
     './knowledgeReadOptions': knowledgeReadOptions,
+    '@/config/contextdb': { IS_CONTEXTDB: contextdbDeployment },
   })
   const stores = f.evaluate(readFileSync(new URL('../stores/knowledge.ts', import.meta.url), 'utf8'), { vue, pinia })
   const root = pinia.createPinia()
@@ -49,6 +51,7 @@ function setup(t: TestContext) {
     '@/stores/knowledge': stores,
     'vue-router': { useRoute: () => ({ params: { kbId: 'kb' } }) },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
+    '@/config/contextdb': { IS_CONTEXTDB: contextdbDeployment },
   })
   const hook: ReturnType<typeof import('./useKnowledgeBase')['default']> = useKnowledgeBase('kb')
   return { hook, metadata, chunks, api, put }
@@ -66,6 +69,28 @@ function detail(id: string, revision = 'current') {
 }
 
 const chunkPage = (content: string) => ({ success: true, data: { chunks: [{ chunk_id: content, content }], total: 50 } })
+
+for (const contextdbDeployment of [true, false]) {
+  test(`document list ${contextdbDeployment ? 'preserves canonical extensions in ContextDB' : 'retains extension-free WeKnora labels'}`, async t => {
+    const { hook, metadata } = setup(t, contextdbDeployment)
+    const loaded = hook.getKnowled({ page: 1, page_size: 35 })
+    const names = ['中文名称验收（完整版）.md', '001-guide.v2.PDF']
+    const documents = names.map((name, index) => ({ id: `doc-${index}`, name: `doc-internal-${index}.md`,
+      display_name: name, updated_at: '2026-01-01T00:00:00Z' }))
+    metadata[0].resolve({ data: { documents, total: documents.length } })
+    await loaded
+    assert.equal(hook.total.value, names.length)
+    for (const [index, name] of names.entries()) {
+      const card = hook.cardList.value[index]
+      const expected = contextdbDeployment ? name : name.slice(0, name.lastIndexOf('.'))
+      assert.equal(card.file_name, expected)
+      assert.equal(card.display_name, expected)
+      assert.equal(card.original_file_name, name)
+      assert.equal(card.id, documents[index].id)
+      assert.equal(documents[index].name, `doc-internal-${index}.md`)
+    }
+  })
+}
 
 test('late metadata and chunks from a previous document cannot replace the current document', async t => {
   const { hook, metadata, chunks } = setup(t)

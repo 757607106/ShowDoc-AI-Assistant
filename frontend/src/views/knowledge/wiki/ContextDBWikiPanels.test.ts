@@ -44,6 +44,7 @@ async function fixture(name: 'Compile' | 'Issues', overrides: Record<string, any
       if (name === 'tdesign-vue-next') return { MessagePlugin: { warning: (message: string) => warnings.push(message) } }
       if (name === '@/api/contextdbWiki' || name === '@/api/contextdb') return api
       if (name === '@/utils/platformPresentation') return { dateTime: (v: unknown) => v || '—' }
+      if (name === '@/utils/contextdbDocumentName') return require('../../../utils/contextdbDocumentName.ts')
       throw new Error(`Unexpected dependency: ${name}`)
     },
   })
@@ -67,19 +68,35 @@ async function fixture(name: 'Compile' | 'Issues', overrides: Record<string, any
 test('compile pagination keeps its status and source names use four requests at a time with a cache', async () => {
   let inFlight = 0, peak = 0
   const f = await fixture('Compile', {
-    listWikiCompileRuns: async (_kb: string, query: any) => ({ items: Array.from({ length: 9 }, (_, i) => ({ document_id: String(i), run_state: 'pending' })), summary: { total: 9, pending: 9 }, next_cursor: query.cursor ? null : 'next-sources', wiki_compile_paused: false }),
+    listWikiCompileRuns: async (_kb: string, query: any) => ({ items: Array.from({ length: 9 }, (_, i) => ({ document_id: String(i), document_name: `doc-${i}.md`, run_state: 'pending' })), summary: { total: 9, pending: 9 }, next_cursor: query.cursor ? null : 'next-sources', wiki_compile_paused: false }),
     getDocument: async (id: string) => { inFlight++; peak = Math.max(peak, inFlight); await new Promise(resolve => setImmediate(resolve)); inFlight--; return { data: { file_name: `来源 ${id}` } } },
   })
   try {
-    assert.equal(peak, 4); assert.equal(f.vm.rows[0].document_name, '来源 0')
+    assert.equal(peak, 4); assert.equal(f.vm.rows[0].document_display_name, '来源 0')
+    assert.equal(f.vm.rows[0].document_name, 'doc-0.md')
     f.vm.status = 'pending'; await flush(); await f.vm.load(true)
     const query = f.calls.filter(call => call.name === 'listWikiCompileRuns').at(-1)!.args[1]
     assert.equal(query.status, 'pending'); assert.equal(query.cursor, 'next-sources')
     await f.tick(); assert.equal(f.calls.filter(call => call.name === 'getDocument').length, 9)
+    assert.equal(f.vm.rows[0].document_display_name, '来源 0', 'polling must retain the cached readable name')
+    assert.equal(f.vm.rows[0].document_name, 'doc-0.md')
     assert.ok(f.timers.size > 0); f.hide(); assert.equal(f.timers.size, 0)
     f.show(); assert.ok(f.timers.size > 0)
   } finally { f.close() }
   assert.equal(f.timers.size, 0)
+})
+
+test('enriched compile names avoid redundant detail requests and retain source identities', async () => {
+  const f = await fixture('Compile', {
+    listWikiCompileRuns: async () => ({ items: [{ document_id: 'source-a', document_name: 'doc-hash.html', document_display_name: '采购明细.html', run_state: 'compiled' }], summary: {}, wiki_compile_paused: false }),
+  })
+  try {
+    assert.equal(f.vm.rows[0].document_display_name, '采购明细.html')
+    assert.equal(f.vm.rows[0].document_name, 'doc-hash.html')
+    assert.equal(f.calls.filter(call => call.name === 'getDocument').length, 0)
+    await f.vm.load()
+    assert.equal(f.vm.rows[0].document_display_name, '采购明细.html')
+  } finally { f.close() }
 })
 
 test('compile controls check the accepted event then reread the source state', async () => {

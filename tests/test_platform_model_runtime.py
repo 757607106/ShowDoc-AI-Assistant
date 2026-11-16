@@ -141,7 +141,7 @@ def test_usage_generation_uses_only_cached_metadata_and_real_configured_model(ru
     base, calls = provider_server
     value = service(owner, 'http://127.0.0.1:9')
     registry.save_record('mcp-metadata', {'id': value['id'], 'fingerprint': fingerprint(value), 'snapshot': {
-        'service_id': value['id'], 'tools': [{'name': 'read', 'description': 'Read records', 'inputSchema': {'type': 'object'}}],
+        'service_id': value['id'], 'tools': [{'name': 'read', 'description': 'Read records', 'inputSchema': {'type': 'object'}, 'readOnlyHint': True}],
         'instructions': 'Reference only', 'server_name': 'Fixture', 'server_description': '', 'server_version': '1', 'synced_at': 'now', 'stale': False}}, owner)
     saved = registry.save_model({'name': 'fixture', 'type': 'KnowledgeQA', 'source': 'remote',
         'parameters': {'base_url': base + '/v1', 'api_key': 'model-private-key'}}, owner)

@@ -14,6 +14,7 @@ test('model deletion renders structured usage groups and localized fallback erro
   assert.match(source, /error instanceof ModelInUseError/)
   assert.match(source, /usageConflict\.knowledge_bases/)
   assert.match(source, /usageConflict\.agents/)
+  assert.match(source, /usageConflict\.long_term_memory\.bindings/)
   assert.match(source, /MessagePlugin\.error\(error\.message \|\| t\('modelSettings\.toasts\.deleteFailed'\)\)/)
 })
 

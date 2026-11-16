@@ -1,5 +1,8 @@
-"""Read-only legacy interaction records; execution belongs to the native Harness."""
-from flask import Blueprint, jsonify, request
+"""Native checkpoint interactions and read-only legacy interaction records."""
+import asyncio
+
+from flask import Blueprint, g, jsonify, request
+from psycopg.types.json import Jsonb
 
 from agent import registry, sessions
 from governance.database import connection
@@ -35,11 +38,61 @@ def steers(sid):
 
 @chat_interactions_bp.route('/api/v1/sessions/<sid>/steer/<steer_id>', methods=['DELETE'])
 @chat_interactions_bp.route('/api/v1/sessions/<sid>/steer/<steer_id>/inject', methods=['POST'])
-@chat_interactions_bp.route('/api/v1/sessions/<sid>/fork', methods=['POST'])
-@chat_interactions_bp.route('/api/v1/sessions/<sid>/rewind', methods=['POST'])
 @chat_interactions_bp.route('/api/v1/sessions/<sid>/background-work/<work_id>/cancel', methods=['POST'])
 def retired_interaction(sid, steer_id=None, work_id=None):
     unavailable(sid)
+
+
+async def _travel(selected, user, body, *, fork):
+    from agent.checkpointer import async_runtime
+    from agent import time_travel
+    from webapi.harness import _graph
+    message_id = body.get('message_id')
+    if not isinstance(message_id, str) or not message_id:
+        raise StoreError('message_id 不能为空', 400)
+    resolved = selected['agent_config']
+    if not resolved.get('agent_config'):
+        raise StoreError('会话没有可用检查点', 409)
+    async with async_runtime() as (saver, store):
+        graph = await _graph(saver, user, selected, resolved, load_tools=False, store=store)
+        source, deleted = await time_travel.select(graph, selected['id'], message_id, rewind=not fork)
+        if fork:
+            config = {key: value for key, value in resolved.items()
+                      if key not in ('files', 'message_blocks', 'attachment_ids', 'attachments', 'user_images')}
+            created = None
+            try:
+                with connection() as conn:
+                    # Publish the new session only after its native checkpoint seed is durable.
+                    created = sessions.create_session(body.get('title') or selected['title'], user['id'], config,
+                        kind=resolved.get('_kind', ''), _connection=conn)
+                    await time_travel.seed(graph, source, created['id'])
+                    row = conn.execute('UPDATE agent_sessions SET knowledge_base_ids=%s WHERE id=%s AND owner_id=%s RETURNING *',
+                        (Jsonb(selected['knowledge_base_ids']), created['id'], user['id'])).fetchone()
+                    created = sessions._public(row)
+            except BaseException:
+                if created:
+                    await saver.adelete_thread(created['id'])
+                raise
+            return {'session_id': created['id'], 'session': created}
+        await time_travel.rewind(graph, source)
+    with connection() as conn:
+        conn.execute("DELETE FROM runtime_records WHERE owner_id=%s AND kind='harness_resume' AND record_key=%s",
+                     (user['id'], selected['id']))
+        conn.execute('UPDATE agent_sessions SET updated_at=now() WHERE id=%s AND owner_id=%s',
+                     (selected['id'], user['id']))
+    return {'session_id': selected['id'], 'deleted_messages': deleted,
+            'workspace_reset': False, 'reason': 'CHECKPOINT_ONLY'}
+
+
+@chat_interactions_bp.route('/api/v1/sessions/<sid>/fork', methods=['POST'])
+@chat_interactions_bp.route('/api/v1/sessions/<sid>/rewind', methods=['POST'])
+def time_travel(sid):
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        raise StoreError('请求必须是对象', 400)
+    with sessions._mutation(sid, user_id()) as selected:
+        result = asyncio.run(_travel(selected, dict(g.user), body, fork=request.path.endswith('/fork')))
+    return jsonify(success=True, data=result)
 
 
 def _background(sid, work_id=None):

@@ -2,6 +2,35 @@
 from types import SimpleNamespace
 
 from agent.citations import AnswerCitations
+from governance.knowledge_names import KnowledgeNames
+
+
+def _knowledge_names(owner_id=None):
+    from webapi.auth import user_id
+    owner = owner_id or user_id()
+    return KnowledgeNames(owner) if owner else None
+
+
+def _reference_views(citations, names):
+    if names is None:
+        return list(citations.references)
+    return [{**reference, 'document_display_name': reference.get('document_display_name') or names.document({**reference,
+        'document_id': reference['knowledge_id'], 'document_name': reference['knowledge_filename']},
+        reference=True)['document_display_name']} for reference in citations.references]
+
+
+def _register_citations(citations, tool_name, data, success):
+    previous = len(citations.references)
+    citations.register(tool_name, data, success)
+    chunks = data.get('results', data.get('chunks', [])) if isinstance(data, dict) else []
+    for reference in citations.references[previous:]:
+        for chunk in chunks:
+            if (isinstance(chunk, dict) and chunk.get('document_display_name')
+                    and (chunk.get('knowledge_base_id') or chunk.get('kb_id')) == reference['knowledge_base_id']
+                    and (chunk.get('document_id') or chunk.get('doc_id')) == reference['knowledge_id']
+                    and chunk.get('chunk_id') == reference['id']):
+                reference['document_display_name'] = chunk['document_display_name']
+                break
 
 
 def text(content):
@@ -39,20 +68,40 @@ def pending_calls(state):
     return [call for message in current for call in message.get('tool_calls', []) if call['id'] not in completed]
 
 
-def tool_result(message, arguments=None):
+def tool_display_name(name):
+    return {'write_todos': 'todo_write', 'execute': 'shell_exec'}.get(name, name)
+
+
+def tool_result(message, arguments=None, names=None):
     from webapi.chat_suggestions import _structured, _tool_succeeded
     output = text(message.get('content'))
     native_message = SimpleNamespace(**message)
     native = _structured(native_message)
-    result = {'tool_call_id': message['tool_call_id'], 'tool_name': message.get('name', ''),
+    result = {'tool_call_id': message['tool_call_id'], 'tool_name': tool_display_name(message.get('name', '')),
               'success': _tool_succeeded(native_message, native), 'output': output}
     if not result['success']:
         result['error'] = output
     if isinstance(native, dict):
         result['data'] = native
+        resource = {
+            'knowledge.list_bases': 'knowledge/knowledge_bases',
+            'knowledge.get_base': 'knowledge/knowledge_bases/detail',
+            'knowledge.list_documents': 'knowledge/documents',
+            'knowledge.get_document': 'knowledge/documents/detail',
+            'knowledge.search': 'knowledge/query',
+            'knowledge.list_entity_chunks': 'knowledge/entities/chunks',
+        }.get(message.get('name'))
+        if names is not None and resource:
+            result['data'] = names.present(resource, native, kb_id=(arguments or {}).get('knowledge_base_id'))
+    if message.get('name') == 'execute':
+        artifact = message.get('artifact')
+        metadata = artifact if isinstance(artifact, dict) else native
+        # HITL keeps requested arguments; its native result explains reviewer edits.
+        result.update(display_type='shell_exec', command=(arguments or {}).get('command', ''))
+        result.update({key: metadata[key] for key in ('exit_code', 'truncated') if key in metadata})
     if message.get('name') == 'write_todos':
         todos = (arguments or {}).get('todos', []) if result['success'] else []
-        result.update(tool_name='todo_write', display_type='plan', total_steps=len(todos),
+        result.update(display_type='plan', total_steps=len(todos),
             steps=[{'id': str(index), 'description': todo['content'], 'status': todo['status']}
                    for index, todo in enumerate(todos)])
     if message.get('name') == 'ask_user':
@@ -61,10 +110,11 @@ def tool_result(message, arguments=None):
     return result
 
 
-def history(state, session_id, knowledge_base_ids=()):
+def history(state, session_id, knowledge_base_ids=(), *, owner_id=None):
     """Group native messages by user turn, preserving every tool call identifier."""
     rows, current, tools = [], None, {}
     citations = AnswerCitations(knowledge_base_ids)
+    names = _knowledge_names(owner_id)
     for raw in state.values.get('messages', []):
         message = message_dict(raw)
         kind = message.get('type', message.get('role'))
@@ -94,18 +144,18 @@ def history(state, session_id, knowledge_base_ids=()):
             if reasoning:
                 step['reasoning_content'] = reasoning
             for call in calls:
-                projected = {**call, 'name': 'todo_write' if call['name'] == 'write_todos' else call['name']}
+                projected = {**call, 'name': tool_display_name(call['name'])}
                 step['tool_calls'].append(projected)
                 tools[call['id']] = projected
             current['agent_steps'].append(step)
         elif current is not None and kind == 'tool':
             call = tools.get(message['tool_call_id'])
-            result = tool_result(message, call.get('args') if call else None)
+            result = tool_result(message, call.get('args') if call else None, names)
             if call is not None:
                 call['result'] = {**result, 'data': {**result.get('data', {}),
                     **{key: value for key, value in result.items() if key != 'data'}}}
-            citations.register(message.get('name'), result.get('data'), result['success'])
-            current['knowledge_references'] = list(citations.references)
+            _register_citations(citations, message.get('name'), result.get('data'), result['success'])
+            current['knowledge_references'] = _reference_views(citations, names)
     if current is not None and (state.next or state.interrupts):
         current['is_completed'] = False
         current['run_state'] = 'awaiting_input' if state.interrupts else 'interrupted'
@@ -114,11 +164,13 @@ def history(state, session_id, knowledge_base_ids=()):
 
 class StreamProjection:
     """Translate one request's native stream; discard child graph answer channels."""
-    def __init__(self, session_id, identifier, knowledge_base_ids=()):
+    def __init__(self, session_id, identifier, knowledge_base_ids=(), *, owner_id=None):
         self.session_id, self.identifier = session_id, identifier
         self.calls = {}
         self.child_calls = []
         self.citations = AnswerCitations(knowledge_base_ids)
+        self.names = _knowledge_names(owner_id)
+        self.owner_id = self.names.owner_id if self.names else None
 
     def event(self, kind, content='', data=None, done=False):
         return {'response_type': kind, 'id': self.identifier, 'assistant_message_id': self.identifier,
@@ -163,13 +215,13 @@ class StreamProjection:
                             if call['id'] not in self.calls:
                                 self.calls[call['id']] = call
                                 events.append(self.event('tool_call', data={'tool_call_id': call['id'],
-                                    'tool_name': 'todo_write' if call['name'] == 'write_todos' else call['name'],
+                                    'tool_name': tool_display_name(call['name']),
                                     'arguments': call['args']}))
                     elif kind == 'tool':
                         call = self.calls.get(message['tool_call_id'], {})
-                        result = tool_result(message, call.get('args'))
-                        self.citations.register(message.get('name'), result.get('data'), result['success'])
+                        result = tool_result(message, call.get('args'), self.names)
+                        _register_citations(self.citations, message.get('name'), result.get('data'), result['success'])
                         events.append(self.event('tool_result', data=result))
                         if self.citations.references:
-                            events.append(self.event('references', data={'references': list(self.citations.references)}))
+                            events.append(self.event('references', data={'references': _reference_views(self.citations, self.names)}))
         return events

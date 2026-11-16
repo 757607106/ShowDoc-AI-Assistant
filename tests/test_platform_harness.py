@@ -42,7 +42,9 @@ def frames(response):
 
 
 @pytest.fixture
-def original_prepare():
+def original_prepare(monkeypatch):
+    monkeypatch.setattr('agent.sandbox.enabled', lambda: True)
+    monkeypatch.setattr('webapi.chat_resources._parse_attachment', lambda name, content: content.decode('utf-8'))
     from webapi.harness import _prepare
     return _prepare
 
@@ -58,7 +60,7 @@ def harness(monkeypatch, authenticated_client, original_prepare):
     tools = []
     interrupts = {}
 
-    async def graph(saver, user, selected, resolved, *, load_tools=True):
+    async def graph(saver, user, selected, resolved, *, load_tools=True, store=None, backend=None):
         return create_deep_agent(model=model, tools=tools, backend=StateBackend(),
                                  checkpointer=saver, interrupt_on=interrupts, middleware=[TodoListMiddleware()])
 
@@ -211,6 +213,23 @@ def test_foreign_session_attachment_cannot_create_user_metadata(harness, origina
         assert conn.execute('SELECT count(*) AS n FROM agent_runs WHERE session_id=%s', (sid,)).fetchone()['n'] == 0
 
 
+def test_embedded_assistant_search_permission_uses_agent_config(harness, original_prepare, monkeypatch):
+    from types import SimpleNamespace
+    from webapi import harness as api
+    client, sid, *_ = harness
+    monkeypatch.setattr(api, '_prepare', original_prepare)
+    monkeypatch.setattr(api, 'client_for_user', lambda *args: SimpleNamespace(
+        api_key='fixture', list_knowledge_bases=lambda **kwargs: {'knowledge_bases': [], 'total': 0}))
+    response = client.post(f'/api/v1/harness/sessions/{sid}/stream', json={
+        'context': {'agent_id': 'builtin-weknora-assistant', 'web_search_enabled': True},
+        'input': {'messages': [{'type': 'human', 'content': '页面助手问题'}]}})
+    events = frames(response)
+    assert not [value for kind, value in events if kind == 'error'], events
+    assert [value for kind, value in events if kind == 'values'][-1]['messages'][-1]['content'] == '官方 Harness 回答'
+    saved = sessions.get_session(sid, os.environ['TEST_PLATFORM_USER'])['agent_config']['agent_config']
+    assert saved['web_search_enabled'] is False
+
+
 @pytest.mark.parametrize('decision', ['approve', 'reject', 'edit'])
 def test_native_file_approval_resume_and_duplicate_rejection(harness, decision):
     client, sid, model, _, approvals, *_ = harness
@@ -246,7 +265,7 @@ def test_native_file_approval_resume_and_duplicate_rejection(harness, decision):
 
 def test_request_lock_rejects_concurrent_submission(harness):
     client, sid, *_ = harness
-    with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True) as conn:
+    with psycopg.connect(os.environ['AGENT_DATABASE_URL'], autocommit=True) as conn:
         conn.execute('SELECT pg_advisory_lock(hashtextextended(%s,0))', ('harness:' + sid,))
         assert send(client, sid).status_code == 409
     assert send(client, sid).status_code == 200
@@ -322,7 +341,7 @@ def test_disconnect_cancels_async_tool_and_releases_request_lock(harness, monkey
         assert state.values['messages'] and state.next
 
     asyncio.run(scenario())
-    with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True) as conn:
+    with psycopg.connect(os.environ['AGENT_DATABASE_URL'], autocommit=True) as conn:
         assert conn.execute('SELECT pg_try_advisory_lock(hashtextextended(%s,0))', ('harness:' + sid,)).fetchone()[0]
 
 
@@ -374,7 +393,7 @@ def test_header_send_failure_releases_lock_before_events_start(harness, monkeypa
 
     asyncio.run(scenario())
     assert not graph_started
-    with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True) as conn:
+    with psycopg.connect(os.environ['AGENT_DATABASE_URL'], autocommit=True) as conn:
         assert conn.execute('SELECT pg_try_advisory_lock(hashtextextended(%s,0))', ('harness:' + sid,)).fetchone()[0]
         assert conn.execute('SELECT count(*) FROM checkpoints WHERE thread_id=%s', (sid,)).fetchone()[0] == 0
 
@@ -417,9 +436,10 @@ def test_disconnect_immediately_after_body_releases_lock_without_execution(harne
                    for task in asyncio.all_tasks() - existing_tasks)
 
     asyncio.run(scenario())
-    with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True) as conn:
+    with psycopg.connect(os.environ['AGENT_DATABASE_URL'], autocommit=True) as conn:
         assert conn.execute('SELECT pg_try_advisory_lock(hashtextextended(%s,0))', ('harness:' + sid,)).fetchone()[0]
-        assert conn.execute('SELECT count(*) FROM agent_runs WHERE session_id=%s', (sid,)).fetchone()[0] == 0
+    with connection() as conn:
+        assert conn.execute('SELECT count(*) AS n FROM agent_runs WHERE session_id=%s', (sid,)).fetchone()['n'] == 0
 
 
 @pytest.mark.parametrize('missing_decision', [False, True])

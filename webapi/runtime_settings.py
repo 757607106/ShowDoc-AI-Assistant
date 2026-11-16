@@ -2,10 +2,12 @@
 import asyncio
 
 from flask import Blueprint, g, jsonify, request
+from psycopg.types.json import Jsonb
 
 from agent import registry
 from webapi.legacy_runtime import unavailable
-from governance.store import StoreError
+from governance.database import connection
+from governance.store import StoreError, now
 
 runtime_settings_bp = Blueprint('runtime_settings', __name__)
 
@@ -39,15 +41,20 @@ def model_providers():
 
 @runtime_settings_bp.route('/api/v1/models/catalog/resolve', methods=['POST'])
 def resolve_model_catalog():
-    from agent.models import model_capabilities, validate_model_runtime
+    from agent.models import model_capabilities, validate_model_runtime, remote_model_name
     body = _body()
-    name = body.get('remote_model_name') or body.get('model') or ''
-    value = {'name': name, 'parameters': {'provider': body.get('provider', 'generic'), 'base_url': body.get('base_url', ''),
-        'spec': body.get('spec') or {}, 'extra_config': body.get('extra_config') or ({'api': body['api']} if body.get('api') else {})}}
+    name = body.get('model') or ''
+    extra = dict(body.get('extra_config') or {})
+    for key in ('api', 'remote_model_name'):
+        if body.get(key):
+            extra[key] = body[key]
+    kind = {'chat': 'KnowledgeQA', 'vllm': 'VLLM', 'embedding': 'Embedding', 'rerank': 'Rerank', 'asr': 'ASR'}.get(body.get('model_type'), 'KnowledgeQA')
+    value = {'name': name, 'type': kind, 'parameters': {'provider': body.get('provider', 'generic'), 'base_url': body.get('base_url', ''),
+        'spec': body.get('spec') or {}, 'extra_config': extra}}
     validate_model_runtime(value)
     capabilities = model_capabilities(value)
     return jsonify(success=True, data={'provider': capabilities['provider'], 'api': capabilities['api'],
-        'base_url': body.get('base_url', ''), 'remote_model': name,
+        'base_url': body.get('base_url', ''), 'remote_model': remote_model_name(value),
         'cataloged': capabilities['cataloged'], 'model': {}, 'capabilities': capabilities})
 
 
@@ -58,14 +65,25 @@ def model(model_id):
             raise StoreError('环境模型请通过服务器环境配置；可以复制为个人模型', 400)
         return jsonify(success=True, data=registry.environment_model())
     if request.method == 'DELETE':
-        from agent.config import list_agents
-        if any(item['config'].get('model_id') == model_id for item in list_agents(g.user['id'])):
-            raise StoreError('模型正被 Agent 使用，请先更换模型', 409)
-        if any(model_id in item.get('value', {}).values() for item in registry.records('settings', g.user['id']) if item['id'] == 'default-settings'):
-            raise StoreError('模型正用于默认设置，请先更换默认模型', 409)
-        registry.delete_record('model', model_id, g.user['id'])
+        with registry.model_bindings_transaction(g.user['id']) as conn:
+            registry.record('model', model_id, g.user['id'], _connection=conn)
+            defaults = registry.default_model_references(model_id, g.user['id'], _connection=conn)
+            if defaults:
+                raise StoreError('模型正用于默认设置，请先更换：' + '、'.join(defaults), 409)
+            usage = registry.model_usage(model_id, g.user['id'], _connection=conn)
+            if usage['agent_total']:
+                return jsonify(success=False, error={'code': 2300,
+                    'message': '模型正被 Agent 使用，请先更换模型', 'details': usage}), 400
+            registry.delete_record('model', model_id, g.user['id'], _connection=conn)
         return jsonify(success=True)
-    value = registry.save_model(_body(), g.user['id'], model_id) if request.method != 'GET' else registry.record('model', model_id, g.user['id'])
+    if request.method != 'GET':
+        body = _body()
+        if request.method == 'PUT' and isinstance(body.get('parameters'), dict):
+            # The upstream editor omits spec after its last override is cleared.
+            body['parameters'].setdefault('spec', {})
+        value = registry.save_model(body, g.user['id'], model_id)
+    else:
+        value = registry.record('model', model_id, g.user['id'])
     return jsonify(success=True, data=registry.public(value))
 
 
@@ -83,10 +101,10 @@ def copy_model(model_id):
 
 @runtime_settings_bp.route('/api/v1/models/<model_id>/usage')
 def model_usage(model_id):
-    from agent.config import list_agents
     registry.model_config(model_id, g.user['id'])
-    agents = [item for item in list_agents(g.user['id']) if item['config'].get('model_id') == model_id]
-    return jsonify(success=True, data={'model_id': model_id, 'agents': agents, 'knowledge_bases': [], 'in_use': bool(agents)})
+    usage = registry.model_usage(model_id, g.user['id'])
+    return jsonify(success=True, data={'model_id': model_id, **usage,
+        'in_use': bool(usage['agent_total'] or registry.default_model_references(model_id, g.user['id']))})
 
 
 @runtime_settings_bp.route('/api/v1/models/<model_id>/debug', methods=['POST'])
@@ -96,7 +114,7 @@ def debug_model(model_id):
     import time
     from agent.config import validate_config
     from agent.graph import build_model
-    from agent.models import model_capabilities
+    from agent.models import model_capabilities, remote_model_name
     from webapi.weknora_adapter import message_dict, reasoning_text, text
     if request.is_json:
         body = _body()
@@ -111,7 +129,8 @@ def debug_model(model_id):
         raise StoreError('调试 options 必须为对象', 400)
     saved = registry.model_config(model_id, g.user['id'])
     if saved['type'] not in ('KnowledgeQA', 'VLLM'):
-        raise StoreError('当前调试入口仅支持对话和视觉模型', 501)
+        from webapi.model_runtime import debug_nonchat_model
+        return debug_nonchat_model(saved, body, options, request.files.get('file'))
     config = validate_config({'model_id': model_id, 'temperature': options.get('temperature', 0),
         'max_completion_tokens': options.get('max_tokens', 2048), 'thinking': options.get('thinking', False),
         'reasoning_effort': options.get('reasoning_effort', '')})
@@ -123,20 +142,27 @@ def debug_model(model_id):
         raise StoreError('调试系统提示词无效', 400)
     messages = ([{'role': 'system', 'content': prompt}] if prompt else []) + [{'role': 'user', 'content': query}]
     file = request.files.get('file')
+    caps = model_capabilities(saved)
+    if saved['type'] == 'VLLM' and not file:
+        raise StoreError('请提供视觉模型调试图片', 400)
+    if file and saved['type'] == 'KnowledgeQA' and not (saved['parameters'].get('supports_vision') or 'image' in caps['input']):
+        raise StoreError('当前对话模型不支持图片输入', 400)
     if file:
         import base64
-        import io
-        from PIL import Image
+        from opensandbox.exceptions import SandboxException
+        from webapi.chat_resources import _image_mime
         data = file.read(10 * 1024 * 1024 + 1)
         if len(data) > 10 * 1024 * 1024:
             raise StoreError('调试图片不能超过 10 MB', 400)
         try:
-            with Image.open(io.BytesIO(data)) as picture:
-                mime = Image.MIME.get(picture.format)
-                picture.verify()
-            if mime not in ('image/png', 'image/jpeg', 'image/webp', 'image/gif'):
-                raise ValueError('Unsupported image')
-        except Exception as exc:
+            mime = _image_mime(file.filename or 'image', data)
+        except StoreError as exc:
+            if exc.status != 422:
+                raise
+            raise StoreError('请提供有效图片', 400) from exc
+        except SandboxException as exc:
+            raise StoreError('隔离图片校验服务不可用', 503) from exc
+        except (KeyError, TypeError, ValueError) as exc:
             raise StoreError('请提供有效图片', 400) from exc
         messages[-1]['content'] = [{'type': 'text', 'text': query}, {'type': 'image_url', 'image_url': {
             'url': f'data:{mime};base64,' + base64.b64encode(data).decode()}}]
@@ -158,7 +184,7 @@ def debug_model(model_id):
     observations = {'api': caps['api'], 'capabilities': caps, 'requested_reasoning_effort': config.get('reasoning_effort') or
                     ('auto' if config['thinking'] else 'off')}
     client = model.bound if hasattr(model, 'bound') else model
-    request_info = {'model': saved['parameters'].get('model_name') or saved['name'], 'input': query,
+    request_info = {'model': remote_model_name(saved), 'input': query,
                     'system_prompt': prompt, 'options': dict(options), 'image_attached': bool(file),
                     'effective_options': {'temperature': client.temperature, 'max_tokens': client.max_tokens,
                         **client.model_kwargs, **(model.kwargs if hasattr(model, 'kwargs') else {})}}
@@ -210,8 +236,7 @@ async def _catalog(value):
     values = await client.get_tools()
     return [{'name': tool.name, 'description': tool.description, 'inputSchema': tool.args_schema.model_json_schema()
         if isinstance(tool.args_schema, type) else tool.args_schema,
-        'enabled': True, 'require_approval': (tool.metadata or {}).get('readOnlyHint') is not True,
-        **value.get('tool_approvals', {}).get(tool.name, {}),
+        **registry.mcp_tool_policy(value, tool.name, (tool.metadata or {}).get('readOnlyHint')),
         'readOnlyHint': (tool.metadata or {}).get('readOnlyHint') is True} for tool in values]
 
 
@@ -246,16 +271,38 @@ def service_resources(service_id):
 @runtime_settings_bp.route('/api/v1/mcp-services/<service_id>/tool-approvals')
 @runtime_settings_bp.route('/api/v1/mcp-services/<service_id>/tool-approvals/<path:tool_name>', methods=['PUT'])
 def tool_flags(service_id, tool_name=None):
+    from agent import mcp_auth
     value = registry.record('mcp', service_id, g.user['id'])
-    flags = value.setdefault('tool_approvals', {})
     if tool_name:
         body = _body()
         updates = {key: body[key] for key in ('enabled', 'require_approval') if key in body}
         if not updates or any(not isinstance(item, bool) for item in updates.values()):
             raise StoreError('工具开关必须为布尔值', 400)
-        flags[tool_name] = {**flags.get(tool_name, {}), **updates}
-        registry.save_record('mcp', value, g.user['id'])
-    return jsonify(success=True, data=[{'id': name, 'service_id': service_id, 'tool_name': name, **settings} for name, settings in flags.items()])
+    catalog = asyncio.run(_catalog(value))
+    cached = mcp_auth._record('mcp-metadata', service_id, g.user['id'])
+    if cached and (cached['fingerprint'] != mcp_auth.fingerprint(value) or
+                   {tool['name'] for tool in cached['snapshot']['tools']} != {tool['name'] for tool in catalog}):
+        raise StoreError('MCP 工具目录已变化，请刷新工具目录后重试', 409)
+    if tool_name:
+        selected = next((tool for tool in catalog if tool['name'] == tool_name), None)
+        if selected is None:
+            raise StoreError('MCP 工具不存在，请刷新工具目录', 404)
+        if selected['readOnlyHint'] is not True:
+            raise StoreError('当前 Agent 仅支持明确声明只读的 MCP 工具', 403)
+        current = registry.record('mcp', service_id, g.user['id'])
+        if mcp_auth.fingerprint(current) != mcp_auth.fingerprint(value):
+            raise StoreError('MCP 连接配置已变化，请刷新后重试', 409)
+        flags = current.get('tool_approvals', {})
+        value = {**current, 'tool_approvals': {**flags, tool_name: {**flags.get(tool_name, {}), **updates}},
+                 'updated_at': now()}
+        with connection() as conn:
+            saved = conn.execute('''UPDATE runtime_records SET payload=%s,updated_at=now()
+                WHERE owner_id=%s AND kind='mcp' AND record_key=%s AND payload=%s RETURNING id''',
+                (Jsonb(value), g.user['id'], service_id, Jsonb(current))).fetchone()
+            if saved is None:
+                raise StoreError('MCP 服务配置已变化，请刷新后重试', 409)
+    return jsonify(success=True, data=[{'id': tool['name'], 'service_id': service_id, 'tool_name': tool['name'],
+        **registry.mcp_tool_policy(value, tool['name'], tool['readOnlyHint'])} for tool in catalog])
 
 
 @runtime_settings_bp.route('/api/v1/<resource>/<resource_id>/credentials', methods=['PUT'])
@@ -303,10 +350,10 @@ def credentials(resource, resource_id, field=None):
 def sandbox_configs():
     if request.method == 'POST':
         unavailable()
-    return jsonify(success=True, data=[{'id': 'state-backend', 'name': '会话文件（无 Shell）', 'type': 'state', 'enabled': True,
-        'sandbox_type': 'state', 'config': {'type': 'state'},
-        'skills_available': True, 'capabilities': {'shell': False, 'filesystem': True}},
-        *[{**registry.public(value), 'enabled': False, 'read_only': True} for value in registry.records('sandbox', g.user['id'])]], workspace_scripts_disabled=True)
+    from agent.sandbox import configuration
+    return jsonify(success=True, data=[configuration(),
+        *[{**registry.public(value), 'enabled': False, 'read_only': True}
+          for value in registry.records('sandbox', g.user['id']) if value['id'] != 'state-backend']], workspace_scripts_disabled=True)
 
 
 @runtime_settings_bp.route('/api/v1/sandbox-configs/<config_id>', methods=['GET', 'PUT', 'DELETE'])
@@ -314,7 +361,10 @@ def sandbox_config(config_id):
     if request.method != 'GET':
         unavailable()
     if config_id == 'state-backend':
-        return jsonify(success=True, data={'id': config_id, 'name': '会话文件（无 Shell）', 'sandbox_type': 'state', 'config': {'sandbox_type': 'state'}})
+        return jsonify(success=True, data={'id': config_id, 'name': '会话文件（无 Shell）', 'sandbox_type': '', 'config': {'sandbox_type': ''}})
+    from agent.sandbox import CONFIG_ID, configuration
+    if config_id == CONFIG_ID:
+        return jsonify(success=True, data=configuration())
     value = registry.record('sandbox', config_id, g.user['id'])
     return jsonify(success=True, data={**registry.public(value), 'enabled': False, 'read_only': True})
 
@@ -323,13 +373,57 @@ def sandbox_config(config_id):
 def sandbox_inventory(config_id):
     if config_id == 'state-backend':
         return jsonify(success=True, data={'sandbox_count': 0, 'unverifiable': False})
+    from agent.sandbox import CONFIG_ID, connection_config
+    if config_id == CONFIG_ID:
+        from opensandbox import SandboxManagerSync
+        from opensandbox.models import SandboxFilter
+        manager = SandboxManagerSync.create(connection_config=connection_config())
+        try:
+            result = manager.list_sandbox_infos(SandboxFilter(metadata={'application': 'showdoc-agent', 'owner_id': g.user['id']}))
+            return jsonify(success=True, data={'sandbox_count': result.pagination.total_items, 'unverifiable': False})
+        except Exception:
+            return jsonify(success=True, data={'sandbox_count': None, 'unverifiable': True})
+        finally:
+            manager.close()
     registry.record('sandbox', config_id, g.user['id'])
     return jsonify(success=True, data={'sandbox_count': None, 'unverifiable': True, 'disabled': True})
 
 
 @runtime_settings_bp.route('/api/v1/system/sandbox-check', methods=['POST'])
 def sandbox_check():
-    unavailable()
+    body = _body()
+    from agent.sandbox import CONFIG_ID, connected_session, destroy_for_session, connection_config
+    if body.get('config_id') != CONFIG_ID:
+        unavailable()
+    if body.get('config') is not None:
+        raise StoreError('OpenSandbox 使用服务器托管策略，不能从浏览器覆盖配置', 501)
+    if not isinstance(body.get('deep', False), bool):
+        raise StoreError('deep 必须为布尔值', 400)
+    from opensandbox import SandboxManagerSync
+    from opensandbox.models import SandboxFilter
+    manager = SandboxManagerSync.create(connection_config=connection_config())
+    checks = []
+    try:
+        manager.list_sandbox_infos(SandboxFilter(metadata={'owner_id': g.user['id']}, page_size=1))
+        checks.append({'name': 'control', 'ok': True})
+    except Exception:
+        checks.append({'name': 'control', 'ok': False, 'message': '无法连接 OpenSandbox 控制服务'})
+    finally:
+        manager.close()
+    if checks[0]['ok'] and body.get('deep'):
+        import uuid
+        from langchain_opensandbox import OpenSandboxBackend
+        probe = 'probe-' + str(uuid.uuid4())
+        try:
+            with connected_session(g.user['id'], probe, create=True) as sandbox:
+                result = OpenSandboxBackend(sandbox=sandbox, timeout=15).execute('printf opensandbox-ok')
+                checks.append({'name': 'execute', 'ok': result.exit_code == 0 and result.output == 'opensandbox-ok'})
+        except StoreError:
+            checks.append({'name': 'execute', 'ok': False, 'message': '创建或执行沙箱失败'})
+        finally:
+            destroy_for_session(g.user['id'], probe)
+    return jsonify(success=True, data={'ok': all(item['ok'] for item in checks),
+        'provider': 'opensandbox', 'checks': checks})
 
 
 
@@ -382,9 +476,18 @@ def settings(key):
     if key not in defaults:
         raise StoreError('配置不存在', 404)
     if key == 'memory-config':
-        if request.method != 'GET':
-            raise StoreError('跨会话长期记忆尚未接入；当前仅提供官方 Harness 会话状态持久化', 501)
-        return jsonify(success=True, data={**defaults[key], 'read_only': True, 'supported': False})
+        from agent.memory_files import policy
+        if request.method == 'PUT':
+            updates = _body()
+            if set(updates) != {'enabled'}:
+                raise StoreError('当前仅支持 AGENTS.md 文件记忆开关；结构化提炼和召回配置尚未接入', 501)
+            if not isinstance(updates['enabled'], bool):
+                raise StoreError('文件记忆开关必须为 enabled 布尔值', 400)
+            saved = next((item for item in registry.records('settings', g.user['id']) if item['id'] == key), None)
+            registry.save_record('settings', {**(saved or {}), 'id': key,
+                'value': {**(saved or {}).get('value', {}), **updates}}, g.user['id'])
+        return jsonify(success=True, data={**defaults[key], 'enabled': policy(g.user['id'])['workspace_enabled'],
+            'supported': True, 'write_mode': 'native_file', 'storage_mode': 'agents_md', 'structured_memory_supported': False})
     read_only = key in ('web-search-config', 'skill-installer-model')
     if read_only and request.method != 'GET':
         unavailable()
@@ -399,18 +502,67 @@ def settings(key):
         value.update(updates)
         if key == 'default-settings' and 'chat_model_id' in updates and 'summary_model_id' not in updates:
             value['summary_model_id'] = updates['chat_model_id']
-        if key == 'default-settings':
-            for name, model_id in value.items():
-                if name.endswith('_model_id') and model_id:
-                    registry.model_config(model_id, g.user['id'])
         registry.save_record('settings', {'id': key, 'name': key, 'value': value}, g.user['id'])
     return jsonify(success=True, data=value)
 
 
 @runtime_settings_bp.route('/api/v1/memory/settings', methods=['GET', 'PUT'])
 def memory_settings():
-    if request.method != 'GET':
-        raise StoreError('跨会话长期记忆尚未接入；当前仅提供官方 Harness 会话状态持久化', 501)
-    return jsonify(success=True, data={'workspace_enabled': False, 'user_enabled': False,
-        'effective': False, 'write_mode': 'explicit_only', 'max_items': 0, 'supported': False,
-        'item_count': len(registry.records('memory', g.user['id']))})
+    from agent.memory_files import policy
+    if request.method == 'PUT':
+        body = _body()
+        if set(body) != {'enabled'} or not isinstance(body['enabled'], bool):
+            raise StoreError('个人记忆开关必须为 enabled 布尔值', 400)
+        saved = next((item for item in registry.records('settings', g.user['id']) if item['id'] == 'memory-preference'), None)
+        registry.save_record('settings', {**(saved or {}), 'id': 'memory-preference',
+            'value': {**(saved or {}).get('value', {}), **body}}, g.user['id'])
+    return jsonify(success=True, data=policy(g.user['id']))
+
+
+@runtime_settings_bp.route('/api/v1/agents/<agent_id>/memory-file', methods=['GET', 'PUT'])
+def memory_file(agent_id):
+    from agent.config import load_agent
+    from agent.checkpointer import async_store
+    from agent.memory_files import namespace, policy
+    from deepagents.backends.utils import create_file_data, file_data_to_string
+    agent = load_agent(agent_id, g.user['id'])
+    owner_id = g.user['id']
+    selected_namespace = namespace(owner_id, agent['id'])
+    content = _body().get('content') if request.method == 'PUT' else None
+    if request.method == 'PUT' and (not isinstance(content, str) or len(content) > 100_000):
+        raise StoreError('记忆文件必须是不超过 100000 字符的文本', 400)
+    if content is not None:
+        try:
+            content.encode('utf-8')
+        except UnicodeEncodeError as exc:
+            raise StoreError('记忆文件必须为有效 UTF-8 文本', 400) from exc
+    async def access():
+        async with async_store() as store:
+            previous = await store.aget(selected_namespace, '/AGENTS.md')
+            if content is not None:
+                value = create_file_data(content, created_at=previous.value.get('created_at') if previous else None)
+                await store.aput(selected_namespace, '/AGENTS.md', value, index=False)
+            elif previous:
+                value = previous.value
+            else:
+                value = None
+            if value and value.get('encoding', 'utf-8') != 'utf-8':
+                raise StoreError('AGENTS.md 记忆文件不是 UTF-8 文本', 409)
+            return {'content': file_data_to_string(value) if value else '',
+                    'created_at': value.get('created_at') if value else None,
+                    'modified_at': value.get('modified_at') if value else None}
+    value = asyncio.run(access())
+    return jsonify(success=True, data={**value, 'agent_id': agent['id'], 'file_path': f'/memories/{agent["id"]}/AGENTS.md',
+        'storage_mode': 'agents_md', 'effective': policy(owner_id)['effective'] and agent['config']['memory_enabled']})
+
+
+@runtime_settings_bp.route('/api/v1/memory/items', methods=['GET', 'POST', 'DELETE'])
+@runtime_settings_bp.route('/api/v1/memory/items/<path:item_id>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+@runtime_settings_bp.route('/api/v1/memory/consolidate', methods=['POST'])
+@runtime_settings_bp.route('/api/v1/memory/topics', methods=['GET'])
+@runtime_settings_bp.route('/api/v1/memory/topics/<path:item_id>', methods=['POST', 'DELETE'])
+@runtime_settings_bp.route('/api/v1/memory/documents', methods=['GET'])
+@runtime_settings_bp.route('/api/v1/memory/documents/<path:item_id>', methods=['DELETE'])
+@runtime_settings_bp.route('/api/v1/memory/export', methods=['GET'])
+def structured_memory_unavailable(item_id=None):
+    raise StoreError('当前使用原生 AGENTS.md 文件记忆，结构化提炼、审核、话题与向量召回尚未接入', 501)

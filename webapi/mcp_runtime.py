@@ -29,8 +29,8 @@ def metadata_for(owner, value):
         return None
     result = dict(cached['snapshot'])
     result['stale'] = cached['fingerprint'] != mcp_auth.fingerprint(value)
-    flags = value.get('tool_approvals') or {}
-    result['tools'] = [{**tool, **flags.get(tool['name'], {})} for tool in result['tools']]
+    result['tools'] = [{**tool, **registry.mcp_tool_policy(value, tool['name'], tool.get('readOnlyHint'))}
+                       for tool in result['tools']]
     return result
 
 

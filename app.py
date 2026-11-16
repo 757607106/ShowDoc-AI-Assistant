@@ -437,7 +437,7 @@ def upload_files():
             raise ApiError('上传文件必须有文件名', 400)
     directory = data_dir() / 'uploads' / str(uuid.uuid4())
     directory.mkdir(parents=True)
-    paths = []
+    paths, names = [], []
     for index, file in enumerate(files):
         original = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', Path(file.filename.replace('\\', '/')).name).strip(' .')
         suffix = Path(original).suffix.lower().encode('utf-8')[:40].decode('utf-8', errors='ignore')
@@ -449,7 +449,8 @@ def upload_files():
         if not path.stat().st_size:
             raise ApiError('不能上传空文件', 400)
         paths.append(str(path))
-    job = store.create_job('file', {'file_paths': paths}, applicability=scope, scope=space_scope)
+        names.append(name)
+    job = store.create_job('file', {'file_paths': paths, 'file_names': names}, applicability=scope, scope=space_scope)
     return jsonify(success=True, task_id=job['task_id'], message='文件已保存，任务已入队')
 
 

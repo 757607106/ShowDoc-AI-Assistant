@@ -53,8 +53,8 @@ test('the skill catalog follows the sandbox capability', () => {
   assert.equal(SETTINGS_SECTION_CAPABILITY.skills, 'settings.sandbox')
 })
 
-test('sandbox settings section supports all enabled execution backends', () => {
-  assert.equal(SETTINGS_SECTION_CAPABILITY.sandbox, 'settings.sandbox')
+test('sandbox settings section requires the remote sandbox capability', () => {
+  assert.equal(SETTINGS_SECTION_CAPABILITY.sandbox, 'settings.sandbox.remote')
 })
 
 test('host sandbox stays hidden unless the deployment explicitly enables it', () => {
@@ -122,13 +122,6 @@ test('user allocation stays hidden unless the deployment explicitly enables it',
 test('skill settings need a remote sandbox or the host sandbox', () => {
   assert.equal(skillSettingsSupported({ 'settings.sandbox': { supported: true }, 'settings.sandbox.remote': { supported: true } }), true)
   assert.equal(skillSettingsSupported({ 'settings.sandbox': { supported: true }, 'settings.sandbox.host': { supported: true } }), true)
-  assert.equal(skillSettingsSupported({ 'settings.sandbox': { supported: true }, 'settings.sandbox.docker': { supported: true } }), true)
   assert.equal(skillSettingsSupported({ 'settings.sandbox': { supported: true } }), false)
   assert.equal(skillSettingsSupported({ 'settings.sandbox': { supported: false }, 'settings.sandbox.host': { supported: true } }), false)
-})
-
-test('instruction skills can use an explicitly enabled session-files backend without host or remote execution', () => {
-  assert.equal(isDeploymentCapabilitySupported({}, 'settings.sandbox.state'), false)
-  assert.equal(skillSettingsSupported({ 'settings.sandbox': { supported: true }, 'settings.sandbox.state': { supported: true } }), true)
-  assert.equal(isDeploymentCapabilitySupported({ 'settings.sandbox.state': { supported: true } }, 'settings.sandbox.host'), false)
 })

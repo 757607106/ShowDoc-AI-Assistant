@@ -113,6 +113,25 @@ test('loading official ContextDB libraries does not erase a route-selected scope
   assert.equal(vm.filteredKnowledgeBases[0].id,'kb')
 })
 
+test('business rename refreshes a mounted chat selector without changing selected library IDs', async t => {
+  const { store, api, component, emit } = setup(t)
+  let name = '原知识库'
+  api.listKnowledgeBases.mock.mockImplementation(async () => ({ data: [{ id: 'kb', name }] }))
+  const settings = { selectedKnowledgeBases: ['kb'] }
+  const { vm } = component(new URL('../components/KnowledgeBaseSelector.vue', import.meta.url), {
+    '@/stores/chatResources': { useChatResourcesStore: () => store },
+    '@/stores/settings': { useSettingsStore: () => ({ settings }) },
+    'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) }, '@/utils/zoom': {},
+  }, { visible: false })
+  await vm.loadKnowledgeBases()
+  assert.equal(vm.filteredKnowledgeBases[0].name, name)
+  name = '新的业务资料'
+  emit(change('knowledge_base.update', { knowledge_base_id: ['kb'] }))
+  t.mock.timers.tick(300); await flush()
+  assert.equal(vm.filteredKnowledgeBases[0].name, name)
+  assert.deepEqual(settings.selectedKnowledgeBases, ['kb'])
+})
+
 test('WeKnora deployments still require their own library model configuration', async t => {
   const {store}=setup(t,false)
   await store.ensureKnowledgeBases()

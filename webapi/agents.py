@@ -18,7 +18,10 @@ def body():
 
 
 def _view(value):
-    return {**value, 'config': {**value['config'], 'retrieval_provider': 'contextdb', 'retain_retrieval_history': True}}
+    config = {**value['config'], 'retrieval_provider': 'contextdb', 'retain_retrieval_history': True}
+    if config.get('sandbox_config_id') == 'state-backend':
+        config['sandbox_config_id'] = ''
+    return {**value, 'config': config}
 
 
 @agents_bp.route('/api/v1/agents', methods=['GET', 'POST'])

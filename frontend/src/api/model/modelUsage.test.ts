@@ -22,16 +22,13 @@ const details = {
   agents: [
     { id: 'agent-1', name: 'Support', bindings: ['chat_model', 'follow_up_model'] },
   ],
+  long_term_memory: { bindings: ['extract_model'] },
   knowledge_base_total: 2,
   agent_total: 1,
 }
 
 test('parses grouped model usage details without dropping multiple bindings', () => {
   assert.deepEqual(parseModelUsageDetails(details), details)
-})
-
-test('legacy memory fields do not hide the remaining knowledge-base and agent dependencies', () => {
-  assert.deepEqual(parseModelUsageDetails({...details,long_term_memory:{bindings:['extract_model']}}),details)
 })
 
 test('fills missing totals from the listed collections', () => {
@@ -73,12 +70,19 @@ test('recognizes only the dedicated model-in-use code with a valid payload', () 
 test('rejects malformed details instead of guessing from the server message', () => {
   assert.equal(parseModelUsageDetails({ knowledge_bases: [], agents: [] }), null)
   assert.equal(parseModelUsageDetails({
+    knowledge_bases: [],
+    agents: [],
+    long_term_memory: { bindings: [] },
+  }), null)
+  assert.equal(parseModelUsageDetails({
     knowledge_bases: [{ id: 'kb-1', name: 'Docs', bindings: [] }],
     agents: [],
+    long_term_memory: { bindings: [] },
   }), null)
   assert.equal(parseModelUsageDetails({
     knowledge_bases: [{ id: 'kb-1', name: 'Docs', bindings: 'vlm_model' }],
     agents: [],
+    long_term_memory: { bindings: [] },
   }), null)
   assert.equal(modelInUseErrorFromRequest({
     error: {

@@ -5,7 +5,9 @@ from psycopg.types.json import Jsonb
 from governance.database import connection
 
 
-def test_attachment_preview_input_and_owner_isolation(authenticated_client):
+def test_attachment_preview_input_and_owner_isolation(authenticated_client, monkeypatch):
+    monkeypatch.setattr('agent.sandbox.enabled', lambda: True)
+    monkeypatch.setattr('webapi.chat_resources._parse_attachment', lambda name, content: content.decode('utf-8'))
     from webapi.chat_resources import prepare_attachments
     http = authenticated_client
     sid = http.post('/api/v1/sessions', json={}).json['data']['id']

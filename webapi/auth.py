@@ -145,7 +145,7 @@ def _issue(row, existing_session=None):
         conn.execute('INSERT INTO platform_tokens(id, owner_id) VALUES (%s,%s) ON CONFLICT (id) DO UPDATE SET expires_at=now()+interval \'30 days\'', (sid, row['id']))
     access = URLSafeTimedSerializer(current_app.secret_key, salt='platform-access').dumps({'session': sid})
     refresh = URLSafeTimedSerializer(current_app.secret_key, salt='platform-refresh').dumps({'session': sid})
-    return jsonify(success=True, **_identity(row), token=access, refresh_token=refresh)
+    return jsonify(success=True, **_identity(row), token=access, access_token=access, refresh_token=refresh)
 
 
 @auth_bp.route('/api/v1/auth/login', methods=['POST'])
@@ -191,9 +191,15 @@ def change_password():
 
 @auth_bp.route('/api/v1/auth/refresh', methods=['POST'])
 def refresh():
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        raise StoreError('请求必须是 JSON 对象', 400)
+    token = body.get('refreshToken', body.get('refresh_token', ''))
+    if not isinstance(token, str) or not token.strip():
+        raise StoreError('登录已失效，请重新登录', 401)
     try:
-        claims = URLSafeTimedSerializer(current_app.secret_key, salt='platform-refresh').loads(body.get('refresh_token', ''), max_age=30 * 86400)
+        claims = URLSafeTimedSerializer(current_app.secret_key, salt='platform-refresh').loads(
+            token, max_age=30 * 86400)
     except (BadSignature, SignatureExpired):
         raise StoreError('登录已失效，请重新登录', 401)
     with connection() as conn:

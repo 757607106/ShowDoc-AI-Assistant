@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import { listWikiCompileRuns, controlWikiCompileRuns, getWikiEvent } from '@/api/contextdbWiki'
 import { getDocument } from '@/api/contextdb'
 import { dateTime } from '@/utils/platformPresentation'
+import { documentDisplayName } from '@/utils/contextdbDocumentName'
 
 const props = withDefaults(defineProps<{ kbId: string; canEdit?: boolean }>(), { canEdit: undefined })
 const emit = defineEmits<{ 'open-page': [pageId: string]; 'open-source-doc': [documentId: string] }>()
@@ -29,7 +30,7 @@ let nameGeneration = 0
 const documentNames = new Map<string, string>(), namesLoading = new Set<string>()
 async function resolveNames(kb: string, items: any[]) {
   const generation = nameGeneration
-  const pending = items.filter(row => !documentNames.has(row.document_id) && !namesLoading.has(row.document_id))
+  const pending = items.filter(row => !row.document_display_name && !documentNames.has(row.document_id) && !namesLoading.has(row.document_id))
   for (const row of pending) namesLoading.add(row.document_id)
   for (let offset = 0; offset < pending.length; offset += 4) {
     if (!alive || !active || kb !== props.kbId || generation !== nameGeneration) break
@@ -38,7 +39,7 @@ async function resolveNames(kb: string, items: any[]) {
       try { const data = await getDocument(row.document_id); name = data.data?.file_name || data.data?.name || '' } catch { /* The source remains openable when its name cannot be read. */ }
       if (!alive || kb !== props.kbId || generation !== nameGeneration) return
       documentNames.set(row.document_id, name); namesLoading.delete(row.document_id)
-      rows.value = rows.value.map(item => item.document_id === row.document_id ? { ...item, document_name: name } : item)
+      rows.value = rows.value.map(item => item.document_id === row.document_id ? { ...item, document_display_name: name } : item)
     }))
   }
   if (generation === nameGeneration) for (const row of pending) namesLoading.delete(row.document_id)
@@ -57,7 +58,7 @@ async function load(append = false) {
   try {
     const data = await listWikiCompileRuns(kb, { status: status.value || undefined, limit: 50, cursor: append ? cursor.value : undefined })
     if (!alive || current !== request || kb !== props.kbId) return
-    const items = (data.items || []).map(row => ({ ...row, document_name: row.document_name || documentNames.get(row.document_id) }))
+    const items = (data.items || []).map(row => ({ ...row, document_display_name: row.document_display_name || documentNames.get(row.document_id) }))
     rows.value = append ? [...rows.value, ...items] : items
     cursor.value = data.next_cursor || ''; summary.value = data.summary || {}; paused.value = !!data.wiki_compile_paused
     void resolveNames(kb, items)
@@ -129,7 +130,7 @@ onUnmounted(() => { alive = false; active = false; request++; stopPolling(); doc
     <t-alert v-if="eventError" theme="warning" :message="eventError" />
     <details v-if="event" class="event"><summary>最近操作：{{ eventLabels[String(event.status).toUpperCase()] || '进度待确认' }}</summary><span>任务编号：{{ event.id }}</span></details>
     <t-table row-key="document_id" :data="rows" :loading="loading" :columns="[{ colKey: 'source', title: '来源文档' }, { colKey: 'run_state', title: '编译状态' }, { colKey: 'updated_at', title: '更新时间' }, { colKey: 'actions', title: '操作' }]">
-      <template #source="{ row }"><t-link @click="emit('open-source-doc', row.document_id)">{{ row.document_name || row.name || row.title || '查看来源文档' }}</t-link></template>
+      <template #source="{ row }"><t-link @click="emit('open-source-doc', row.document_id)">{{ documentDisplayName(row) || row.title || '查看来源文档' }}</t-link></template>
       <template #run_state="{ row }"><t-tag :theme="row.run_state === 'compiled' ? 'success' : 'default'">{{ states[row.run_state] || '状态待确认' }}</t-tag></template>
       <template #updated_at="{ row }">{{ dateTime(row.updated_at || row.compiled_at || row.last_compiled_at) }}</template>
       <template #actions="{ row }">

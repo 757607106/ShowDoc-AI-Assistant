@@ -60,6 +60,10 @@ def weknora_sessions():
         return jsonify(success=True, data=item)
     source = request.args.get('source')
     items = agent_sessions.list_sessions(source=source or None)
+    kind = request.args.get('kind', '')
+    if kind not in ('', 'assistant'):
+        raise StoreError('会话类型无效', 400)
+    items = [item for item in items if item['kind'] == kind]
     page = max(1, request.args.get('page', 1, type=int))
     size = min(100, max(1, request.args.get('page_size', 30, type=int)))
     return jsonify(success=True, data=items[(page-1)*size:page*size], total=len(items))

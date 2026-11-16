@@ -51,6 +51,19 @@ test('ContextDB citations require the exact current KB and chunk, never a title 
   assert.doesNotMatch(render('<kb kb_id="kb-a" chunk_id="DOC-1" doc="同名文档"/>'), /citation-kb/)
 })
 
+test('ContextDB citation text uses a readable label without changing its exact source identity', () => {
+  const refs = [{ id: 'chunk:1', knowledge_base_id: 'kb-a', knowledge_id: 'doc-a',
+    knowledge_title: 'doc-hash.html', document_display_name: '采购明细.html' }]
+  const html = renderChatMarkdown('<kb kb_id="kb-a" chunk_id="chunk:1" doc="doc-hash.html"/>', {
+    renderer: createChatMarkdownRenderer(), escapeMarkdown: value => value, sanitizeHtml: value => value,
+    knowledgeReferences: refs, exactKnowledgeReferences: true,
+  })
+  assert.match(html, /data-doc="采购明细.html"/)
+  assert.match(html, /data-chunk-id="chunk:1"/)
+  assert.match(html, /data-kb-id="kb-a"/)
+  assert.equal(refs[0].knowledge_title, 'doc-hash.html')
+})
+
 test('citation markup remains literal in code and escaped examples, including a streaming code tail', () => {
   const tag = '<kb kb_id="kb-a" chunk_id="opaque:chunk" doc="示例"/>'
   const render = (source: string) => renderChatMarkdown(source, {

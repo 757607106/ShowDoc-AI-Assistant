@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import re
+import tempfile
 
 import pytest
 
@@ -30,8 +31,7 @@ def test_browser_model_debug_thinking_approval_and_reload(authenticated_client, 
     agent = config.save_agent({'name': 'SDK acceptance', 'config': {'model_id': model['id'], 'kb_selection_mode': 'none',
         'mcp_selection_mode': 'none', 'memory_enabled': False, 'reasoning_effort': 'auto', 'access_level': 'confirm'}}, owner)
     session = sessions.create_session('SDK browser acceptance', owner, {'agent_id': agent['id'], 'agent_config': agent['config']})
-    screenshots = Path('output/verification/litellm-sdk-20261115')
-    screenshots.mkdir(parents=True, exist_ok=True)
+    screenshots = Path(tempfile.mkdtemp(prefix='showdoc-litellm-browser-', dir='/tmp'))
     with serve(create_app(app_module.app)) as platform, sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel='chrome', headless=True)
         page = browser.new_page(viewport={'width': 1440, 'height': 1000}, locale='zh-CN')
@@ -66,7 +66,7 @@ def test_browser_model_debug_thinking_approval_and_reload(authenticated_client, 
             state.update(tool='write_file', args={'file_path': '/browser-sdk.txt', 'content': 'SDK browser file'})
             page.goto(platform + '/platform/chat/' + session['id'])
             page.wait_for_load_state('networkidle')
-            composer = page.locator('.answers-input textarea')
+            composer = page.locator('.platform-route-outlet .answers-input textarea')
             expect(composer).to_be_visible()
             composer.fill('请创建 SDK 验收文件')
             composer.press('Enter')
@@ -84,6 +84,7 @@ def test_browser_model_debug_thinking_approval_and_reload(authenticated_client, 
             expect(page.locator('body')).to_contain_text('fixture reasoning')
             assert len(calls) == before + 1
             page.screenshot(path=str(screenshots / 'chat-restored.png'), full_page=True)
+            print('LITELLM_BROWSER_SCREENSHOTS', screenshots)
         except Exception:
             page.screenshot(path=str(screenshots / 'browser-failure.png'), full_page=True)
             print('PROVIDER_CALLS', [{'path': c['path'], 'model': c['payload'].get('model'), 'stream': c['payload'].get('stream')} for c in calls])

@@ -47,14 +47,14 @@ watch(() => [props.kbId, props.parentId, props.directoriesOnly], () => {
     <div v-for="item in items" :key="item.page_id">
       <div class="tree-row" :class="{ selected: item.page_id === selectedId }">
         <button v-if="item.page_type === 'category'" class="tree-toggle" type="button"
-          :aria-label="`${expanded.has(item.page_id) ? '收起' : '展开'}${item.title || '目录'}`"
+          :aria-label="`${expanded.has(item.page_id) ? '收起' : '展开'}${item.display_title || item.title || '目录'}`"
           :aria-expanded="expanded.has(item.page_id)" :disabled="item.page_id === blockedId" @click="toggle(item.page_id)">
           <t-icon :name="expanded.has(item.page_id) ? 'chevron-down' : 'chevron-right'" />
         </button>
         <span v-else class="tree-spacer" />
         <button class="tree-label" type="button" :disabled="item.page_id === blockedId" @click="emit('select', item)">
           <t-icon :name="item.page_type === 'category' ? 'folder' : 'file'" />
-          <span>{{ item.title || (item.page_type === 'category' ? '未命名目录' : '未命名页面') }}</span>
+          <span>{{ item.display_title || item.title || (item.page_type === 'category' ? '未命名目录' : '未命名页面') }}</span>
           <span v-if="item.run_state === 'pending'" class="tree-pending" title="编译中">·</span>
         </button>
       </div>

@@ -14,6 +14,7 @@ import KnowledgeChunksList from '@/components/KnowledgeChunksList.vue'
 import StructuredFields from '@/components/StructuredFields.vue'
 import { stateLabel as stageLabel, dateTime, reviewActionLabels } from '@/utils/platformPresentation'
 import { splitKnowledgeResults } from '@/utils/contextdbSearchResults'
+import { documentDisplayName } from '@/utils/contextdbDocumentName'
 import { reviewEditableContent } from '@/utils/reviewContent'
 import { CONTEXTDB_REVIEW_FORMAT_NOTICE, supportsOfficialReview } from '@/utils/contextdbReviewSupport'
 import GraphQueryResults from './chat/components/tool-results/GraphQueryResults.vue'
@@ -160,6 +161,7 @@ async function actReviews(action: string) {
     reviewBatchResults.value = ids.map((id, index) => {
       const result = results.find(item => item.id === id), status = statuses[index]
       return { id, document_name: rows.find(row => row.review_id === id)?.document_name || id,
+        document_display_name: rows.find(row => row.review_id === id)?.document_display_name,
         success: result?.success, error: result?.error,
         lifecycle_state: status.status === 'fulfilled' ? status.value.review?.lifecycle_state : null,
         status_error: status.status === 'rejected' ? status.reason?.message || String(status.reason) : '',
@@ -470,7 +472,7 @@ onMounted(()=>extra(loadBases))
     <t-card title="知识评审" :bordered="false">
       <t-radio-group v-model="activeBaseId" variant="default-filled">
         <t-radio-button v-for="base in wikiBases" :key="base.id" :value="base.id">
-          {{ base.name }}
+          {{ base.display_name || base.name }}
         </t-radio-button>
       </t-radio-group>
     </t-card>
@@ -524,6 +526,7 @@ onMounted(()=>extra(loadBases))
             { colKey: 'status', title: '最新官方评审状态', width: 160 },
             { colKey: 'detail', title: '说明' },
           ]">
+            <template #document_name="{ row }">{{ documentDisplayName(row) }}</template>
             <template #result="{ row }">{{ row.success === true ? '已受理' : row.success === false ? '失败' : '结果待确认' }}</template>
             <template #status="{ row }">{{ stateLabel(row.lifecycle_state) }}</template>
             <template #detail="{ row }">{{ [row.error, row.status_error && `状态读取失败：${row.status_error}`].filter(Boolean).join('；') || '—' }}</template>
@@ -538,6 +541,7 @@ onMounted(()=>extra(loadBases))
           { colKey: 'created_at', title: '评审时间', width: 180 },
           { colKey: 'operation', title: '操作', width: 90 },
         ]">
+          <template #document_name="{ row }">{{ documentDisplayName(row) }}</template>
           <template #flags="{ row }">
             <t-space size="small" break-line>
               <t-tag v-if="row.has_conflicts" size="small" theme="warning">冲突</t-tag>
@@ -564,7 +568,7 @@ onMounted(()=>extra(loadBases))
           { colKey: 'updated_at', title: '更新时间', width: 180 },
           { colKey: 'operation', title: '操作', width: 160 },
         ]">
-          <template #title="{ row }">{{ row.metadata?.title || row.name }}</template>
+          <template #title="{ row }">{{ documentDisplayName(row) }}</template>
           <template #review_support="{ row }">{{ supportsOfficialReview(row) ? '官方支持评审' : '治理支持未确认' }}</template>
           <template #ingest_status="{ row }">
             <t-tag size="small" :theme="row.ingest_status === 'succeeded' ? 'success' : row.ingest_status === 'failed' ? 'danger' : 'warning'">
@@ -618,7 +622,7 @@ onMounted(()=>extra(loadBases))
       </t-tab-panel>
     </t-tabs>
     <t-drawer v-model:visible="reviewDrawer" size="720px" :footer="false"
-              :header="reviewDetail?.document_name || '评审详情'" destroy-on-close>
+              :header="documentDisplayName(reviewDetail) || '评审详情'" destroy-on-close>
       <div v-if="reviewDetail" class="review-detail">
         <t-alert theme="info" message="文档评审决定采用原文或修订稿继续入库；处理结果不会回写采集原件或外部来源。" />
         <t-alert v-if="!supportsOfficialReview(reviewDetail)" theme="warning" :message="CONTEXTDB_REVIEW_FORMAT_NOTICE" />
@@ -706,7 +710,7 @@ onMounted(()=>extra(loadBases))
       </div>
     </t-drawer>
 
-    <t-dialog v-model:visible="docDialog" width="760px" :header="`编辑正文 · ${docRow?.metadata?.title || docRow?.name || ''}`"
+    <t-dialog v-model:visible="docDialog" width="760px" :header="`编辑正文 · ${documentDisplayName(docRow)}`"
               :confirm-btn="{content:'保存并重新处理',disabled:!docReady || docLoading}" :confirm-loading="docLoading" @confirm="saveDocument">
       <t-alert v-if="docError" theme="error" :message="docError" class="review-error" />
       <t-textarea v-model="docText" :disabled="docLoading" :autosize="{ minRows: 14, maxRows: 28 }" />

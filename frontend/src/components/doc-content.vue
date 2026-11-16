@@ -977,7 +977,7 @@ const handleClose = () => {
 // 获取显示标题
 const getDisplayTitle = () => {
   if (!props.details.title) return '';
-  if (props.details.type === 'file') {
+  if (!IS_CONTEXTDB && props.details.type === 'file') {
     // 文件类型去掉扩展名
     const lastDotIndex = props.details.title.lastIndexOf(".");
     return lastDotIndex > 0 ? props.details.title.substring(0, lastDotIndex) : props.details.title;

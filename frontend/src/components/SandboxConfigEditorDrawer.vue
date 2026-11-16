@@ -846,10 +846,9 @@ const clusterGuideUrl = docsUrl('sandboxDeployment')
 const e2bApiKeysUrl = 'https://e2b.dev/dashboard?tab=keys'
 
 const backendOptions = computed(() => {
-  return NAMED_SANDBOX_BACKEND_TYPES.filter(type => type !== 'state' && (
-    type === 'docker' ? dockerBackendEnabled.value || backend.value === type
-      : deploymentCapabilities.isSupported('settings.sandbox.remote') || backend.value === type
-  ))
+  const types = [...NAMED_SANDBOX_BACKEND_TYPES]
+  if (dockerBackendEnabled.value || backend.value === 'docker') return types
+  return types.filter((type) => type !== 'docker')
 })
 
 const saving = ref(false)
@@ -1179,7 +1178,7 @@ const affectedSessionCount = computed(() => conflict.value?.inventory?.session_i
 function defaultBackendType(): string {
   const fromRecord = props.record?.config?.sandbox_type || props.presetType || ''
   if (isNamedSandboxBackend(fromRecord)) return fromRecord
-  return backendOptions.value[0] || 'cube'
+  return 'cube'
 }
 
 function reset() {

@@ -2,9 +2,12 @@
 interface Chunk {
   content: string
   doc_name?: string
+  document_display_name?: string
+  display_title?: string
   doc_id?: string
   similarity?: number
   toc_path?: string
+  display_toc_path?: string
 }
 
 defineProps<{ chunks: Chunk[]; title?: string }>()
@@ -15,10 +18,10 @@ defineProps<{ chunks: Chunk[]; title?: string }>()
     <div v-if="title" class="chunks-header">{{ title }}</div>
     <div v-for="(chunk, index) in chunks" :key="index" class="chunk-card">
       <div class="chunk-meta">
-        <t-tag size="small" variant="light">{{ chunk.doc_name || chunk.doc_id || '未命名' }}</t-tag>
+        <t-tag size="small" variant="light">{{ chunk.display_title || chunk.document_display_name || chunk.doc_name || chunk.doc_id || '未命名' }}</t-tag>
         <span v-if="typeof chunk.similarity === 'number'" class="chunk-score">相关度 {{ chunk.similarity }}</span>
       </div>
-      <div v-if="chunk.toc_path" class="chunk-toc">{{ chunk.toc_path }}</div>
+      <div v-if="chunk.display_toc_path || chunk.toc_path" class="chunk-toc">{{ chunk.display_toc_path || chunk.toc_path }}</div>
       <div class="chunk-content">{{ chunk.content }}</div>
     </div>
     <t-empty v-if="!chunks.length" size="small" description="暂无知识片段" />

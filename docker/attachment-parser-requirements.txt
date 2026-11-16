@@ -1,0 +1,8 @@
+docling-slim[standard,cli,feat-ocr-rapidocr-onnx]==2.150.0
+docling-core==2.106.0
+python-docx==1.2.0
+python-pptx==1.0.2
+openpyxl==3.1.5
+pypdfium2==5.15.2
+torch==2.15.0
+torchvision==0.29.1

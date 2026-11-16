@@ -87,8 +87,7 @@ const panel = ref<{ openAdd?: () => void } | null>(null)
 const counts = reactive<Partial<Record<ToolboxSection, number>>>({})
 const requestedSection = computed(() => typeof route.params.section === 'string' ? route.params.section : '')
 const sandboxId = computed(() => typeof route.query.sandboxId === 'string' ? route.query.sandboxId : '')
-const visibleItems = computed(() => TOOLBOX_ITEMS.filter((item) =>
-  canAccessToolboxSection(item.key, {
+const visibleItems = computed(() => TOOLBOX_ITEMS.filter((item) => canAccessToolboxSection(item.key, {
   currentTenantRole: authStore.currentTenantRole,
   canAccessAllTenants: authStore.canAccessAllTenants,
   hasRole: (role) => authStore.hasRole(role),

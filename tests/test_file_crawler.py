@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -8,6 +9,7 @@ import pytest
 from crawlers.base import BaseCrawler, CrawledDocument, DocumentStub
 from crawlers.file import FileCrawler
 from crawlers.web import WebCrawler
+from common.upload_names import upload_name
 
 
 def records(path):
@@ -50,6 +52,50 @@ def test_same_file_upload_has_stable_identity(tmp_path, monkeypatch):
         source.parent.mkdir(parents=True)
         source.write_text('# 政策\n\n相同正文。')
     assert FileCrawler(str(tmp_path / 'job1'), [str(sources[0])]).list_documents()[0].id == FileCrawler(str(tmp_path / 'job2'), [str(sources[1])]).list_documents()[0].id
+
+
+@pytest.mark.parametrize('path,index,expected', [
+    ('uploads/11111111-1111-4111-8111-111111111111/001-guide.md', 0, 'guide.md'),
+    ('uploads/11111111-1111-4111-8111-111111111111/001-001-guide.md', 0, '001-guide.md'),
+    ('uploads/11111111-1111-4111-8111-111111111111/002-guide.md', 0, '002-guide.md'),
+    ('uploads/11111111-1111-4111-8111-111111111111/002-guide.md', 1, 'guide.md'),
+    ('uploads/manual/001-guide.md', 0, '001-guide.md'),
+    ('outside/11111111-1111-4111-8111-111111111111/001-guide.md', 0, '001-guide.md'),
+    ('uploads/11111111111141118111111111111111/001-guide.md', 0, '001-guide.md'),
+    ('uploads/11111111-1111-4111-8111-111111111111/001-', 0, '001-'),
+])
+def test_legacy_upload_names_strip_only_a_proven_platform_prefix(path, index, expected):
+    assert upload_name(path, index) == expected
+
+
+def test_explicit_upload_names_preserve_natural_numbering():
+    assert upload_name('uploads/legacy/001-001-guide.md', 0, '001-guide.md') == '001-guide.md'
+
+
+@pytest.mark.parametrize('mapped', [False, True])
+def test_upload_display_names_preserve_source_identity_paths_and_duplicate_files(tmp_path, monkeypatch, mapped):
+    monkeypatch.setenv('GOVERNANCE_DATA_DIR', str(tmp_path))
+    directory = tmp_path / 'uploads' / '11111111-1111-4111-8111-111111111111'
+    directory.mkdir(parents=True)
+    names = ['001-guide.md', '同名.md', '同名.md']
+    paths = [directory / f'{index + 1:03d}-{name}' for index, name in enumerate(names)]
+    for path in paths:
+        path.write_bytes(b'# unchanged source')
+    crawler = FileCrawler(str(tmp_path / 'job'), [str(path) for path in paths], file_names=names if mapped else None)
+    stubs = crawler.list_documents()
+    assert [stub.title for stub in stubs] == ['001-guide', '同名', '同名']
+    assert len({stub.id for stub in stubs}) == 3
+    for stub, path, name in zip(stubs, paths, names):
+        assert stub.id == hashlib.sha256(path.name.encode() + b'\0' + path.read_bytes()).hexdigest()[:24]
+        document = crawler.fetch_document(stub)
+        assert document.metadata['filename'] == name
+        assert document.source_path == f'sources/{stub.id}_{path.name}'
+        assert (Path(crawler.save_dir) / document.source_path).read_bytes() == path.read_bytes()
+
+
+def test_upload_name_mapping_must_align_with_paths(tmp_path):
+    with pytest.raises(ValueError, match='名称数量不一致'):
+        FileCrawler(str(tmp_path / 'job'), ['unused.md'], file_names=[])
 
 
 def test_failed_binary_conversion_keeps_exact_source(tmp_path, monkeypatch):

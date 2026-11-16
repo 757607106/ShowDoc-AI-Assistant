@@ -42,7 +42,7 @@ def test_first_question_updates_sidebar_and_header_and_survives_reload(harness, 
             page.locator('button[type="submit"]').click()
             page.wait_for_url('**/platform/**')
             page.goto(platform + '/platform/creatChat')
-            composer = page.locator('.answers-input textarea')
+            composer = page.locator('.platform-route-outlet .answers-input textarea')
             expect(composer).to_be_visible()
             composer.fill('请说明如何查询数据库并定位慢查询')
             with page.expect_response(lambda response: '/api/v1/agent-chat/' in response.url or '/api/v1/knowledge-chat/' in response.url) as streamed:

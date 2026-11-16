@@ -12,7 +12,6 @@ export const DEPLOYMENT_CAPABILITY_KEYS = [
   'settings.sandbox',
   'settings.sandbox.docker',
   'settings.sandbox.host',
-  'settings.sandbox.state',
   'settings.sandbox.remote',
   'settings.sandbox.user_allocation',
 ] as const
@@ -52,7 +51,6 @@ export function isDeploymentCapabilitySupported(
   if (
     key === 'settings.sandbox.docker'
     || key === 'settings.sandbox.host'
-    || key === 'settings.sandbox.state'
     || key === 'settings.sandbox.remote'
     || key === 'settings.sandbox.user_allocation'
   ) {
@@ -65,7 +63,7 @@ export const SETTINGS_SECTION_CAPABILITY: Partial<Record<string, DeploymentCapab
   websearch: 'settings.websearch',
   vectorstore: 'settings.vectorstore',
   storage: 'settings.storage',
-  sandbox: 'settings.sandbox',
+  sandbox: 'settings.sandbox.remote',
   // Skills are baked into a sandbox image. Hide the catalog when the
   // deployment has no sandbox support, same as personal skill credentials.
   skills: 'settings.sandbox',
@@ -86,6 +84,4 @@ export function skillSettingsSupported(capabilities: DeploymentCapabilityMap): b
   if (capabilities['settings.sandbox']?.supported === false) return false
   return capabilities['settings.sandbox.remote']?.supported === true
     || capabilities['settings.sandbox.host']?.supported === true
-    || capabilities['settings.sandbox.state']?.supported === true
-    || capabilities['settings.sandbox.docker']?.supported === true
 }

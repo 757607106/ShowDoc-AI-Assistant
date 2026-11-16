@@ -5,6 +5,21 @@ import { computed, ref } from 'vue'
 import ts from 'typescript'
 
 const source=readFileSync(new URL('./doc-content.vue',import.meta.url),'utf8')
+
+test('native preview preserves the same full file name used by document lists and directories',()=>{
+  const start=source.indexOf('const getDisplayTitle =')
+  const end=source.indexOf('const channelLabelMap:',start)
+  const code=ts.transpileModule(source.slice(start,end)+'\nreturn getDisplayTitle',{}).outputText
+  for(const title of ['收/付款单填错了怎么办？.html','ClearZeroDirect.sql','001-报价管理.v2.pdf']){
+    const props={details:{type:'file',title}}
+    const native=new Function('IS_CONTEXTDB','props',code)(true,props)
+    const legacy=new Function('IS_CONTEXTDB','props',code)(false,props)
+    assert.equal(native(),title)
+    assert.equal(legacy(),title.slice(0,title.lastIndexOf('.')))
+    assert.equal(props.details.title,title)
+  }
+})
+
 const start=source.indexOf('const canDeleteGeneratedQuestion =')
 const end=source.indexOf('const refreshSummary =',start)
 const script=ts.transpileModule(source.slice(start,end)+`\nreturn {canEditContent,canEditMetadata,metadataEditing,nativeMetadataDraft,startMetadataEdit,saveMetadata}`,{

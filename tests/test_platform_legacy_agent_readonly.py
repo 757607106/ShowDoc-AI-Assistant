@@ -124,7 +124,7 @@ def test_session_metadata_and_native_clear_delete_obey_stream_lock(authenticated
     with make_checkpointer() as saver:
         graph = builder.compile(checkpointer=saver)
         graph.invoke({'messages': [HumanMessage('Question')]}, config)
-    with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True) as lock:
+    with psycopg.connect(os.environ['AGENT_DATABASE_URL'], autocommit=True) as lock:
         assert lock.execute('SELECT pg_try_advisory_lock(hashtextextended(%s,0))', ('harness:' + sid,)).fetchone()[0]
         assert http.delete(f'/api/v1/sessions/{sid}/messages').status_code == 409
         assert http.delete(f'/api/v1/sessions/{sid}').status_code == 409
@@ -195,9 +195,10 @@ def test_archive_ownership_and_no_registered_browser_or_terminal_routes(authenti
         assert authenticated_client.post(path, json={'session_id': sid}).status_code == 404
         assert authenticated_client.post(path, json={'session_id': 42}).status_code == 400
     assert authenticated_client.delete('/api/v1/artifacts', query_string={'session_id': sid}).status_code == 404
-    assert not any(isinstance(route, WebSocketRoute) for route in create_app().routes)
+    assert [route.path for route in create_app().routes if isinstance(route, WebSocketRoute)] == [
+        '/api/v1/sessions/{session_id}/sandbox/terminal']
     root = Path(__file__).parents[1]
-    for filename in ('service', 'events', 'sandbox', 'browser', 'skill_runtime', 'terminal'):
+    for filename in ('service', 'events', 'browser', 'skill_runtime', 'terminal'):
         assert not (root / 'agent' / f'{filename}.py').exists()
 
 
@@ -224,16 +225,16 @@ def test_archived_state_file_download_reads_published_checkpoint_without_reindex
     metadata = [{'index': 0, 'source_path': '/report.txt', 'file_name': 'report.txt', 'file_type': 'txt'}]
     source = {'path': '/report.txt', 'checkpoint_id': checkpoint,
               'version_key': artifact_key(sid, '/report.txt', item).split(':', 1)[1]}
-    with connection() as conn:
+    with make_checkpointer() as saver, connection() as conn:
         conn.execute("INSERT INTO agent_runs(id,session_id,owner_id,status,artifacts_json,artifact_sources) VALUES ('files',%s,%s,'completed',%s,%s)",
                      (sid, owner, Jsonb(metadata), Jsonb([source])))
         before = conn.execute("SELECT * FROM agent_runs WHERE id='files'").fetchone()
-        count = conn.execute('SELECT count(*) AS n FROM checkpoints').fetchone()['n']
+        count = saver.conn.execute('SELECT count(*) AS n FROM checkpoints').fetchone()['n']
     response = authenticated_client.get(f'/api/v1/sessions/{sid}/messages/files/artifacts/0/download')
     assert response.status_code == 200 and response.data == expected
-    with connection() as conn:
+    with make_checkpointer() as saver, connection() as conn:
         assert conn.execute("SELECT * FROM agent_runs WHERE id='files'").fetchone() == before
-        assert conn.execute('SELECT count(*) AS n FROM checkpoints').fetchone()['n'] == count
+        assert saver.conn.execute('SELECT count(*) AS n FROM checkpoints').fetchone()['n'] == count
 
 
 @pytest.mark.parametrize('item', [{'content': '%%%', 'encoding': 'base64'}, {'content': 'text', 'encoding': 'unknown'}])
@@ -246,7 +247,7 @@ def test_archived_file_download_rejects_invalid_encoding(monkeypatch, item):
     assert error.value.status == 409
 
 
-def test_retired_memory_reports_disabled_without_lifecycle_or_changing_saved_data(authenticated_client, monkeypatch):
+def test_native_file_memory_does_not_run_or_modify_legacy_structured_memory(authenticated_client, monkeypatch):
     owner = os.environ['TEST_PLATFORM_USER']
     for kind in ('memory', 'memory_job', 'memory_topic', 'settings'):
         registry.save_record(kind, {'id': 'memory-config' if kind == 'settings' else 'saved-' + kind,
@@ -256,18 +257,19 @@ def test_retired_memory_reports_disabled_without_lifecycle_or_changing_saved_dat
     monkeypatch.setattr('integrations.contextdb.ContextDBClient._request', no_execution)
     monkeypatch.setattr(subprocess, 'Popen', no_execution)
     personal = authenticated_client.get('/api/v1/memory/settings')
-    assert personal.status_code == 200 and personal.json['data']['workspace_enabled'] is False
-    assert personal.json['data']['effective'] is False and personal.json['data']['item_count'] == 1
+    assert personal.status_code == 200 and personal.json['data']['workspace_enabled'] is True
+    assert personal.json['data']['effective'] is True and personal.json['data']['item_count'] == 0
+    assert personal.json['data']['storage_mode'] == 'agents_md'
+    assert personal.json['data']['structured_memory_supported'] is False
     workspace = authenticated_client.get('/api/v1/tenants/kv/memory-config')
-    assert workspace.status_code == 200 and workspace.json['data']['enabled'] is False
-    assert workspace.json['data']['supported'] is False
-    for path in ('/api/v1/memory/settings', '/api/v1/tenants/kv/memory-config'):
-        assert authenticated_client.put(path, json={'enabled': True}).status_code == 501
+    assert workspace.status_code == 200 and workspace.json['data']['enabled'] is True
+    assert workspace.json['data']['supported'] is True
+    assert authenticated_client.put('/api/v1/tenants/kv/memory-config', json={'enabled': True, 'write_mode': 'auto'}).status_code == 501
     for method, path in [('GET', '/api/v1/memory/items'), ('POST', '/api/v1/memory/items'),
                          ('DELETE', '/api/v1/memory/items/saved'), ('POST', '/api/v1/memory/consolidate'),
                          ('GET', '/api/v1/memory/topics'), ('GET', '/api/v1/memory/export')]:
         response = authenticated_client.open(path, method=method, json={})
-        assert response.status_code == 404, (method, path, response.status_code)
+        assert response.status_code == 501, (method, path, response.status_code)
     with connection() as conn:
         assert conn.execute('SELECT * FROM runtime_records ORDER BY id').fetchall() == before
     root = Path(__file__).parents[1]

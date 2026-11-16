@@ -176,6 +176,7 @@ class TiantongCrawler(BaseCrawler):
             if local_path:
                 links.append({
                     "text": attachment.get("name") or "附件",
+                    "filename": attachment.get("name") or os.path.basename(local_path),
                     "url": local_path,
                 })
         return {

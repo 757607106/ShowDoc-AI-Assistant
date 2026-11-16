@@ -1,6 +1,7 @@
 // Native ContextDB transport and WeKnora view-field mapping; no local knowledge state.
 import { get, post, put, del, patch, getDown } from '@/utils/request'
 import { documentDisplayName } from '@/utils/contextdbDocumentName'
+import { updateSpace } from '@/api/knowledgeSpaces'
 
 export const nativeAPI = {
   get: (path: string, params?: Record<string, any>) => get(`/api/contextdb/v1/${path}`, { params }),
@@ -21,7 +22,9 @@ export async function listMembers() {
 }
 
 export function kbView(base: any) {
-  return { ...base, tenant_id: 1, type: 'document',
+  const displayName = typeof base.display_name === 'string' ? base.display_name.trim() : ''
+  return { ...base, name: displayName || base.name, original_name: base.original_name ?? base.name,
+    tenant_id: 1, type: 'document',
     capabilities: { vector: true, keyword: true, wiki: !!base.wiki_enabled,
       graph: !!base.graph_enabled, faq: false, ...base.capabilities },
     indexing_strategy: { wiki_enabled: base.wiki_enabled, graph_enabled: base.graph_enabled },
@@ -66,6 +69,22 @@ export async function createBase(data: any) {
 }
 
 export async function updateBase(id: string, data: any) {
+  const current = (await getBase(id)).data
+  if (current.space_scope) {
+    const descriptionChanged = data.description !== undefined && data.description !== (current.description || '')
+    if (descriptionChanged) {
+      await nativeAPI.put('knowledge/knowledge_bases', {
+        knowledge_base_id: id, name: current.original_name, description: data.description })
+    }
+    if (data.name !== undefined && data.name !== (current.space_name || current.name)) {
+      try { await updateSpace(current.space_scope, { name: data.name }) }
+      catch (error) {
+        if (descriptionChanged) throw new Error(`知识库说明已保存，但名称更新失败：${error instanceof Error ? error.message : String(error)}`)
+        throw error
+      }
+    }
+    return getBase(id)
+  }
   const res = await nativeAPI.put('knowledge/knowledge_bases', {
     knowledge_base_id: id, name: data.name, description: data.description })
   return { success: true, data: kbView(res.data) }

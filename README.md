@@ -1,8 +1,10 @@
 # 企业知识治理平台
 
+最新架构边界、整改结果与验收见[2026-11-16 修正总报告](docs/architecture/architecture-remediation-final-20261116.md)。
+
 以固定提交 `cbdcebabf48c5ee2d6868b370326aa8341703f62` 的 **WeKnora 前端**为基线，使用 Vue 3、TDesign、原有布局、知识库卡片、文档列表与预览、Wiki Markdown 编辑、对话流及确认卡片。源码与许可记录在 [frontend/UPSTREAM.json](frontend/UPSTREAM.json) 和 [frontend/UPSTREAM-LICENSE](frontend/UPSTREAM-LICENSE)。
 
-知识解析、切片、检索、评审、Wiki、图谱和评审模板全部使用 **ContextDB 官方 REST/MCP**，产品入口聚焦知识库与知识评审。deepagents 的知识工具仅来自官方 MCP，连接失败会停止知识访问。Docker PostgreSQL 仅保存账号、加密成员凭据、平台任务、同步映射、会话、官方 LangGraph checkpoint 和操作记录；采集原件与发布 ZIP 留在受控产物目录。
+知识解析、切片、检索、评审、Wiki、图谱和评审模板全部使用 **ContextDB 官方 REST/MCP**，产品入口聚焦知识库与知识评审。deepagents 的知识工具仅来自官方 MCP，连接失败会停止知识访问。同一 PostgreSQL 服务使用独立数据库和受限账号：平台保存账号、任务、同步映射、会话元数据与操作记录，Agent 专库保存官方 LangGraph checkpoint 和 Store。知识正文不迁入 PostgreSQL；采集原件与发布 ZIP 留在受控产物目录。
 
 ## 本机启动
 
@@ -14,7 +16,7 @@ uv pip install --python .venv/bin/python -r requirements.txt
 cp .env.example .env  # 仅在 .env 尚不存在时执行
 ```
 
-填写 `.env` 的 ContextDB、模型和平台配置：`POSTGRES_PASSWORD`、`DATABASE_URL`、`FLASK_SECRET_KEY`、`CREDENTIAL_ENCRYPTION_KEY`、`PLATFORM_ADMIN_EMAIL`、`PLATFORM_ADMIN_PASSWORD`。Fernet 密钥可用 `.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` 生成；账号密码至少 12 位，邮箱须有有效域名。数据库连接串中的密码需 URL 编码。
+填写 `.env` 的 ContextDB、模型和平台配置：`POSTGRES_PASSWORD`、`DATABASE_URL`、`AGENT_DATABASE_URL`、`FLASK_SECRET_KEY`、`CREDENTIAL_ENCRYPTION_KEY`、`PLATFORM_ADMIN_EMAIL`、`PLATFORM_ADMIN_PASSWORD`。两个应用 DSN 必须使用不同数据库、不同受限账号，禁止使用 Compose 的引导管理员。已有共享库按[隔离迁移说明](docs/guides/agent-postgres-isolation.md)先备份、盘点再切换。Fernet 密钥可用 `.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` 生成；账号密码至少 12 位，邮箱须有有效域名。数据库连接串中的密码需 URL 编码。
 
 ```bash
 docker compose -f compose.postgres.yml up -d
@@ -67,9 +69,9 @@ Wiki 编译器接管准入结果为 **未通过**：完整受影响页定位、�
 cd frontend && npm run type-check && npm run build-only
 ```
 
-默认测试不会访问 ContextDB 云端，平台测试在 Docker 的 `showdoc_knowledge_test` 中使用每例独立 schema；指定 `TEST_DATABASE_URL` 时库名必须以 `_test` 结尾。真实云端验证需显式执行 `.venv/bin/python -m scripts.contextdb_probe --write` 或 `.venv/bin/python -m scripts.contextdb_pipeline_smoke`，仅操作新建探测资源并记录清理结果。
+默认测试不会访问 ContextDB 云端。平台与 Agent 分别在 `showdoc_knowledge_test`、`showdoc_agent_test` 使用独立临时账号和每例 schema，验证双向跨库连接被拒绝；`TEST_DATABASE_URL` 必须指向以 `_test` 结尾的测试库，并有创建临时数据库和账号的权限。真实云端验证需显式执行 `.venv/bin/python -m scripts.contextdb_probe --write` 或 `.venv/bin/python -m scripts.contextdb_pipeline_smoke`，仅操作新建探测资源并记录清理结果。
 
-新会话在既有 `agent_sessions.agent_config` 标记 `runtime=deepagents`，执行状态只保存在官方 LangGraph checkpoint。WeKnora 聊天、历史、审批与提问接口由 API Adapter 对接；审批 POST 只提交协议决定，随后的续接 GET 调用原生 `Command` 并流式返回。旧会话、运行记录、上传文件和沙箱卷保留，只读展示；旧执行入口继续拒绝执行。官方 StateBackend 提供会话文件、Skills 指令与工具调用，Docker 命令、终端、BrowserSkill、自动安装、steering 和应用层 fork/rewind 尚未接入。原组件没有能力开关的入口保留，API 明确拒绝，不伪装成功。源码核对与验证见 [官方对齐审计](docs/architecture/agent-official-alignment-audit.md)。
+新会话在既有 `agent_sessions.agent_config` 标记 `runtime=deepagents`，执行状态只保存在 Agent 专库的官方 LangGraph checkpoint。WeKnora 聊天、历史、审批与提问接口由 API Adapter 对接；审批 POST 只提交协议决定，随后的续接 GET 调用原生 `Command` 并流式返回。旧会话、运行记录和沙箱卷保留，旧执行入口继续拒绝执行。官方 StateBackend 提供虚拟会话文件；OpenSandbox 提供隔离文件和 Shell，接入步骤及附件解析镜像见[沙箱部署说明](deploy/opensandbox.md)。附件原始字节保存在所属账号的归档记录中，解析在无外网的临时沙箱执行，无沙箱时明确拒绝，不回退宿主解析。原生文件记忆、子代理轨迹、应用层 fork/rewind 已接入；浏览器/桌面、运行中 steering、自动安装、结构化记忆及后台续跑仍明确拒绝。源码核对与验证见 [官方对齐审计](docs/architecture/agent-official-alignment-audit.md)。
 
 旧 `_governance` 保留只读。迁移记录见 `downloads/migrations/`。数据库备份可使用 `docker compose -f compose.postgres.yml exec -T postgres pg_dump -U showdoc showdoc_knowledge > <private-backup.sql>`；同时备份 `.env` 的加密密钥和产物目录。Agent 必须经 ASGI 启动：`app.py` 已默认启动 Uvicorn，也可执行 `.venv/bin/uvicorn asgi:create_app --factory --host 127.0.0.1 --port 8000`。本方案不部署生产 Agent Server、Redis 或 Helm，也不需要其部署许可；模型及 ContextDB 服务仍使用已配置账号。详见 [Agent 验证边界](docs/guides/agent-interaction-validation.md)。
 

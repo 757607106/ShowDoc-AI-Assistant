@@ -33,10 +33,10 @@ def build_model(agent_config=None, owner_id=None):
 
 async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowledge_base_ids=(),
                       agent_config=None, knowledge_ids=(), tag_scopes=(), session_id=None,
-                      load_tools=True):
+                      load_tools=True, store=None, agent_id=None, backend=None):
     """Configure the official harness; the caller owns its invocation and lifetime."""
     from deepagents import create_deep_agent
-    from deepagents.backends import StateBackend
+    from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
     from deepagents.middleware.filesystem import FilesystemPermission
     from langchain.agents.middleware import ModelCallLimitMiddleware, TodoListMiddleware
     from agent import registry
@@ -65,6 +65,23 @@ async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowled
         tools.extend(make_interaction_tools(None, owner_id))
 
     readonly = role == 'viewer' or config['access_level'] == 'read_only'
+    if readonly and backend is not None:
+        raise StoreError('只读 Agent 不允许启用命令执行后端', 403)
+    routes = {'/state/': StateBackend()} if backend is not None else {}
+    skills = ['/state/skills/'] if backend is not None else ['/skills/']
+    memory = ['/state/AGENTS.md'] if backend is not None else ['/AGENTS.md']
+    skill_paths = ['/state/skills/**'] if backend is not None else ['/skills/**']
+    if store is not None and load_tools and config['memory_enabled']:
+        from agent.memory_files import namespace, policy
+        memory_policy = await asyncio.to_thread(policy, owner_id)
+        if memory_policy['effective']:
+            memory_namespace = namespace(owner_id, agent_id)
+            memory_prefix = f'/memories/{agent_id}/'
+            routes[memory_prefix] = StoreBackend(namespace=lambda _runtime: memory_namespace, store=store)
+            memory.append(memory_prefix + 'AGENTS.md')
+    runtime_backend = backend if backend is not None else StateBackend()
+    if routes:
+        runtime_backend = CompositeBackend(default=runtime_backend, routes=routes)
     # Keep the same official HITL node when history is read without MCP discovery.
     interrupts = {'write_file': False, 'edit_file': False, 'delete': False}
     interrupts.update({tool.name: {'allowed_decisions': ['approve', 'reject', 'edit']}
@@ -72,6 +89,8 @@ async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowled
     if not readonly and config['access_level'] == 'confirm':
         interrupts.update({name: {'allowed_decisions': ['approve', 'reject', 'edit']}
                            for name in ('write_file', 'edit_file', 'delete')})
+        if backend is not None:
+            interrupts['execute'] = {'allowed_decisions': ['approve', 'reject', 'edit']}
     limit = config['max_iterations']
     middleware = [TodoListMiddleware()]
     if limit > 0:
@@ -97,7 +116,10 @@ async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowled
         prompt += '\n本轮不输出来源引用标签。'
     if config.get('_document_bases'):
         prompt += '\n本轮文档范围: ' + json.dumps(config['_document_bases'], ensure_ascii=False) + '；只检索所选文档；整库与文档范围分开调用。'
-    prompt += '\n文件保存在当前会话的虚拟文件系统中，不支持 Shell 或浏览器执行。'
+    if backend is None:
+        prompt += '\n文件保存在当前会话的虚拟文件系统中，不支持 Shell 或浏览器执行。'
+    else:
+        prompt += '\n命令在当前会话的独立沙箱中执行；/state/ 与 /memories/ 是文件工具提供的虚拟目录，不能当作 Shell 的真实目录。'
     prompt += ('\n当前会话知识库 ID: ' + ', '.join(knowledge_base_ids) if knowledge_base_ids
                else '\n当前会话未选择知识库，不可访问知识库内容。')
     # History reads need the official graph's channels, not a working provider.
@@ -106,11 +128,11 @@ async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowled
     model = build_model(config, owner_id) if load_tools else ChatOpenAI(model='checkpoint-reader', api_key='unused')
     agent = create_deep_agent(
         model=model, tools=tools, system_prompt=prompt,
-        checkpointer=checkpointer, backend=StateBackend(),
-        skills=['/skills/'], memory=['/AGENTS.md'], middleware=middleware,
+        checkpointer=checkpointer, backend=runtime_backend, store=store,
+        skills=skills, memory=memory, middleware=middleware,
         interrupt_on=interrupts,
         permissions=[FilesystemPermission(operations=['write'],
-            paths=['/**'] if readonly else ['/skills/**'], mode='deny')],
+            paths=['/**'] if readonly else skill_paths, mode='deny')],
     )
     # ModelCallLimitMiddleware owns the model budget, including official middleware steps.
     return agent.with_config(recursion_limit=max(80, limit * 4 + 20) if limit > 0 else 10000)

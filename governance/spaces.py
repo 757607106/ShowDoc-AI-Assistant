@@ -229,6 +229,8 @@ def retry_stages(detail, mode):
 
 
 def progress(store, scope, page=1, page_size=20):
+    from governance.knowledge_names import KnowledgeNames
+    names = KnowledgeNames(store.owner_id)
     space = get_space(store, scope)
     with connection() as conn:
         total = conn.execute('SELECT count(*) AS n FROM knowledge_sync WHERE owner_id=%s AND scope=%s',
@@ -256,6 +258,7 @@ def progress(store, scope, page=1, page_size=20):
                       'latest_ingest_event_id', 'latest_graph_event_id', 'wiki_status', 'wiki_error_message',
                       'review_status', 'decision', 'lifecycle_state', 'recovery_actions')
             row['official'] = {key: detail[key] for key in fields if key in detail}
+            row['official']['display_name'] = names.document(detail, kb_id=row['knowledge_base_id'])['display_name']
             if row['target_mode'] != 'graph' or space['graph_enabled']:
                 row['retry_stages'] = retry_stages(detail, row['target_mode'])
         except ContextDBError as exc:

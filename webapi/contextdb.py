@@ -9,7 +9,8 @@ from flask import Blueprint, Response, g, jsonify, request, send_file
 
 from common.converter import clean_filename
 from governance.store import StoreError
-from webapi.auth import client_for_user
+from governance.knowledge_names import KnowledgeNames
+from webapi.auth import client_for_user, user_id
 
 contextdb_bp = Blueprint('contextdb', __name__)
 MAX_BATCH_DOWNLOAD_BYTES = 512 * 1024 * 1024
@@ -78,7 +79,14 @@ def forward(version, resource):
                                         parent_node_id=request.form.get('parent_node_id'))
     else:
         body = request.get_json(silent=True) if request.method not in ('GET', 'HEAD') else None
+        if resource == 'knowledge/query' and isinstance(body, dict) and 'query' in body:
+            if 'question' in body and body['question'] != body['query']:
+                raise StoreError('query 与 question 不能指定不同的问题', 400)
+            body = {**body, 'question': body['query']}
+            body.pop('query')
         result = client._request(request.method, path, json_body=body, params=request.args.to_dict())
+    if request.method == 'GET' or resource == 'knowledge/query':
+        result = KnowledgeNames(user_id()).present(resource, result, kb_id=request.args.get('knowledge_base_id'))
     return jsonify(success=True, data=result)
 
 
@@ -122,19 +130,13 @@ def batch_download(kb_id):
             raise StoreError('所选文档的源文件不可下载', 409)
         details.append(detail)
     archive = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024)
+    names_view = KnowledgeNames(user_id())
     try:
         total_bytes = 0
         names = set()
         with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as output:
             for detail in details:
-                metadata = detail.get('metadata') or {}
-                filename, title = metadata.get('filename'), metadata.get('title')
-                filename = filename.strip() if isinstance(filename, str) else ''
-                title = title.strip() if isinstance(title, str) else ''
-                name = filename or title or detail.get('name') or 'document'
-                suffix = Path(detail.get('name') or '').suffix
-                if title and not filename and suffix and not name.lower().endswith(suffix.lower()):
-                    name += suffix
+                name = names_view.document(detail, kb_id=kb_id)['display_name'] or 'document'
                 name = clean_filename(name)
                 original, number = Path(name), 1
                 while name.casefold() in names:

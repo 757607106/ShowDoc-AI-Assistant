@@ -13,6 +13,7 @@ export const KNOWN_MODEL_USAGE_BINDINGS = [
   'rerank_model',
   'query_understand_model',
   'follow_up_model',
+  'extract_model',
 ] as const
 
 export type KnownModelUsageBinding = typeof KNOWN_MODEL_USAGE_BINDINGS[number]
@@ -26,6 +27,9 @@ export interface ModelUsageResource {
 export interface ModelUsageDetails {
   knowledge_bases: ModelUsageResource[]
   agents: ModelUsageResource[]
+  long_term_memory: {
+    bindings: string[]
+  }
   knowledge_base_total: number
   agent_total: number
 }
@@ -76,19 +80,21 @@ function parseTotal(value: unknown, listed: number): number {
 }
 
 export function parseModelUsageDetails(value: unknown): ModelUsageDetails | null {
-  if (!isRecord(value)) return null
+  if (!isRecord(value) || !isRecord(value.long_term_memory)) return null
 
   const knowledgeBases = parseResources(value.knowledge_bases)
   const agents = parseResources(value.agents)
-  if (!knowledgeBases || !agents) return null
+  const memoryBindings = parseBindings(value.long_term_memory.bindings)
+  if (!knowledgeBases || !agents || !memoryBindings) return null
 
   const details: ModelUsageDetails = {
     knowledge_bases: knowledgeBases,
     agents,
+    long_term_memory: { bindings: memoryBindings },
     knowledge_base_total: parseTotal(value.knowledge_base_total, knowledgeBases.length),
     agent_total: parseTotal(value.agent_total, agents.length),
   }
-  if (knowledgeBases.length === 0 && agents.length === 0) {
+  if (knowledgeBases.length === 0 && agents.length === 0 && memoryBindings.length === 0) {
     return null
   }
   return details

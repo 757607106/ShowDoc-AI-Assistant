@@ -14,6 +14,35 @@ import pytest
 from governance.database import close_pool, connection, initialize
 
 
+def test_agent_and_platform_use_separate_databases_and_nonprivileged_roles():
+    with psycopg.connect(os.environ['DATABASE_URL']) as platform:
+        platform_db, platform_role = platform.execute('SELECT current_database(),current_user').fetchone()
+        assert platform.execute("SELECT to_regclass(current_schema() || '.checkpoints')").fetchone()[0] is None
+        assert platform.execute('SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls FROM pg_roles WHERE rolname=current_user').fetchone()[0] is False
+    with psycopg.connect(os.environ['AGENT_DATABASE_URL']) as agent:
+        agent_db, agent_role = agent.execute('SELECT current_database(),current_user').fetchone()
+        assert agent.execute("SELECT to_regclass(current_schema() || '.platform_users')").fetchone()[0] is None
+        assert agent.execute('SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls FROM pg_roles WHERE rolname=current_user').fetchone()[0] is False
+    assert platform_db != agent_db and platform_role != agent_role
+    for url, forbidden in ((os.environ['DATABASE_URL'], agent_db), (os.environ['AGENT_DATABASE_URL'], platform_db)):
+        with pytest.raises(psycopg.OperationalError, match='permission denied'):
+            psycopg.connect(make_conninfo(url, dbname=forbidden))
+
+
+@pytest.mark.parametrize('invalid', ['missing', 'shared_database', 'shared_role'])
+def test_agent_connection_never_falls_back_to_platform(monkeypatch, invalid):
+    from agent.checkpointer import database_url
+    from psycopg.conninfo import conninfo_to_dict
+    if invalid == 'missing':
+        monkeypatch.delenv('AGENT_DATABASE_URL')
+    else:
+        platform = conninfo_to_dict(os.environ['DATABASE_URL'])
+        fields = {'dbname': platform['dbname']} if invalid == 'shared_database' else {'user': platform['user']}
+        monkeypatch.setenv('AGENT_DATABASE_URL', make_conninfo(os.environ['AGENT_DATABASE_URL'], **fields))
+    with pytest.raises(RuntimeError, match='AGENT_DATABASE_URL|不同'):
+        database_url()
+
+
 def test_pool_reuses_connections_and_nested_transactions_stay_independent():
     pids=[]
     for _ in range(5):

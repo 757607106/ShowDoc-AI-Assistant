@@ -43,6 +43,7 @@ function acceptSpace(next:KnowledgeSpace){
   const current=mode.value==='wiki'?next.wiki_kb_id:next.graph_kb_id
   if(previous!==undefined&&previous!==current)clearResourceLinks()
   loadedWikiId=next.wiki_kb_id;loadedGraphId=next.graph_kb_id;space.value=next
+  spaces.value=spaces.value.map(item=>item.id===next.scope?{...item,name:spaceName(next.scope,[next])}:item)
 }
 let requestId = 0
 async function load() {

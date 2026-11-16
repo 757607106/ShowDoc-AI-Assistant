@@ -1,7 +1,7 @@
 import { nativeAPI } from './contextdb'
 
 export type WikiPageType = 'entity' | 'concept' | 'synthesis' | 'comparison' | 'category' | 'summary'
-export interface WikiLink { page_id: string; title?: string; slug?: string; page_type?: WikiPageType }
+export interface WikiLink { page_id: string; title?: string; display_title?: string; slug?: string; page_type?: WikiPageType }
 export interface WikiPage extends WikiLink {
   title: string
   page_type: WikiPageType

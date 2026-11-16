@@ -73,15 +73,6 @@ test('legacy api / integrations / bare-tab query strings normalize to nav keys',
   assert.equal(isIntegrationSection('integration-unknown'), false)
 })
 
-test('retired personal and workspace memory links open general settings', () => {
-  for (const section of ['memory', 'mymemory']) {
-    const normalized=normalizeSettingsSection(section)
-    assert.equal(normalized,'general')
-    assert.deepEqual(buildSettingsRouteQuery(normalized,{section,tab:'legacy'}),{section:'general'})
-  }
-  assert.equal(normalizeSettingsSection('chathistory'),'chathistory')
-})
-
 test('canonical settings query skips a redundant replace', () => {
   assert.equal(
     settingsQueryUnchanged(

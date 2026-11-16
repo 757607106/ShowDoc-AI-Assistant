@@ -1,4 +1,5 @@
 import * as contextdb from '@/api/contextdb';
+import { IS_CONTEXTDB } from '@/config/contextdb';
 import { get, post, put, del, postUpload, getDown } from "../../utils/request";
 import type { KnowledgeProcessOverrides } from '@/types/knowledgeProcess';
 import type { AuditLog, AuditOutcome, ListAuditLogResponse } from '@/api/tenant/audit-log';
@@ -547,7 +548,7 @@ export interface ListKnowledgeFilesParams {
 }
 
 export function listKnowledgeFiles(kbId: string, params: ListKnowledgeFilesParams, options?: KnowledgeReadOptions) {
-  if (params.folder_path !== undefined || params.tag_ids) {
+  if (!IS_CONTEXTDB && (params.folder_path !== undefined || params.tag_ids)) {
     return get(withKnowledgeReadContext(`/api/v1/knowledge-bases/${kbId}/knowledge`, options), { params, signal: options?.signal });
   }
   return contextdb.listDocuments(kbId, params);
@@ -904,7 +905,7 @@ export function searchKnowledge(
 
 export async function knowledgeSemanticSearch(data: {query:string;knowledge_base_ids?:string[];knowledge_ids?:string[]}) {
   const res=await contextdb.nativeAPI.post('knowledge/query',{query:data.query,knowledge_base_ids:data.knowledge_base_ids,document_ids:data.knowledge_ids,top_k:10})
-  return {success:true,data:(res.data.chunks || []).map((c:any)=>({...c,id:c.chunk_id,knowledge_id:c.document_id||c.doc_id,knowledge_base_id:c.knowledge_base_id||c.kb_id,knowledge_title:c.document_name||c.docnm_kwd,content:c.content||c.content_with_weight,score:c.score??c.similarity}))}
+  return {success:true,data:(res.data.chunks || []).map((c:any)=>({...c,id:c.chunk_id,knowledge_id:c.document_id||c.doc_id,knowledge_base_id:c.knowledge_base_id||c.kb_id,knowledge_title:c.document_display_name||c.document_name||c.docnm_kwd,content:c.content||c.content_with_weight,score:c.score??c.similarity}))}
 }
 
 export function batchReparseKnowledge(kbId: string, ids: string[], processConfig?: KnowledgeProcessOverrides) {

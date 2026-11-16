@@ -130,7 +130,7 @@ const groupedKnowledgeRefs = computed(() => {
         if (!groupMap.has(key)) {
             groupMap.set(key, {
                 key,
-                title: item.knowledge_title || item.knowledge_filename || key,
+                title: item.document_display_name || item.knowledge_title || item.knowledge_filename || key,
                 knowledgeId: item.knowledge_id,
                 knowledgeBaseId: item.knowledge_base_id,
                 chunks: [],

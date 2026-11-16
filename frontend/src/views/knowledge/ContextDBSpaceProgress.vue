@@ -4,6 +4,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { getSpaceProgress, retrySpaceTarget, type KnowledgeSpace } from '@/api/knowledgeSpaces'
 import { stateLabel, stateTheme } from '@/utils/platformPresentation'
+import { documentDisplayName } from '@/utils/contextdbDocumentName'
 
 const props = defineProps<{ scope: string }>()
 const emit = defineEmits<{ refreshSpace: []; spaceLoaded: [space: KnowledgeSpace] }>()
@@ -68,7 +69,7 @@ onUnmounted(() => { requestId++; window.clearInterval(timer) })
     <section v-for="mode in (['wiki','graph'] as const)" :key="mode" class="target-progress">
       <h3>{{mode==='wiki' ? 'Wiki 处理进度' : '知识图谱处理进度'}}<t-tag v-if="mode==='graph' && data && !data.space.graph_enabled" variant="outline">后续提交已停用</t-tag></h3>
       <t-table row-key="source_id" :data="(data?.mappings || []).filter((row:any)=>row.target_mode===mode)" :columns="[{colKey:'source',title:'文档'},{colKey:'status',title:'最近提交回执',width:130},{colKey:'review',title:'文档评审',width:140},{colKey:'ingest',title:'文档入库',width:140},{colKey:'derived',title:mode==='wiki'?'Wiki 生成':'图谱构建',width:150},{colKey:'actions',title:'操作',width:200}]">
-        <template #source="{row}"><div class="source-name" :title="row.source_id">{{row.official?.name || '文档名称未获取'}}</div></template>
+        <template #source="{row}"><div class="source-name" :title="row.source_id">{{documentDisplayName(row.official) || '文档名称未获取'}}</div></template>
         <template #status="{row}"><t-tag :theme="theme(row.status)" variant="light">{{stateLabel(row.status,'ingest')}}</t-tag></template>
         <template #review="{row}">{{stateLabel(row.official?.lifecycle_state ?? row.official?.review_status,'review')}}</template>
         <template #ingest="{row}"><t-tag v-if="row.official?.ingest_status" :theme="theme(row.official.ingest_status)" variant="light">{{stateLabel(row.official.ingest_status,'ingest')}}</t-tag><span v-else>未返回</span></template>

@@ -6,8 +6,8 @@ from webapi.weknora_adapter import assistant_id, message_dict
 
 
 async def collect(graph, config, owner_id, session_id):
-    # shortcut: derive versions by scanning checkpoints; revisit if long-chat history reads become slow.
-    snapshots = [state async for state in graph.aget_state_history(config)]
+    from agent.time_travel import ancestry
+    snapshots = [state async for state in ancestry(graph, config)]
     turns, previous = {}, {}
     for state in reversed(snapshots):
         users = [message_dict(message) for message in state.values.get('messages', [])

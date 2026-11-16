@@ -5,6 +5,7 @@ import re
 from jsonpath_ng import parse
 import tempfile
 import os
+import litellm
 
 # 千问VL默认端点与模型(OpenAI兼容格式)
 DEFAULT_QWEN_API_URL = (
@@ -121,46 +122,30 @@ class ShowDocAuthenticator:
             
             print("🔍 正在调用千问大模型识别验证码...")
             
-            # 通过OpenAI兼容端点调用千问视觉模型
-            response = requests.post(
-                self.qwen_api_url,
-                json={
-                    'model': self.qwen_vl_model,
-                    'messages': [
-                        {
-                            'role': 'user',
-                            'content': [
-                                {
-                                    'type': 'image_url',
-                                    'image_url': {
-                                        'url': f'data:image/png;base64,{image_base64}'
-                                    }
-                                },
-                                {
-                                    'type': 'text',
-                                    'text': '这是一个验证码图片,验证码由字母和数字混合组成(可能含大小写字母)。请识别图片中的所有字符,按从左到右的顺序直接返回完整的验证码字符串,不要有任何解释、空格或标点符号。'
+            result = litellm.completion(
+                model=self.qwen_vl_model,
+                custom_llm_provider='openai',
+                api_base=self.qwen_api_url.rstrip('/').removesuffix('/chat/completions'),
+                api_key=api_key,
+                messages=[
+                    {
+                        'role': 'user',
+                        'content': [
+                            {
+                                'type': 'image_url',
+                                'image_url': {
+                                    'url': f'data:image/png;base64,{image_base64}'
                                 }
-                            ]
-                        }
-                    ]
-                },
-                headers={'Authorization': f'Bearer {api_key}'},
+                            },
+                            {
+                                'type': 'text',
+                                'text': '这是一个验证码图片,验证码由字母和数字混合组成(可能含大小写字母)。请识别图片中的所有字符,按从左到右的顺序直接返回完整的验证码字符串,不要有任何解释、空格或标点符号。'
+                            }
+                        ]
+                    }
+                ],
                 timeout=60
             )
-            
-            # 从响应中提取结果(OpenAI兼容格式)
-            result = {}
-            try:
-                result = response.json()
-            except ValueError:
-                pass
-            
-            if response.status_code != 200:
-                error = result.get('error') or {}
-                error_code = error.get('code') or '未知错误码'
-                error_message = error.get('message') or '未知错误'
-                print(f"❌ 千问API调用失败 [{response.status_code} {error_code}]: {error_message}")
-                return None
             
             try:
                 content = result['choices'][0]['message']['content']

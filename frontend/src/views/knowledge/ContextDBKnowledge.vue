@@ -44,7 +44,7 @@ function openWikiPage(pageId: string) {
 async function loadNodes() {
   const res=await nativeAPI.get('knowledge/nodes',{knowledge_base_id:kbId.value,parent_node_id:parent.value||undefined,page:nodePage.value,page_size:35})
   nodes.value=res.data.items.map((node:any)=>({...node,label:node.node_type==='file'&&/^doc-[a-f\d]{64}\./i.test(node.display_name)
-    ?documentDisplayName({name:node.display_name,metadata:node.metadata}):node.display_name}))
+    ?documentDisplayName({name:node.display_name,metadata:node.metadata,document_display_name:node.document_display_name}):node.display_name}))
   breadcrumbs.value=res.data.breadcrumbs||[];nodeTotal.value=res.data.total
 }
 async function enterNode(id='') {parent.value=id;nodePage.value=1;await run(loadNodes)}

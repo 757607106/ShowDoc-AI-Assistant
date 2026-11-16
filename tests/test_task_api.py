@@ -147,12 +147,28 @@ def test_crawl_and_file_upload_use_the_same_selected_space(client, monkeypatch):
     file_job = store.get_job(upload.get_json()['task_id'])
     assert file_job['scope'] == 'product-a' and file_job['entry'] == 'file'
     assert Path(file_job['params']['file_paths'][0]).read_bytes() == b'name,value\nx,1'
+    assert file_job['params']['file_names'] == ['source.csv']
     store.create_job('web', {}, scope='other')
     tasks = client.get('/api/tasks?space_scope=product-a').get_json()['tasks']
     assert len(tasks) == 2 and all(task['scope'] == 'product-a' for task in tasks)
     assert checked == ['product-a', 'product-a', 'product-a']
     assert client.post('/api/uploads', data={'files':(io.BytesIO(b'x'),'x.md'),'space_scope':'missing'}).status_code == 404
     assert client.post('/entries/web/start', json={'url':'https://example.test','space_scope':[]}).status_code == 400
+
+
+def test_upload_name_mapping_keeps_natural_prefixes_and_duplicate_names_without_overwriting(client, monkeypatch):
+    import governance.spaces as spaces
+    monkeypatch.setattr(spaces, 'get_space', lambda store, scope: {'scope': scope})
+    response = client.post('/api/uploads', data={'space_scope': 'product', 'files': [
+        (io.BytesIO(b'first'), '001-guide.md'), (io.BytesIO(b'second'), 'same.md'),
+        (io.BytesIO(b'third'), 'same.md'), (io.BytesIO(b'fourth'), 'folder/Use:Guide.MD'),
+    ]})
+    assert response.status_code == 200
+    job = app_module.get_store().get_job(response.json['task_id'])
+    paths = [Path(value) for value in job['params']['file_paths']]
+    assert job['params']['file_names'] == ['001-guide.md', 'same.md', 'same.md', 'Use_Guide.md']
+    assert [path.name for path in paths] == ['001-001-guide.md', '002-same.md', '003-same.md', '004-Use_Guide.md']
+    assert [path.read_bytes() for path in paths] == [b'first', b'second', b'third', b'fourth']
 
 
 def test_publish_blocked_until_job_completed(client):

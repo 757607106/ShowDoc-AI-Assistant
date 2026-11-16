@@ -111,6 +111,7 @@ export type CitationKnowledgeRef = {
   knowledge_id?: string
   knowledge_title?: string
   knowledge_filename?: string
+  document_display_name?: string
   chunk_index?: number
   chunk_type?: string
   knowledge_base_id?: string
@@ -262,7 +263,7 @@ export function preprocessCitationTags(
       const chunkId = resolveCitationChunkId(rawChunkId, { doc, kbId }, refs, exactReferences)
       if (exactReferences && chunkId) {
         const reference = refs?.find((r) => r.id === chunkId && r.knowledge_base_id === kbId)
-        doc = reference?.knowledge_title || reference?.knowledge_filename || ''
+        doc = reference?.document_display_name || reference?.knowledge_title || reference?.knowledge_filename || ''
       }
       if (!doc || !chunkId) return ''
 

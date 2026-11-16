@@ -201,7 +201,7 @@ class BaseCrawler:
                 child = CrawledDocument(
                     f"{document.id}:attachment:{path.name}", resource.get("text") or path.name,
                     document.category, "", document.updated_at,
-                    {"parent_document_id": document.id, "filename": path.name,
+                    {"parent_document_id": document.id, "filename": resource.get("filename") or path.name,
                      "url": document.metadata.get("url", self.entry_url)},
                     "file", source_path=local,
                 )

@@ -1,4 +1,5 @@
 import { get, post, patch } from '@/utils/request'
+import { emitAssistantDataChange } from '@/utils/assistantDataChange'
 
 export interface KnowledgeSpace {
   scope: string
@@ -42,7 +43,12 @@ const spacePath = (scope: string) => `/api/kb/spaces/${encodeURIComponent(scope)
 export const getSpaces = () => get('/api/kb/spaces')
 export const getSpace = (scope: string) => get(spacePath(scope))
 export const createSpace = (data: { name: string; graph_enabled: boolean; wiki_kb_id?: string; graph_kb_id?: string }) => post('/api/kb/spaces', data)
-export const updateSpace = (scope: string, data: Partial<Pick<KnowledgeSpace, 'name' | 'graph_enabled' | 'wiki_kb_id' | 'graph_kb_id'>>) => patch(spacePath(scope), data)
+export const updateSpace = async (scope: string, data: Partial<Pick<KnowledgeSpace, 'name' | 'graph_enabled' | 'wiki_kb_id' | 'graph_kb_id'>>) => {
+  const result = await patch(spacePath(scope), data)
+  if (data.name !== undefined) emitAssistantDataChange({ operation: 'knowledge_base.update', area: 'knowledge_base',
+    ids: { knowledge_base_id: [result.space?.wiki_kb_id, result.space?.graph_kb_id].filter(Boolean) } })
+  return result
+}
 export const getSpaceProgress = (scope: string, page = 1) => get(`${spacePath(scope)}/progress`, { params: { page, page_size: 50 } })
 export const submitSpace = (scope: string, targetModes?: ('wiki' | 'graph')[]) => post(`${spacePath(scope)}/submit`, targetModes ? { target_modes: targetModes } : {})
 export const retrySpaceTarget = (scope: string, data: { target_mode: 'wiki' | 'graph'; stage: 'upload' | 'ingest' | 'graph'; task_id?: string; source_id?: string }) => post(`${spacePath(scope)}/retry`, data)

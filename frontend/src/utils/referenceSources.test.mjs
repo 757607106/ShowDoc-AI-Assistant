@@ -9,6 +9,18 @@ import {
   resolveReferenceSource,
 } from './referenceSources.ts'
 
+test('readable citation labels leave source identities and native names intact', () => {
+  const refs = [{ id: 'chunk-1', knowledge_id: 'doc-1', knowledge_base_id: 'kb-1',
+    knowledge_title: 'doc-hash.html', knowledge_filename: 'doc-hash.html', document_display_name: '采购明细.html' }]
+  const item = buildReferenceList(refs)[0]
+  assert.equal(item.title, '采购明细.html')
+  assert.equal(item.fileName, '采购明细.html')
+  const target = resolveReferenceSource(refs, { chunkId: 'chunk-1', knowledgeBaseId: 'kb-1' }, true)
+  assert.equal(target.title, '采购明细.html')
+  assert.equal(target.knowledgeId, 'doc-1')
+  assert.equal(refs[0].knowledge_title, 'doc-hash.html')
+})
+
 test('ContextDB source lookup cannot substitute a title or a chunk from another KB', () => {
   const refs = [
     { id: 'chunk:same', knowledge_id: 'doc-a', knowledge_base_id: 'kb-a', knowledge_title: 'Same' },

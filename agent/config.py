@@ -6,6 +6,7 @@ from agent import registry
 from governance.store import StoreError
 
 DEFAULT_TOOLS = ['search_knowledge', 'read_document', 'list_documents', 'query_knowledge_graph', 'ask_user']
+INTERNAL_ASSISTANT_ID = 'builtin-weknora-assistant'
 TOOL_ALIASES = {
     'search_knowledge': {'knowledge.search'}, 'read_document': {'knowledge.get_document'},
     'list_documents': {'knowledge.list_documents'}, 'query_knowledge_graph': {
@@ -69,8 +70,8 @@ def validate_config(config, *, check_runtime=True):
     if check_runtime:
         if not value['retain_retrieval_history']:
             raise StoreError('当前 Harness 使用原生 checkpoint 保留工具历史；尚未接入跨轮清理，请开启 retain_retrieval_history', 501)
-        if value['sandbox_config_id'] != 'state-backend':
-            raise StoreError('当前 Harness 仅支持 state-backend；沙箱执行尚未接入', 501)
+        if value['sandbox_config_id'] not in ('state-backend', 'opensandbox-local'):
+            raise StoreError('当前 Harness 仅支持 state-backend 或 opensandbox-local', 501)
         for key in ('web_search_enabled', 'reflection_enabled'):
             if value.get(key) is True:
                 raise StoreError(f'{key} 尚未接入当前官方 Harness', 501)
@@ -106,6 +107,12 @@ def list_agents(owner_id):
 
 def load_agent(agent_id=None, owner_id=None):
     agent_id = agent_id or 'builtin-smart-reasoning'
+    if agent_id == INTERNAL_ASSISTANT_ID:
+        return {'id': agent_id, 'is_builtin': True, 'tenant_id': 1, 'name': 'WeKnora 助手',
+            'description': '当前页面的知识检索与会话助手',
+            'config': validate_config({'agent_type': 'custom', 'temperature': 0.3,
+                'model_id': registry.default_model_id(owner_id),
+                'allowed_tools': [*DEFAULT_TOOLS, 'wiki_search', 'wiki_read_page']})}
     if agent_id == 'platform-agent':
         agent_id = 'builtin-smart-reasoning'
     for item in list_agents(owner_id):
@@ -117,6 +124,8 @@ def load_agent(agent_id=None, owner_id=None):
 
 
 def save_agent(body, owner_id, agent_id=None):
+    if agent_id == INTERNAL_ASSISTANT_ID:
+        raise StoreError('页面内置助手由服务器管理，不能覆盖其配置', 403)
     value = load_agent(agent_id, owner_id) if agent_id else {'id': str(uuid.uuid4()), 'is_builtin': False, 'tenant_id': 1, 'created_by': owner_id}
     for key in ('name', 'description', 'avatar'):
         if key in body:
@@ -129,11 +138,6 @@ def save_agent(body, owner_id, agent_id=None):
     if not agent_id and isinstance(submitted, dict) and 'model_id' not in submitted:
         submitted = {**submitted, 'model_id': registry.default_model_id(owner_id)}
     value['config'] = validate_config(submitted)
-    registry.model_config(value['config']['model_id'], owner_id)
-    for key, expected in (('asr_model_id', 'ASR'), ('vlm_model_id', 'VLLM')):
-        model_id = value['config'].get(key)
-        if model_id and registry.model_config(model_id, owner_id)['type'] != expected:
-            raise StoreError(f'{key} 的模型类型必须为 {expected}', 400)
     return registry.save_record('agent', value, owner_id)
 
 

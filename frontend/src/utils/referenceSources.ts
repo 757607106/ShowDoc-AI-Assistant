@@ -8,6 +8,7 @@ export type KnowledgeReferenceLike = {
   knowledge_id?: string
   knowledge_title?: string
   knowledge_filename?: string
+  document_display_name?: string
   knowledge_base_id?: string
   chunk_index?: number
   chunk_type?: string
@@ -171,7 +172,7 @@ function buildWebItem(item: KnowledgeReferenceLike, index: number): ReferenceLis
 
 function buildDocumentItem(item: KnowledgeReferenceLike, index: number): ReferenceListItem {
   const chunkId = item.id !== item.knowledge_id ? item.id : item.chunk_ids?.[0]
-  const title = item.knowledge_title || item.knowledge_filename || item.knowledge_id || 'Document'
+  const title = item.document_display_name || item.knowledge_title || item.knowledge_filename || item.knowledge_id || 'Document'
   const documentKey =
     item.knowledge_id ||
     [item.knowledge_base_id, item.knowledge_title || item.knowledge_filename].filter(Boolean).join(':') ||
@@ -179,7 +180,7 @@ function buildDocumentItem(item: KnowledgeReferenceLike, index: number): Referen
   return {
     key: `doc:${documentKey}`,
     kind: 'document',
-    fileName: item.knowledge_filename,
+    fileName: item.document_display_name || item.knowledge_filename,
     index,
     title,
     chunkId,
@@ -241,6 +242,7 @@ export function mergeDocumentReferences(refs: KnowledgeReferenceLike[]): Knowled
     if (!existing.knowledge_id && item.knowledge_id) existing.knowledge_id = item.knowledge_id
     if (!existing.knowledge_title && item.knowledge_title) existing.knowledge_title = item.knowledge_title
     if (!existing.knowledge_filename && item.knowledge_filename) existing.knowledge_filename = item.knowledge_filename
+    if (!existing.document_display_name && item.document_display_name) existing.document_display_name = item.document_display_name
     if (!existing.knowledge_base_id && item.knowledge_base_id) existing.knowledge_base_id = item.knowledge_base_id
     for (const chunkId of chunkIds) {
       if (!existing.chunk_ids?.includes(chunkId)) {
@@ -383,8 +385,8 @@ export function resolveReferenceSource(
     chunkId,
     knowledgeId: ref.knowledge_id,
     knowledgeBaseId: ref.knowledge_base_id || target?.knowledgeBaseId,
-    title: ref.knowledge_title,
-    fileName: ref.knowledge_filename,
+    title: ref.document_display_name || ref.knowledge_title,
+    fileName: ref.document_display_name || ref.knowledge_filename,
     knowledgeSource: ref.knowledge_source,
     chunkType: ref.chunk_type,
     // A grouped match belongs to another chunk of the same document.

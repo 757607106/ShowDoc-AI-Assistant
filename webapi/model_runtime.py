@@ -2,14 +2,17 @@
 import copy
 import asyncio
 import io
+import json
+import math
+import time
 from urllib.parse import urlsplit
-from typing import Any
 import wave
 
 from flask import Blueprint, jsonify, request
-from openai import OpenAI
+from werkzeug.utils import secure_filename
 
 from agent import registry
+from agent.models import embed_model, rerank_model, transcribe_model, remote_model_name, model_capabilities
 from governance.store import StoreError
 from webapi.auth import user_id
 
@@ -28,11 +31,13 @@ def draft_model(body, owner, model_type):
     parameters = copy.deepcopy(previous)
     aliases = {'modelName': 'model_name', 'baseUrl': 'base_url', 'apiKey': 'api_key', 'appSecret': 'app_secret',
                'provider': 'provider', 'interfaceType': 'interface_type', 'customHeaders': 'custom_headers',
-               'extraConfig': 'extra_config', 'spec': 'spec', 'dimension': 'dimension',
-               'supportsDimensionOverride': 'supports_dimension_override'}
+               'extraConfig': 'extra_config', 'spec': 'spec'}
     for incoming, field in aliases.items():
         if incoming in body:
             parameters[field] = body[incoming]
+    for incoming, field in (('dimension', 'dimension'), ('supportsDimensionOverride', 'supports_dimension_override')):
+        if incoming in body:
+            parameters.setdefault('embedding_parameters', {})[field] = body[incoming]
     name = parameters.get('model_name') or saved.get('name')
     base = parameters.get('base_url')
     if not isinstance(name, str) or not name.strip() or not isinstance(base, str):
@@ -65,14 +70,6 @@ def draft_model(body, owner, model_type):
     return value
 
 
-def _client(value):
-    params = value['parameters']
-    headers = {key: item for key, item in (params.get('custom_headers') or {}).items()
-               if key.lower() not in ('host', 'authorization', 'content-type')}
-    return OpenAI(base_url=params['base_url'], api_key=params.get('api_key') or 'not-required',
-                  default_headers=headers, timeout=30, max_retries=0)
-
-
 def _check(kind):
     value = draft_model(request.get_json(silent=True), user_id(), kind)
     try:
@@ -87,38 +84,103 @@ def _check(kind):
             output = asyncio.run(query())
             if not output.content and not output.additional_kwargs.get('reasoning_content'):
                 raise ValueError('Empty model response')
+        elif kind == 'Embedding':
+            vectors = _vectors(embed_model(value, ['connection check']), 1)
+            result['dimension'] = len(vectors[0])
+        elif kind == 'ASR':
+            sample = io.BytesIO()
+            with wave.open(sample, 'wb') as audio:
+                audio.setnchannels(1); audio.setsampwidth(2); audio.setframerate(16000)
+                audio.writeframes(b'\0\0' * 16000)
+            output = transcribe_model(value, ('connection-check.wav', sample.getvalue(), 'audio/wav'), timeout=30)
+            if not isinstance(output.text, str):
+                raise ValueError('Invalid transcription response')
         else:
-            with _client(value) as client:
-                if kind == 'Embedding':
-                    dimension = value['parameters'].get('dimension')
-                    extra = {}
-                    if value['parameters'].get('supports_dimension_override'):
-                        if isinstance(dimension, bool) or not isinstance(dimension, int) or not 1 <= dimension <= 65536:
-                            raise StoreError('Embedding dimension 必须为正整数', 400)
-                        extra['dimensions'] = dimension
-                    vector = client.embeddings.create(model=value['name'], input=['connection check'], encoding_format='float', **extra)
-                    if not vector.data or not vector.data[0].embedding:
-                        raise ValueError('Empty embedding response')
-                    result['dimension'] = len(vector.data[0].embedding)
-                elif kind == 'ASR':
-                    sample = io.BytesIO()
-                    with wave.open(sample, 'wb') as audio:
-                        audio.setnchannels(1); audio.setsampwidth(2); audio.setframerate(16000)
-                        audio.writeframes(b'\0\0' * 16000)
-                    output = client.audio.transcriptions.create(model=value['name'], file=('connection-check.wav', sample.getvalue(), 'audio/wav'))
-                    if not isinstance(output.text, str):
-                        raise ValueError('Invalid transcription response')
-                else:
-                    ranked = client.post('/rerank', cast_to=dict[str, Any], body={'model': value['name'], 'query': 'connection check',
-                        'documents': ['connection check', 'unrelated example'], 'top_n': 1})
-                    matches = ranked.get('results')
-                    if not isinstance(matches, list) or not matches or not isinstance(matches[0].get('index'), int):
-                        raise ValueError('Invalid rerank response')
+            matches = rerank_model(value, 'connection check', ['connection check', 'unrelated example'], top_n=1).results
+            if not matches or not isinstance(matches[0].get('index'), int):
+                raise ValueError('Invalid rerank response')
         return jsonify(success=True, data={'available': True, 'message': '模型接口已实际响应', **result})
     except StoreError:
         raise
     except Exception as exc:
         return jsonify(success=True, data={'available': False, 'message': f'模型接口测试失败（{type(exc).__name__}）'})
+
+
+def _vectors(response, count):
+    data = sorted(response.data, key=lambda item: item['index'])
+    vectors = [item['embedding'] for item in data]
+    if len(vectors) != count or [item['index'] for item in data] != list(range(count)) or any(
+            not vector or any(type(value) not in (int, float) or not math.isfinite(value) for value in vector) for vector in vectors):
+        raise ValueError('Invalid embedding response')
+    return vectors
+
+
+def debug_nonchat_model(saved, body, options, upload):
+    query = body.get('input', '')
+    if not isinstance(query, str) or len(query) > 100000:
+        raise StoreError('调试输入无效', 400)
+    documents = body.get('documents', [])
+    if isinstance(documents, str):
+        try:
+            documents = json.loads(documents)
+        except ValueError as exc:
+            raise StoreError('documents 必须为 JSON 字符串数组', 400) from exc
+    if not isinstance(documents, list) or len(documents) > 100 or any(not isinstance(item, str) for item in documents):
+        raise StoreError('documents 必须为最多 100 项的字符串数组', 400)
+    if not isinstance(options.get('similarity', False), bool):
+        raise StoreError('similarity 必须为布尔值', 400)
+    kind = saved['type']
+    if upload and kind in ('Embedding', 'Rerank'):
+        raise StoreError('当前 LiteLLM 适配尚未接入图片向量或图片重排，请使用文本输入', 501)
+    if kind == 'ASR' and not upload:
+        raise StoreError('请提供音频文件', 400)
+    if kind == 'Embedding' and (not query.strip() or options.get('similarity') and not documents):
+        raise StoreError('请提供向量查询文本及相似度候选', 400)
+    if kind == 'Rerank' and (not query.strip() or not documents):
+        raise StoreError('重排需要查询文本和候选文档', 400)
+    data = upload.read(25 * 1024 * 1024 + 1) if upload else None
+    if data is not None and (not data or len(data) > 25 * 1024 * 1024):
+        raise StoreError('音频大小须为 1 B 至 25 MB', 413)
+    request_info = {'model': remote_model_name(saved), 'input': query, 'documents': documents,
+        'options': dict(options), 'file_attached': bool(upload)}
+    observations = {'api': model_capabilities(saved)['api']}
+    started = time.monotonic()
+    try:
+        if kind == 'Embedding':
+            vector = _vectors(embed_model(saved, [query]), 1)[0]
+            observations['dimension'] = len(vector)
+            if options.get('similarity'):
+                candidates = _vectors(embed_model(saved, documents), len(documents))
+                results = []
+                for index, candidate in enumerate(candidates):
+                    if len(candidate) != len(vector):
+                        raise ValueError('Embedding dimensions differ')
+                    norm = math.sqrt(sum(value * value for value in vector)) * math.sqrt(sum(value * value for value in candidate))
+                    results.append({'index': index, 'kind': 'text', 'content': documents[index],
+                        'similarity': sum(left * right for left, right in zip(vector, candidate)) / norm if norm else 0})
+                results.sort(key=lambda item: item['similarity'], reverse=True)
+                native = {'results': results}
+                observations['result_count'] = len(results)
+            else:
+                native = vector
+        elif kind == 'Rerank':
+            native = rerank_model(saved, query, documents).results
+            if not isinstance(native, list):
+                raise ValueError('Invalid rerank response')
+            observations['result_count'] = len(native)
+        else:
+            output = transcribe_model(saved, (secure_filename(upload.filename or 'voice.wav'), data, upload.mimetype))
+            native = output.model_dump(exclude_none=True)
+            if not isinstance(native.get('text'), str):
+                raise ValueError('Invalid transcription response')
+            observations.update(text_characters=len(native['text']), segment_count=len(native.get('segments') or []))
+        result = {'ok': True, 'raw_response': native}
+    except StoreError:
+        raise
+    except Exception as exc:
+        result = {'ok': False, 'raw_response': None, 'error': f'模型调试失败（{type(exc).__name__}）'}
+    return jsonify(success=True, data={**result, 'request': request_info, 'observations': observations,
+        'elapsed_ms': round((time.monotonic() - started) * 1000)})
 
 
 @model_runtime_bp.post('/api/v1/initialization/remote/check')

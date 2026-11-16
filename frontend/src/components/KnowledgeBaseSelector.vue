@@ -96,7 +96,7 @@ const settingsStore = useSettingsStore()
 const searchQuery = ref('')
 const highlightedIndex = ref(0)
 const chatResources = useChatResourcesStore()
-const knowledgeBases = ref<KnowledgeBase[]>([])
+const knowledgeBases = computed(() => chatResources.validKnowledgeBases as KnowledgeBase[])
 const searchInput = ref<HTMLInputElement | null>(null)
 const kbList = ref<HTMLElement | null>(null)
 const dropdownStyle = ref<Record<string, string>>({})
@@ -164,7 +164,6 @@ const close = () => {
 const loadKnowledgeBases = async () => {
   try {
     await chatResources.ensureKnowledgeBases()
-    knowledgeBases.value = chatResources.validKnowledgeBases as KnowledgeBase[]
   } catch (e) {
     console.error(t('knowledgeBase.loadingFailed'), e)
   }

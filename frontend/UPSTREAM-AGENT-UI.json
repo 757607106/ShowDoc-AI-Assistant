@@ -4,11 +4,13 @@
   "files": {
     "src/components/AgentAvatar.vue": {
       "template": "188026dc58eea4323e13b493c19f7ed64ef5f93111f6b37fe220af82ad242ad8",
-      "styles": "f52ef22a8da325f2e3b2a305f347c06b4242acbca75a3de3d7a101482edf9e3a"
+      "styles": "f52ef22a8da325f2e3b2a305f347c06b4242acbca75a3de3d7a101482edf9e3a",
+      "source": "f5e6c650b2043e1d36a8b6d0c9a8063e4b87ad30f3dce855b9c7306bfcfa6b07"
     },
     "src/components/AgentCreateContextualGuide.vue": {
       "template": "a98a62e9a9ea9c3b6bda8c57dbd763ff5e3b9c60437d27df53e6b90c8c9622e0",
-      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "source": "193c78c8b54d98ddb7bf51b320c09225ae6e90b3fbc4da256c0ce7c3831dd7f7"
     },
     "src/components/AgentSelector.vue": {
       "template": "d979db972c2179ab5fef6d333ad01ac71f5ebb44338d164e921af7fb6460d9f6",
@@ -17,23 +19,28 @@
     },
     "src/components/AgentShareSettings.vue": {
       "template": "cf73380ed42bb47419299708f31ce325847ceaf16faa58fec23aab4d94871317",
-      "styles": "91a30f3ab54a1c44cc8fedcca83db4f9180547b61336b3e3cb5a1971460c7528"
+      "styles": "91a30f3ab54a1c44cc8fedcca83db4f9180547b61336b3e3cb5a1971460c7528",
+      "source": "ed11c68b35ae7ea5a81bd77af37e4d251c8025729b597808f69bc9abbb68fd90"
     },
     "src/components/AttachmentUpload.vue": {
       "template": "dcb6465713195613fa4a4e76b9974ae097e1010041cb486b6a1d177e872a9470",
-      "styles": "325022d823757206ea76dc5c4c126ccbeab5454bf40a940b114563a17fce2b7e"
+      "styles": "325022d823757206ea76dc5c4c126ccbeab5454bf40a940b114563a17fce2b7e",
+      "source": "796285a2dbd83fed68bd5345e7d6563e384e4fd5bcb613f1c8ca4fab42f99759"
     },
     "src/components/ChatActionIcon.vue": {
       "template": "3cb7ba62fad4b2338eb1978eddacb3dd920b4e4f97db0685c42dae5b8392484f",
-      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "source": "6bb2026a86100d81473dfe043f69791676edd3a4674bb3fb04e4d3ce90f862e8"
     },
     "src/components/ChatAttachmentPreviewDrawer.vue": {
       "template": "f1dd1af2a86b286c587725523f67ee05c3f18ad93f037211f3e0a2b41a959eb1",
-      "styles": "17fa1b2ffcdb8b27c62b903a3491eb63286f7d83c5e9034007d08f7607c9582f"
+      "styles": "17fa1b2ffcdb8b27c62b903a3491eb63286f7d83c5e9034007d08f7607c9582f",
+      "source": "6565d56efd88e7e8dfbebf1a4f4e07ef653d17ba738524f0be920f9f1607f42a"
     },
     "src/components/ChatCitationFloat.vue": {
       "template": "42a3b75b4b7c70dda394de5beb6dfe5df348ee4579a6937e4d8d6360247fdba3",
-      "styles": "525b3a5dd73b718bcdbe864e844a39cdc377c6a6da903588821fb1feb3de5e1c"
+      "styles": "525b3a5dd73b718bcdbe864e844a39cdc377c6a6da903588821fb1feb3de5e1c",
+      "source": "80a90eea197d3955a831165b85fe792326c26699aa98019381ccfe6508e04e26"
     },
     "src/components/ChatHeader.vue": {
       "template": "dd3879cc5379df808ad3e3fd5a15d27cd62c7661b122b410542907e3c7b3148d",
@@ -50,19 +57,23 @@
     },
     "src/components/ChatRequestInfoButton.vue": {
       "template": "dcc9eaf31019c26fb515821127d003cbf2c71e740118d79b14bff19df916a95f",
-      "styles": "dd9801be1f50c0d054de5d9b7aff84c83260d94d90a99e58438ebdd1a4d2aff3"
+      "styles": "dd9801be1f50c0d054de5d9b7aff84c83260d94d90a99e58438ebdd1a4d2aff3",
+      "source": "3b2bfc1afe882691301c1e8782380e4b4cc52fe8c8170fb5f1d4e9ee0f5ba5e7"
     },
     "src/components/ChatTimelineIcon.vue": {
       "template": "2803a0c2dc52ec3a32df134e12ef2817cc1af5594874a0bed3ff7d7d47fb7055",
-      "styles": "680c54010ac735bae796bca981a398469f6961918deacf486a07a26f11e4ddae"
+      "styles": "680c54010ac735bae796bca981a398469f6961918deacf486a07a26f11e4ddae",
+      "source": "d2b0cfc256f964d807016d0e98c737fa77d4a764bcf519414e540f7bc1ce7edc"
     },
     "src/components/ContextualGuide.vue": {
       "template": "a25d9fa57d3356b4296733ebfb3a7e0c3d00a17a212de21e31b70b80053e0b23",
-      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "source": "743265e76627dde0a556c768ec99da934dd03f8266ad3167e483a83d46c992e4"
     },
     "src/components/EmptyState.vue": {
       "template": "a90b431cf66cb2679dc6a6225933cc58965ca598d6a775572b70a3d5f0dd3780",
-      "styles": "8bb689eaf72e4063c015b4556485d306a057076060fb77bd1a19841b8dff5e56"
+      "styles": "8bb689eaf72e4063c015b4556485d306a057076060fb77bd1a19841b8dff5e56",
+      "source": "56b23952d6269848862bcc78238e4bb4d75dd61d75d830184501e79fdc0c34f1"
     },
     "src/components/HostApprovalModeSelect.vue": {
       "template": "07c3236016e95025af8aafde98e95e1fe665a202fa45fda2cf320fe9e765393c",
@@ -76,7 +87,8 @@
     },
     "src/components/KbCreateContextualGuide.vue": {
       "template": "8eed122a52735db5ba618c781f6f459aa57e01e6a42342cbad45e1cd9c1dfee4",
-      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "source": "80c7718151283c0f464eaaa3b6a1661af36815d521f94ebbadd72e3f8a2980f1"
     },
     "src/components/KnowledgeBaseSelector.vue": {
       "template": "87bc744c460ad2d773db6308d4afa837348f939979c2dac856ef9c24ae027399",
@@ -88,23 +100,28 @@
     },
     "src/components/MentionSelector.vue": {
       "template": "bc19997a89f26757ebfaa1b90d1835caa9d51404364c9736ccc0778647f9b5da",
-      "styles": "3c6294eef6647989b2dfeb10f472163372cff36a04d3918693937abfa76c8a96"
+      "styles": "3c6294eef6647989b2dfeb10f472163372cff36a04d3918693937abfa76c8a96",
+      "source": "f0d1992704e6e811e46dfbd2f1b5c523788ae9de4b6f8845e3f637e5801de6b2"
     },
     "src/components/ModelSelector.vue": {
       "template": "04ef04677d1e269426413f7b1d9faca84f6758911a4b27486523a145a9b7a7eb",
-      "styles": "22987c21715b1a358eeec4688142377f064fcfe14750d45871a6aabd98f3ef5c"
+      "styles": "22987c21715b1a358eeec4688142377f064fcfe14750d45871a6aabd98f3ef5c",
+      "source": "41c831e3cbe258f91460cf90f4733efacce745d8eb5f168cccc9b2d1db51906f"
     },
     "src/components/PanelResizeHandle.vue": {
       "template": "08ffdd21b1cd08b459fed0876f75434cd2c2bfa86b89c82463745360594b1960",
-      "styles": "e50d44d0cf048c0a702a40c15a75f88041f45fdb6c8d468c856843e85d1ce8b2"
+      "styles": "e50d44d0cf048c0a702a40c15a75f88041f45fdb6c8d468c856843e85d1ce8b2",
+      "source": "0c320838aefccac69e0b94c0490ce01e8170e696a1b699e221484d43de51474b"
     },
     "src/components/PromptTemplateSelector.vue": {
       "template": "0e31019746f30f418a5651dcf8dff7ea05f42ca6fa9bbe8b3f21863fd0efe589",
-      "styles": "cdbba6d1ec08484a8b51d7aab6e73249c81745a49173d4e680db8ca75b463712"
+      "styles": "cdbba6d1ec08484a8b51d7aab6e73249c81745a49173d4e680db8ca75b463712",
+      "source": "f0e1d3145e6ef44a96aac43500447e70f3f1765f1cd3a860c9f58be15ac81aed"
     },
     "src/components/ResourceCardAvatar.vue": {
       "template": "c16a34bce740bcdad4a4fe35a7a91a4a563c5622df9c4bfb656a642c1011ef46",
-      "styles": "a6159a781d5c614b3716f84574a28340d447b113d22547f759ca37127777ef2f"
+      "styles": "a6159a781d5c614b3716f84574a28340d447b113d22547f759ca37127777ef2f",
+      "source": "57055ddbdc9d72a5f1c48a4ce7cc583cb1db191357422ee84bb1b0d478a020b5"
     },
     "src/components/ResourceListToolbar.vue": {
       "template": "d89219f36a728d2449aec5acb63c5912291ec771f698f6b144ff2687e8337da9",
@@ -112,15 +129,18 @@
     },
     "src/components/ResourceOriginBadge.vue": {
       "template": "b2416195b79ca2a1c36b5bb908eac8cc9beb9010be9e87001e0586a868fa2c98",
-      "styles": "8315bbc0f098d8b5b91f5d368aabef57493553e1f624ff62af47bcd135ebd10b"
+      "styles": "8315bbc0f098d8b5b91f5d368aabef57493553e1f624ff62af47bcd135ebd10b",
+      "source": "c90e1b399b98cc5a2ea93589b54ac3aa8853a92116b22ca4410a8eb18b0d118c"
     },
     "src/components/ResourceSortControl.vue": {
       "template": "e4563a88e76bb0a0e9820be29543a1d9d44a76a5cd54fd9bb3618034a7dd3e65",
-      "styles": "b32108af44d6bb48a194073179e790b0cd30330ae035c7c845b2203d52fab98b"
+      "styles": "b32108af44d6bb48a194073179e790b0cd30330ae035c7c845b2203d52fab98b",
+      "source": "c913c3806096df08be4e3f0368c3d5e29f1c0d747fc09e585a23bc0a28cb01d2"
     },
     "src/components/SandboxCommandProgress.vue": {
       "template": "c40642fa986a20b1d42ef97eee8e346e09112ea927c10fd9e044bbe0252ba7f3",
-      "styles": "4f9e3e712cf6b37bc7db6f6c183c033d87c1a3189c473a347ccb62d598248c5b"
+      "styles": "4f9e3e712cf6b37bc7db6f6c183c033d87c1a3189c473a347ccb62d598248c5b",
+      "source": "8e1689a696a9da86abbf183ef3378aeb2e4cda0f2c9bf6e0bd5be7ee7f3a0ba8"
     },
     "src/components/SandboxSkillsPanel.vue": {
       "template": "9a371e6adea995731eb6903955777c84622a912f59ebe0db2c6f1ed495d8111a",
@@ -129,11 +149,13 @@
     },
     "src/components/SettingsModalShell.vue": {
       "template": "beb94b0f193f511866d121f2869dd2478036cf94521f59c63ab3dfddca56ebc7",
-      "styles": "f93c79c1e8bc30897b06aabea4e99f134ac7f9daab287cd8d10cc392f969b1a1"
+      "styles": "f93c79c1e8bc30897b06aabea4e99f134ac7f9daab287cd8d10cc392f969b1a1",
+      "source": "e4fd48ad6de1f00063a7809b705d186e4f0c17ea0f01479f4a58d7ec2a584fe8"
     },
     "src/components/ShareToSpaceOrgSelect.vue": {
       "template": "cbb824792c9961b0677fa7e13a91639f2a24648e56d0860d9900b581ed7f12cd",
-      "styles": "2c59f2d3d4d70403c053b291c6eb2fc58a17509c14448f5768779fd3b3c00c8a"
+      "styles": "2c59f2d3d4d70403c053b291c6eb2fc58a17509c14448f5768779fd3b3c00c8a",
+      "source": "9559d44b7f284b33f5a3ef55bc7f02395e1cb513b55e38ff266ab59993f708a0"
     },
     "src/components/SkillInstallTimeline.vue": {
       "template": "0db90e452e1ff5358afdaaadd58e0c307ab95e7987977d0740b99cc9bac701f3",
@@ -142,47 +164,58 @@
     },
     "src/components/SpaceAvatar.vue": {
       "template": "03d1bdb01b574bd249fb441c13571a82f1187b55a1c432af437c7e5d6e19115c",
-      "styles": "aa7bf8bed6be4bfadca339d6e0da6b966ca98f59b1fa338c580fbd5336b8dc98"
+      "styles": "aa7bf8bed6be4bfadca339d6e0da6b966ca98f59b1fa338c580fbd5336b8dc98",
+      "source": "071b8447c4fb871d17f903dd09e720233477409d61c527bebd4db79a45c51bbe"
     },
     "src/components/SpotlightGuide.vue": {
       "template": "58d81563ee42ca50c6a3932caa9acc552a528b425db2dd27bff91b4baed5d3f6",
-      "styles": "570497c487200a1bca46c3729534be5212dc6fb9ea44d34ba7deb2aeeafc019d"
+      "styles": "570497c487200a1bca46c3729534be5212dc6fb9ea44d34ba7deb2aeeafc019d",
+      "source": "e648f07a00eb2195f6c336f75205126caab14288a053c21b7e5d86497c21a8b1"
     },
     "src/components/TenantModelsGuide.vue": {
       "template": "14510e60cee77d845be33330f11bd87b967f095f0914a7a1de263e49efcf3868",
-      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "source": "c00bb7384873c9858b368ef34113d148a4586abe76bab961d5de34a88c946755"
     },
     "src/components/VectorStoreBadge.vue": {
       "template": "16b79ad67cb96127331ac40b5dc440d9c56fc1168452ef4008b3d979b7bb0f7b",
-      "styles": "25031d2cc184c8184cbe50a9be9a7c4cfe9f91a94aaa387c727747e64e30ac57"
+      "styles": "25031d2cc184c8184cbe50a9be9a7c4cfe9f91a94aaa387c727747e64e30ac57",
+      "source": "e5e1209d1899dc8418dd66b717c88d6cc9d6a57be516cff06d48c879d368bcc1"
     },
     "src/components/assistant/AssistantActionButton.vue": {
       "template": "84b82411d801b43c54d1777b76525dd8c5ead8d2f5aec23363651599c2c1e7c7",
-      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "source": "427e5cd783b65b18efccb377e502b8b2e3a924361d7c349f6460f4dbe5aedc80"
     },
     "src/components/assistant/AssistantActionsButton.vue": {
       "template": "3b9b9ae5924689061100bb039e9704f79afff1b217fb44b668d3e382fce18dd3",
-      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "source": "5a07a5d10de27c5ad6de5abbf1614294bd54253bef23e2770de0f3d98aefea92"
     },
     "src/components/assistant/AssistantButton.vue": {
       "template": "42026c62fe64e5902e2ad586bf93703b7a979c0fc915f4d9f9adfd1a092ea94c",
-      "styles": "6732d0925b3e905d40561ae3433954df0d148ff20f71bbd35d84d7e317f703ce"
+      "styles": "6732d0925b3e905d40561ae3433954df0d148ff20f71bbd35d84d7e317f703ce",
+      "source": "2aa4456be41c0500ae6a760a1debd3e9267de51cd976db4623a6aebda7534362"
     },
     "src/components/assistant/AssistantCreateDialog.vue": {
       "template": "8f5069ccac0d220fd06cbff4dcf52e8c0cc77e210031815c0a64382ba5178bf9",
-      "styles": "109070fc4183bc3ec4c90175e9ce6f0f39f2d5f95f785fae105648030bc137ef"
+      "styles": "109070fc4183bc3ec4c90175e9ce6f0f39f2d5f95f785fae105648030bc137ef",
+      "source": "cb73da08593bf940a1cff3940879b1347ffa6c30071e57eb89bf619a8d04d26d"
     },
     "src/components/chat/ChatQuestionMinimap.vue": {
       "template": "fead4d85f841e2f168abd2c79ed555bad119a82ab1e6240e203111feda1c5466",
-      "styles": "77284074e4a47751ffcb830fee05be6ec4993c0672680fd5703f2d121ded0444"
+      "styles": "77284074e4a47751ffcb830fee05be6ec4993c0672680fd5703f2d121ded0444",
+      "source": "80ea3f7fc3262367f65890a225a97388929e27741ae55a11b8e58d568103c0df"
     },
     "src/components/chat/FollowUpSuggestions.vue": {
       "template": "85d3ac7d92ec349f10c735464c54837896ea9406b01513e84f71dd0c96a2eaf6",
-      "styles": "299dbe7c7e6fce9293c5f18bda59a316996c2a966b65ea0a452bc9f6bfca3dfe"
+      "styles": "299dbe7c7e6fce9293c5f18bda59a316996c2a966b65ea0a452bc9f6bfca3dfe",
+      "source": "5ae4d8118f08fb2db83bc30717d158b7f2d0297d7ea403de3773d321d935e981"
     },
     "src/components/chat/MessageTimestamp.vue": {
       "template": "1ada12ed84b367e04419b44efe1dd9fa9d6106f7bbd1530b09a2ed20c7d7f321",
-      "styles": "65e3d1e3354e9e53877c61863f0a23bcec6d393a31ca6a193420dea4baddf8be"
+      "styles": "65e3d1e3354e9e53877c61863f0a23bcec6d393a31ca6a193420dea4baddf8be",
+      "source": "52b9a6f561bd8b860aeaecaf80803eb29493a2b23278a336ce3c5c310d02c0bb"
     },
     "src/components/chat/SandboxSidePanel.vue": {
       "template": "7b75012f2b0a6e78b9915c52dfceea080d426db9d9c3c66a11f1079b783fd3a0",
@@ -191,27 +224,33 @@
     },
     "src/components/document-preview.vue": {
       "template": "2ca45f5988329630bc3f7dc729262b9c92e92361486d312d7403ecf637846fe9",
-      "styles": "1dc745e3968c88e26e26893dad490fcb858b5c4bb1b7ba7d704762b2e4dfa0d0"
+      "styles": "1dc745e3968c88e26e26893dad490fcb858b5c4bb1b7ba7d704762b2e4dfa0d0",
+      "source": "7dd5a52c3cbd5b3f8627b016941c8b7cfdffcb6e80c5e9de0c731e7c52cb4463"
     },
     "src/components/icons/BrowserIcon.vue": {
       "template": "15fea291d3df329a1ab93cdfaf9d4c220efa0e8befd94f82c07ee1ab3484e78e",
-      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "source": "f508966567bd52fe2ed8339da84870a5c4b404c6d2736a4798125205c6a513fb"
     },
     "src/components/icons/ResourceIcon.vue": {
       "template": "936d88ee6c55a4621fa40dfc84b051385f6cc4bfc3ee014e930756c4b2d83766",
-      "styles": "086d4563937ab7eb297335c4e056b0b2ef921ccea880b483b9d9da43670c3f12"
+      "styles": "086d4563937ab7eb297335c4e056b0b2ef921ccea880b483b9d9da43670c3f12",
+      "source": "04fecd64857c7a16315ea12d0e0a51723167a5504fedf30843312b6f9b0bf77e"
     },
     "src/components/mermaid-file/MermaidFilePreview.vue": {
       "template": "e967bfdf91c3a0ac52b0197c96ebe41c62bb5dd965da6c28828c1376368b9fe6",
-      "styles": "99602b144d27950fc6eea40fdeea0e2bb22d53137a2ce7137df5965120702b83"
+      "styles": "99602b144d27950fc6eea40fdeea0e2bb22d53137a2ce7137df5965120702b83",
+      "source": "d9bba9c2cc754a2c6bd573f8113db0e36e00c5a751ee1ced688a58ff3dbf552d"
     },
     "src/components/settings/SettingDrawer.vue": {
       "template": "7081209d6a08f436424b2c3dbee1537cd8a85efeac9f97388f3e46684cc1d3ea",
-      "styles": "19c2eb219311aa0a36559cf2f99feacbc26a9eabc09a53973db469f3c676b29b"
+      "styles": "19c2eb219311aa0a36559cf2f99feacbc26a9eabc09a53973db469f3c676b29b",
+      "source": "e4b1296e35bd435684b77c9f471303bf859646d0e472d230c1a02c0a7964cd31"
     },
     "src/components/source-preview/PdfSourceViewer.vue": {
       "template": "7cba39f0e4c67efa389b09deb0f9d7bc0c918df0b7c54e3b3dc55dad0ac7d3d6",
-      "styles": "98043748c2345147cd9bfa2a3299fcad4b7a1215032fbe0b604f62ef085dd459"
+      "styles": "98043748c2345147cd9bfa2a3299fcad4b7a1215032fbe0b604f62ef085dd459",
+      "source": "c8cef0edc43337ebe3571f0ab9b0039c12f5552cc25568799a003d0d98b047e1"
     },
     "src/views/agent/AgentEditorModal.vue": {
       "template": "f9fa72cbdd31dbe7f34fb99b26c51bcf895b7c48dad2ba9a0b49a158c012fe64",
@@ -233,7 +272,8 @@
     },
     "src/views/chat/components/ArtifactFileIcon.vue": {
       "template": "e3b5e3118d44082541cd4677e2eacbc4dd11542ad68e3befafe89bae026ed885",
-      "styles": "81a4784ac05a70616854a5a82044770b1029a5e533283271c236b2f0711720be"
+      "styles": "81a4784ac05a70616854a5a82044770b1029a5e533283271c236b2f0711720be",
+      "source": "0fa51fa72673791ccf0df267e01489fdc591306d118c12741a4d6bf008eaedd1"
     },
     "src/views/chat/components/AskUserCard.vue": {
       "template": "a415462c9b95346366394299546eb977e79efa60456e53504744d5ff5ac2b204",
@@ -257,7 +297,8 @@
     },
     "src/views/chat/components/BrowserToolDetails.vue": {
       "template": "02f92ef33c25abfb99e091e75a19cc8b62c39018306fe0fc008bf69899164881",
-      "styles": "6ca816aaf73bd969ed3b0419fec8e912f9751a3e80007ffcfcf5fb67c902c0f7"
+      "styles": "6ca816aaf73bd969ed3b0419fec8e912f9751a3e80007ffcfcf5fb67c902c0f7",
+      "source": "425b7e24aff0032ff55add5f4fe2c362b5b5cfbcbc26148ed3d5ccde81acf736"
     },
     "src/views/chat/components/ChatArtifactsDrawer.vue": {
       "template": "81a2b5fc7f4b2985a13024e78881d1f96ff254cd57623cb8a26d60a70b35c82f",
@@ -266,7 +307,8 @@
     },
     "src/views/chat/components/ChatArtifactsPanel.vue": {
       "template": "7a5905c087040eaaf98b2cb2e6f31286d742838690e0405b19a9b895809b3248",
-      "styles": "2ea432a8e57227e28ca30b7af8ff38b3f065797f31b12bac6cfe5af0bfd1fd0b"
+      "styles": "2ea432a8e57227e28ca30b7af8ff38b3f065797f31b12bac6cfe5af0bfd1fd0b",
+      "source": "8b84f7a8a940ceb4978be7141f946178e1624af8d9acc94236af5c979802febc"
     },
     "src/views/chat/components/ChatMemoryStep.vue": {
       "template": "b4ade888592a064f74d7efc2cdffe6ae3733fc967067550b73d2d1cf41dc3bbe",
@@ -285,7 +327,8 @@
     },
     "src/views/chat/components/CollaborationTasks.vue": {
       "template": "edf60a07998dace5b903fde5cd11a9e1ef0679c4f7cbf71c9af88976fd7bc430",
-      "styles": "b377cf516d8532f6c9596b1bfb5fd0c82036bb71893db8ae02e21e47d1974a19"
+      "styles": "b377cf516d8532f6c9596b1bfb5fd0c82036bb71893db8ae02e21e47d1974a19",
+      "source": "dedb578e5bfaa5f6ce1f4153923605e9dab5e8231faf8d1bcdeace30f1f60793"
     },
     "src/views/chat/components/HostApprovalCard.vue": {
       "template": "2b276046da696bb124e58215c4c8f978478b4999ee83f7e795f6065c4254be4d",
@@ -294,7 +337,8 @@
     },
     "src/views/chat/components/HostReviewRecord.vue": {
       "template": "ecde1b3c47a7f60e5c2b4e309ad27a3edb14c7f7c48260188acdf9d316e26666",
-      "styles": "e9072a2c7656e7ff329e7df0e9e7cebe333c93354739c57c90e45c3efce769c9"
+      "styles": "e9072a2c7656e7ff329e7df0e9e7cebe333c93354739c57c90e45c3efce769c9",
+      "source": "04290982e35e3d8e31f7c59c7500269628eda3986f88b2c5339fd5a2438df37c"
     },
     "src/views/chat/components/McpOAuthCard.vue": {
       "template": "c2f6793ee61c4b2483004277e2b6b510bcd076983bd6ad323892e3c106cf8bdd",
@@ -303,11 +347,13 @@
     },
     "src/views/chat/components/OpenPageCard.vue": {
       "template": "ce1c4c83843a1612e225f976df5725c082d8755afb293c0a35e61d16031ceb2d",
-      "styles": "515853a78c7cb93c16594f03f68a65de99ec0b3ad675d1b810c4aac7b2ff4c14"
+      "styles": "515853a78c7cb93c16594f03f68a65de99ec0b3ad675d1b810c4aac7b2ff4c14",
+      "source": "a47d1110fd97bea7ccc7e41d7b42be0bc8895fb6be0404a7ae0fbd868d68ef2b"
     },
     "src/views/chat/components/PageEditCard.vue": {
       "template": "1ff21cf1701d4f5573652c48af3093fe1b5871086c0ba1c8ce982afea55600ce",
-      "styles": "13a33add3e63e6cd17597871d5cd517471de67976ddb828f183d962f36feaa68"
+      "styles": "13a33add3e63e6cd17597871d5cd517471de67976ddb828f183d962f36feaa68",
+      "source": "3ff7b0074cacb47dadfabd7fd21474b2fe37ad90cc5a7604c82dda920cca0f18"
     },
     "src/views/chat/components/PendingPromptDock.vue": {
       "template": "13d44a9aa56d35f34fcd5fd75e39646558093d66a24f635511e5988dbc1191ca",
@@ -316,7 +362,8 @@
     },
     "src/views/chat/components/ProgressUpdates.vue": {
       "template": "5b24f8bb181dca3f67a36687fc5d777c4308975b430715243721876019084215",
-      "styles": "f4d17a88e6ef7c1dbded168559797e897b5f2e0ddb29b2321db6ad1fe9163355"
+      "styles": "f4d17a88e6ef7c1dbded168559797e897b5f2e0ddb29b2321db6ad1fe9163355",
+      "source": "6b2e333e774f190079e288caeb6a352a3cef67834946828fbeb05c11a8cc2621"
     },
     "src/views/chat/components/RagPipelineProgress.vue": {
       "template": "fc4845c43ea7ce91a8bc7ebf58b634a23d2a4a56a57e103e769683b955061235",
@@ -361,51 +408,63 @@
     },
     "src/views/chat/components/deepThink.vue": {
       "template": "131385e55e748fa6cd06b4f512b8265b1246911cf8b99bcbb1a20b66b5039a0a",
-      "styles": "fe5fb84da879c3a4699807304a356002c4ee9b900a965ed84f59770406a4c587"
+      "styles": "fe5fb84da879c3a4699807304a356002c4ee9b900a965ed84f59770406a4c587",
+      "source": "99f33d25ec4ca80a80e0a107c02c2b5d2f1675ef96a5b10876efe6a0560894ea"
     },
     "src/views/chat/components/docInfo.vue": {
       "template": "1e3dd764f80a38873ab471aa633bc8ed1cb8833893daaaf50b35018d2687b8b6",
-      "styles": "f948cb630f556a2b5f7252fe972ef73827528fb3d68a206e11f28f5b35184f8b"
+      "styles": "f948cb630f556a2b5f7252fe972ef73827528fb3d68a206e11f28f5b35184f8b",
+      "source": "d75383332f9c5bb70f1b33516fd8add3ad88569cc83fc20888efbdabb75e3b4c"
     },
     "src/views/chat/components/tool-results/CatalogValue.vue": {
       "template": "45ea2cdac3aa2d44b28e64ddee508797eb81fcc9b353cfc3fa2e12042542daad",
-      "styles": "aac77db92da3816e82192060ce9c73fffa1141c8b1c6c5eada4a6fbe91e284d9"
+      "styles": "aac77db92da3816e82192060ce9c73fffa1141c8b1c6c5eada4a6fbe91e284d9",
+      "source": "a9aa28c2b2c3db35088b87f53c81b06845840ef60c636597e92132f5e35c4308"
     },
     "src/views/chat/components/tool-results/ChunkDetail.vue": {
       "template": "b550eee8cc7dcaaf0c4eb696f49751d07f590c6bff8585c02b459eff4a82812a",
-      "styles": "b00cbf416b62b53b501d5cfcfa7b2848b51fd367ce9816188f9ce3bc1c9ea37b"
+      "styles": "b00cbf416b62b53b501d5cfcfa7b2848b51fd367ce9816188f9ce3bc1c9ea37b",
+      "source": "bb93578484e6c10c824648fa42720c7a22a5150aff54a0f9209bba336e03fe73"
     },
     "src/views/chat/components/tool-results/ContentPopup.vue": {
       "template": "e96a02edbad9d469f7dd6957b3786f94518e4457fc98f40c3a44fcb1193edfa9",
-      "styles": "90eadd242b4ab032cb9ef352ebb0cb357d613e361ad4421ca6e81410bf999b9b"
+      "styles": "90eadd242b4ab032cb9ef352ebb0cb357d613e361ad4421ca6e81410bf999b9b",
+      "source": "2f42dcc2b09f100805c2e33b6f12167696e66474ebb17a9d7a677fe0a431cc88"
     },
     "src/views/chat/components/tool-results/DatabaseQuery.vue": {
       "template": "d62e47d477f92188741bbaca5aa13abdad225428298c0906c73214d50aaf2278",
-      "styles": "1443d2483f9b8a212b272c804269a770d0f7828c0ba3f740502a8815a09154c1"
+      "styles": "1443d2483f9b8a212b272c804269a770d0f7828c0ba3f740502a8815a09154c1",
+      "source": "cbd8f23d3619d947031f88f56a85cecea5548b40c36522653b2bd02303387fb1"
     },
     "src/views/chat/components/tool-results/DocMarkdown.vue": {
       "template": "59cc0c5f61e83c069fc5f57e04fcff7df75ee06691ccb44b86c5767fd9d5f5d6",
-      "styles": "ce7274e016deb962609859db711bbabeb48882776fad7ecae4387ff8b480b448"
+      "styles": "ce7274e016deb962609859db711bbabeb48882776fad7ecae4387ff8b480b448",
+      "source": "d5c26a2a016bed333c026706dc6f115d478f424df0bb33df0d19da0786e8d19c"
     },
     "src/views/chat/components/tool-results/DocumentInfo.vue": {
       "template": "77d8cf73d02eeee00a2b5a0bfe25d01ae1602cb93ce278fad19056d58f94ecb7",
-      "styles": "78601c77d597d771749f96a2ba350002889333f72a79ae825cc691bf339ccff3"
+      "styles": "78601c77d597d771749f96a2ba350002889333f72a79ae825cc691bf339ccff3",
+      "source": "a7d3557ba1dcb90fcb3ed3c1681db79105f3c338bacff0131dd6a02d265a3dd4"
     },
     "src/views/chat/components/tool-results/GrepResults.vue": {
       "template": "22d686a58bc196d279734944d83d352d0dedacb92dc6496575d7c58131181826",
-      "styles": "8773c7c754fd38c51730fa2f7a7c3a6a75627e23e4868550a5b57b50643fd578"
+      "styles": "8773c7c754fd38c51730fa2f7a7c3a6a75627e23e4868550a5b57b50643fd578",
+      "source": "948ecf90b34cb21a6b3909438989b4bb8b7a29410c35765cb714103eacfadf6d"
     },
     "src/views/chat/components/tool-results/ImageViewResult.vue": {
       "template": "8c137ba46a64ffe5f94c373e0c71497f7dd00139549021799eefadb241d40a57",
-      "styles": "68cb2f180e1ce0fbc5e88d29ab190d520f0411f2caf255cfda534e63488ead0e"
+      "styles": "68cb2f180e1ce0fbc5e88d29ab190d520f0411f2caf255cfda534e63488ead0e",
+      "source": "15a5d11762894da67c1683240992ce7aac8c996969870bfd862f49d5c94d9476"
     },
     "src/views/chat/components/tool-results/KnowledgeBaseList.vue": {
       "template": "e7adc779fcef9f86d34a7e73b3e1b157aafe9c4926614b2bb78841a1018c71d4",
-      "styles": "edc4516338b684ebb469016fd05e60d16f872cb20165fae52dcc70eb621173ed"
+      "styles": "edc4516338b684ebb469016fd05e60d16f872cb20165fae52dcc70eb621173ed",
+      "source": "d3525d6f3c2aef89e7c3f8d960456bc0705125c357e995d0792e0e9699e5ca83"
     },
     "src/views/chat/components/tool-results/KnowledgeChunksList.vue": {
       "template": "2e56b2cbb2cf93f97709e6202afbd3f4e6e6605a2b0473b2bf1bb3fa74e84f22",
-      "styles": "ce7fcd1774355a7378ddbd1cfed7e8e1ba6ea96796bebcfafa2fcf0cfc758b45"
+      "styles": "ce7fcd1774355a7378ddbd1cfed7e8e1ba6ea96796bebcfafa2fcf0cfc758b45",
+      "source": "934a97758e11b82cbe789f2026ff007be9212d1a1216bab821109937aab25a29"
     },
     "src/views/chat/components/tool-results/McpToolResult.vue": {
       "template": "9513e751de9295b193cafd82b1bab54473952f74db40e37ac3347eb4f22482b7",
@@ -414,31 +473,38 @@
     },
     "src/views/chat/components/tool-results/OperationsResult.vue": {
       "template": "e81503615a0da5164e627d559bb154517250110173871c7258bdd0cebb89d4a6",
-      "styles": "e5cfe572f62d76986e523e727ca2e53b4203eb7df373773321fcb2ae9f29ad2d"
+      "styles": "e5cfe572f62d76986e523e727ca2e53b4203eb7df373773321fcb2ae9f29ad2d",
+      "source": "66d1a2996862a247782af66a16c3c675108098e85794db9584faa574cbdf3936"
     },
     "src/views/chat/components/tool-results/PlanDisplay.vue": {
       "template": "1b5e9c64398decc0fdb000de9c51c2594c832007d27252a6b2fc38c77ea72b0c",
-      "styles": "c3d8d06c7c8e7e84e9144438b1a4bc97316865b4e3730ff65b45c968597f0ac5"
+      "styles": "c3d8d06c7c8e7e84e9144438b1a4bc97316865b4e3730ff65b45c968597f0ac5",
+      "source": "f6ed0f4ad462d25ce1bfa6e48028ccd9f04dd2771c8669703efb5b70cfb709cb"
     },
     "src/views/chat/components/tool-results/ReadSkillResult.vue": {
       "template": "23127296281cdc8c6aed65e0f9262deeeb41bb24f1bdf52ce20c5494068f7e98",
-      "styles": "5d460be30fdd15513eeac6dd910df457bde2604c55c3be0b9208a2164d8e8f8d"
+      "styles": "5d460be30fdd15513eeac6dd910df457bde2604c55c3be0b9208a2164d8e8f8d",
+      "source": "d53d6118c3778d401bacf44ed0eb78fea1fb482a932687f7c100da0935701029"
     },
     "src/views/chat/components/tool-results/RelatedChunks.vue": {
       "template": "96df8621a65d825b58f3276d3e1049a09f08e5b9ffd28038c595a1557c262a15",
-      "styles": "9b778561892bc1094b872021ed8d0eeb0dc1dd833145420a1a5c8f70bd7d6976"
+      "styles": "9b778561892bc1094b872021ed8d0eeb0dc1dd833145420a1a5c8f70bd7d6976",
+      "source": "d4d9d3e906e705e32e78a89700fc510ecf84284c435036f6d32e2f59c1a9d415"
     },
     "src/views/chat/components/tool-results/ResultRow.vue": {
       "template": "792c1c6d380547f235a9da8e5f090105469e7e4c827d9fd21f7c82ace5e4f7b2",
-      "styles": "113de2a9c443e8287f51bd5fb9d11ac8024f96d0e53a1a32d1ed046976696163"
+      "styles": "113de2a9c443e8287f51bd5fb9d11ac8024f96d0e53a1a32d1ed046976696163",
+      "source": "b3aaff3a21d3d6fed2b382bc7e75832bc58246d890f1ccd385b78467dd6b1cf7"
     },
     "src/views/chat/components/tool-results/SandboxFilesResult.vue": {
       "template": "f7f1fc11eeb8e9a07102b96b6dab100260606d11fc3623c604a00ad713a0fd5e",
-      "styles": "fe0f080f533e1daa38f963809e360ac2c09e2d0edb73b6c967508ce04ddb3fed"
+      "styles": "fe0f080f533e1daa38f963809e360ac2c09e2d0edb73b6c967508ce04ddb3fed",
+      "source": "55e8a56f8bc4109a1ef837e1e274eac5fee6b3ef440216d7ad0be7f9259b0a27"
     },
     "src/views/chat/components/tool-results/SearchResults.vue": {
       "template": "65e17b9922d63724c290ef5942a0999de0cb6f123cd85e7e52c1488f7d507ea2",
-      "styles": "6ab3728ae5dfe024cd66537c858d08b33298f2e5e568fb09f1daaef76b4374b7"
+      "styles": "6ab3728ae5dfe024cd66537c858d08b33298f2e5e568fb09f1daaef76b4374b7",
+      "source": "95ccbf067b2e0a6714b879ff3e336826cefec81154992733762d59f8d9bc5634"
     },
     "src/views/chat/components/tool-results/ShellExecResult.vue": {
       "template": "0c7743446fd415aadc8d5e91ec9448cf8d4e3f75074cfd950f3a342b42cd8f88",
@@ -447,27 +513,33 @@
     },
     "src/views/chat/components/tool-results/ThinkingDisplay.vue": {
       "template": "d6c47e4122fd53a3f2d6bb4a7aead98db12b1255a5cd1f1c9dbafb570ed5a6a3",
-      "styles": "b97429ec11eb2278d8c0803d434815013bd47e30224482c78e7058e9e0538806"
+      "styles": "b97429ec11eb2278d8c0803d434815013bd47e30224482c78e7058e9e0538806",
+      "source": "8f6b1d8ece8b6984420bc2503631e2272f118fdabe280ec98ae3e6a4d6527feb"
     },
     "src/views/chat/components/tool-results/WeKnoraDocResult.vue": {
       "template": "fce7361c807b1ae4d9d8d73ea6970705003f0a3e05b8baa23802edb4a9c955fc",
-      "styles": "1716f3236efa9676c1a2990a16e2fd01938ae0e5b9b2523a1080c69eb56a50c9"
+      "styles": "1716f3236efa9676c1a2990a16e2fd01938ae0e5b9b2523a1080c69eb56a50c9",
+      "source": "3efb155ffcebd479a971c3d1c35571f213d2e90d18539de90cad95f3ff37ab5b"
     },
     "src/views/chat/components/tool-results/WebFetchResults.vue": {
       "template": "544c6df2f657039a5e9b0c4b98882abad8e2e4ff56120f59bf03508ba6ac9714",
-      "styles": "1b12244733cc95092daad78717ab9823dac3f62a8ec0f78c964110387055a93d"
+      "styles": "1b12244733cc95092daad78717ab9823dac3f62a8ec0f78c964110387055a93d",
+      "source": "1e5542f2331d1cc3bdf2fb82465838ab757feb0688859ab0e78ea46c0b336d68"
     },
     "src/views/chat/components/tool-results/WebSearchResults.vue": {
       "template": "cf0a921094e147806a18a3dfa21e94a659c7be418f2df6cfa774f00b1f2f7549",
-      "styles": "60e889fc14b50152710a2d23ba2f643e7fd2c1e27742660fc5c8b3dca09d3c11"
+      "styles": "60e889fc14b50152710a2d23ba2f643e7fd2c1e27742660fc5c8b3dca09d3c11",
+      "source": "50afc3c5512958f434954fa8eb7ccd3a0d710cdcdd07b249adf9377802f2acd4"
     },
     "src/views/chat/components/tool-results/WikiEditResult.vue": {
       "template": "4b1d1619970dba51938c4f35cce0bb2a166ec34c20946625db28bd15aa7b5717",
-      "styles": "876e2b28e6f348babca6ad94969795c47e4ed8d8eb1a2fcfd29c59372d813a9d"
+      "styles": "876e2b28e6f348babca6ad94969795c47e4ed8d8eb1a2fcfd29c59372d813a9d",
+      "source": "73fd9f5e4ed22e8dcbb24824f4a0e159334b40e8d224d790fbc309d8d8a76391"
     },
     "src/views/chat/components/tool-results/WriteSandboxFileResult.vue": {
       "template": "52237cd635c82957f2a6ba74e5eb61e58aec078794e280c1e79775a652325b63",
-      "styles": "07b8c9b480e32ab541398149db8e80d7b3211211857721d871fb17ab6a38bf95"
+      "styles": "07b8c9b480e32ab541398149db8e80d7b3211211857721d871fb17ab6a38bf95",
+      "source": "f41e92dbc7c3b51f6516eed85274977b052ac672df349c3971ffa90d31eb1038"
     },
     "src/views/chat/components/usermsg.vue": {
       "template": "0ef2f38c4ab2103857df056dd4f5293e78ba946cd949bc010208e44c4e75d227",
@@ -498,6 +570,105 @@
       "template": "db8f1e4e4ac5f2ec2c71bc4a59110b57dc8bdcf1427447b93e4976ff949c7230",
       "styles": "f986aba11e149c75eef38dd9167530032e67b83efcfc87dcb240872b0dc56f5f",
       "source": "bfea3b0e95a584a522a0e7d422039d1111655159406c471bbd13e234220526da"
+    },
+    "src/components/SandboxConfigEditorDrawer.vue": {
+      "template": "c6122e4556d9e330aad5c97c3d094aad8028cd362d16e0f0b64fe380efa03c1d",
+      "styles": "d2a94954458e99c70b6101b564ca8bd1eb50790106df201413ce19e91a7ef0c7",
+      "source": "d880b7fc36eaa0b6aa7efe5e48eb7d543f7e86eb0dafbdf59627283834efc8e0"
+    },
+    "src/views/settings/ModelSettings.vue": {
+      "template": "146ab0799a115e6eef80b5906c19509feda7c6a074c9df17e22f59120b75233d",
+      "styles": "f37a07bfcf158644685201d495e2c9919d7f970180a8af3dd6fe0b8330fac4b3",
+      "source": "c752642d060ca163fb624259b37671e71da0803f05c18ad7aed84df940faa831"
+    },
+    "src/views/settings/components/McpToolsList.vue": {
+      "template": "1d372abc70d4a20abde0e48b4b403c8f7f7bc526a17aa488ee78aaf4c710dd12",
+      "styles": "fe85477ec3d305acc9563579bddb55f424dc07d508fd4a0b8fe368524ce4086d",
+      "source": "06917d10ba1321c8a2d46d73acabef6bf9ee1dba5cd28fdc05d37ac4c7cc9741"
+    },
+    "src/views/settings/SandboxSettings.vue": {
+      "template": "529a7be587adc29db5e3b93fc9cf35579da52b02bde85f34ccd8ec371746806f",
+      "styles": "7d7c21c8e336121c7c6b5620ecad73d3358f1818b116b5182c4e4e24b78099a7",
+      "source": "2f932216e7b7b7208c1e6feb977994b519300266abcca4f9e1ee33e217317854"
+    },
+    "src/views/settings/SkillSettings.vue": {
+      "template": "fbcdfbcaf4a119fab2c96739677f70cbe6b419c0475d77dadb1ccce3b884b9b3",
+      "styles": "dd1b2fad3ae5ce9c99d0b11e3fd233809e64dfcf88df22be582f7a6a0016f3ee",
+      "source": "b0a172a10ebcc08eaa09299ba33b04b0108bb059e22370ff0aea273d82975458"
+    },
+    "src/views/settings/Settings.vue": {
+      "template": "d66ac9b06b4cf49693bc583f6ba24a257b5baa81dd96608ee6676e2117525bf6",
+      "styles": "5d59a3ae71949ba835389bf12e354e695ba7effb088f2d5795efbc84b432017c",
+      "source": "fa7182d00faac5190459d89ae63b4268866bf6f690e3cbf7a344ab1c0dc063ad"
+    },
+    "src/views/toolbox/Toolbox.vue": {
+      "template": "b1bd7602a8db30121c347fbc496c13e533c228782994a429600df38273546159",
+      "styles": "766c9df4ea2658d7297af51c18cd0b5f70a534caa8056eb633aed8f01dfe74a2",
+      "source": "d64ca52489ce8c31717c3100ca7aa937d033c197abdad9deecd8592bc01879b9"
+    },
+    "src/components/settings/SandboxBackendBadge.vue": {
+      "template": "14b8876ce1306df582b0f7b9e649e565c6045119d019f5dffcfb7cc912534956",
+      "styles": "ae4ac50956984c908b2e068f3af80e7b64493cca05fc6c74cd0b20b2dcd510d3",
+      "source": "dfb048bf190f4e904055691e63aaf786a598f1e3214c7dca8b4847a20cbef4ef"
+    },
+    "src/components/SkillFilesDrawer.vue": {
+      "template": "35673f3dc64c36bb25c2f5236f726dbe0efce18a2dacd9580acc99759585d37d",
+      "styles": "e96c9f5c89759039658fd4e7e7a55463940c25af086606e548f41c7be891c377",
+      "source": "008b496ed35e90a9b011cb276f32c8d68a165e6a94d2ded66f639cc5bf5119b1"
+    },
+    "src/components/SkillFilesPanel.vue": {
+      "template": "381ecfef55a02191bb813facce6228a492d6ce7bc17c5397a9723e46822e7157",
+      "styles": "fd61c2ad14699dd6f1570e3018383bc94e1ea461e98959d29deeb03ce2073b35"
+    },
+    "src/components/ModelEditorDialog.vue": {
+      "template": "36c96f976af27f96160315a78e65359f8bd25ad18837d78952a8b98d7b4802e1",
+      "styles": "55c3f49991cd57c76bec61bc1550025ebac8c469495fb9f598851689baaebca5",
+      "source": "1d29779a65970d5940c818d068a2d6feb719956065b5bfd91977d4ac19d5d993"
+    },
+    "src/components/ModelDebugDrawer.vue": {
+      "template": "eac1d772ef05efbf2226fecf07bdcfa2108af46b1cab1e21c86b203d719bcd1b",
+      "styles": "98adb1510087d1a0235340f3186de9bf3263a8f33582a841a57628e42e3874a8",
+      "source": "236d6c10cc4107ec99ed0e9f3271bb4ff0d673039d18fcd8a60e11abd25011f5"
+    },
+    "src/views/settings/McpSettings.vue": {
+      "template": "e84df170f7a9ff09b956f6fd8d78befa11a0c937d68591fa7ec5ad4a42de2c93",
+      "styles": "1fbdaf7f324e41684dab23cc6513f526e846ccb5ad2ae666e71183c9c767e02d",
+      "source": "bc016b59a5a920ed4e37caf2a1c487de12fe1db3a6cee467941562405628a217"
+    },
+    "src/views/settings/BrowserConnectionSettings.vue": {
+      "template": "6982dba0233a7f6b0cf03b7ae0877c26f4fd33c3a208bf106c6af8a0e81187dd",
+      "styles": "584b90361fd121a0a417ca7624094757153f7e6a6d199ccb511674ebdd862e49",
+      "source": "d6542363ec641f89b9a04b46fc5b56fd8f7927c2f1deb3ed2929da6ff5bb1f58"
+    },
+    "src/views/settings/BrowserSearchPreferences.vue": {
+      "template": "8995251c66ab9fe46cb6ec7df49ae6c3b6531ef4dc89f82532c401cd6368d7da",
+      "styles": "ce7c20698cd7015060533c20c697fe18c416a5a1429283d3ce54d42c3df00b28",
+      "source": "1d2a427b63ae64627fb1990cbb082881fdcf7d69f43a27c22340266d207f7ab7"
+    },
+    "src/views/settings/components/McpServiceDialog.vue": {
+      "template": "bb497efc84b436cdf15f257af784ceb63cfc5f2c346eeaf5ff52f4a79f7cd9d8",
+      "styles": "14dd8fe4f09240c8e4fba6bc5097c7e84793628a3a2ad39cb9f1f86183d2faea",
+      "source": "f24717d4d67f8b7818547c7bbae1a9afb3cbd5e5f42cd2c9ab3a15395dc9fd90"
+    },
+    "src/views/settings/components/McpMetadataPanel.vue": {
+      "template": "e2b6dfac99eb842719727cf349ff1a797c11055dba1d208a24d84214e4e83210",
+      "styles": "a36413455e26519d32fa2bd37216abcb6500e4d20e5c80645f3d74b90e07e2ce",
+      "source": "a029b3b0c4d3ed3fc9260c017f27bd49a01958472e7ef8c01157ea5fdbb06ba6"
+    },
+    "src/components/assistant/AssistantPanel.vue": {
+      "template": "83a41c0ef50f8b6dcc27419723532d18ecaee00697357f12c424b38fe41b221d",
+      "styles": "a7509bd8dc7cde62226943b6d8f1a7d482bd82af8f2b772ef135246260238d3a",
+      "source": "417a655c7fb35bd84a8aea43ead6b3e97cf6ddef93fc77ef8ed154af18b08551"
+    },
+    "src/views/settings/MemorySettings.vue": {
+      "template": "b4e24bbb07038a11eef7a1deb849ebe95b6e1c7e529ca51258cffa420fcc8c5c",
+      "styles": "99f161d036b066e8059879ab984916dea34f5a719f703da7112c04cd260968ab",
+      "source": "ae0c7e97da1db3ae6a58ff454845ec1ee8d120b10380636e9e0ea51340074767"
+    },
+    "src/views/settings/MemoryWorkspaceSettings.vue": {
+      "template": "a1ab31a2cd41871ecf1ec9a1d2a609286a9b250e0b7c4c9b36e1b01482431fb1",
+      "styles": "f37c912eeb1b9cab56e0c93a2cab954869cd1fe26e6193e97bb6398704806e4c",
+      "source": "d3ad97324b76c78f79d3822de49ac8b98e4d1ae6b0ead60e9f4cffcbd0cb0c26"
     }
   },
   "dependencies": {
@@ -527,6 +698,11 @@
     "src/composables/useTheme.ts": "da8b69a4407e52dc9d99c63b2b168567c4215b6d7c4753d5f2b78ccb1a4491d7",
     "src/main.ts": "bd132d2494e1a3075c7bfbd26d64a3fd720c8a448507b428238bdebedba660fe",
     "src/views/chat/components/agent-interaction-card.less": "25f978fc83a77eaf5560d5e49850da65eb066387b3a6b0b00888484f04c69016",
-    "src/views/chat/components/tool-results/tool-results.less": "fb03aa8737aade86b91c53743c70cc42ec00f96fb0f74bd17f959ee8692dbf8f"
+    "src/views/chat/components/tool-results/tool-results.less": "fb03aa8737aade86b91c53743c70cc42ec00f96fb0f74bd17f959ee8692dbf8f",
+    "src/api/model/modelUsage.ts": "7431e48aafffeb8dfa83ebe874c993780a39f34b6427bfb2a6d87892a49b546d",
+    "src/config/settingsRoute.ts": "03415cdddf65f5c5d308af546600e64fcfbe0f6f6131f0a2de9074eec220cd61",
+    "src/config/toolbox.ts": "9e251b1d072e84489b7538707dfda8b42d4e9d4b4127337cf4631597a4d641d5",
+    "src/config/deploymentCapabilities.ts": "9dc3d5bdddf43d512e15ceefa89267f178d17a30947ce2bec0d548f90eac042c",
+    "src/config/settingsAccess.ts": "67ced0248b19a031aa23b8fd243a950aeea649068337497581f2492d0380598f"
   }
 }

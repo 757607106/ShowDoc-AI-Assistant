@@ -11,12 +11,14 @@ import zipfile
 from flask import Blueprint, Response, g, jsonify, request
 
 from agent import registry
+from agent.sandbox import CONFIG_ID
 from agent.skill_bundle import MAX_DOWNLOAD, fetch_bundle, parse_bundle
 from governance.database import connection
 from governance.store import StoreError, data_dir
 from webapi.legacy_runtime import unavailable
 
 skill_runtime_bp = Blueprint('skill_runtime', __name__)
+INSTRUCTION_BACKENDS = ('state-backend', CONFIG_ID)
 
 
 def _body():
@@ -58,7 +60,16 @@ def _upload():
 
 def _catalog_view(value):
     return {**{key: value[key] for key in ('id', 'name', 'description', 'version', 'bundle_sha256', 'created_at', 'updated_at') if key in value},
-            'execution_mode': 'instructions_only', 'scripts_available': False}
+            'execution_mode': 'instructions_only', 'scripts_available': False,
+            'installations': [_instruction_install(value, config_id) for config_id in INSTRUCTION_BACKENDS]}
+
+
+def _instruction_install(value, config_id):
+    """Project the ready Harness instructions without creating an installer job."""
+    return {**{key: value[key] for key in ('id', 'name', 'description', 'version', 'bundle_sha256', 'created_at', 'updated_at') if key in value},
+            'skill_id': value['id'], 'catalog_id': value['id'], 'sandbox_config_id': config_id,
+            'status': 'ready', 'enabled': value.get('enabled', True), 'read_only': True,
+            'execution_mode': 'instructions_only', 'scripts_available': False, 'execution_available': False}
 
 
 def _bundle_files(value):
@@ -76,6 +87,10 @@ def _bundle_files(value):
 
 
 def _install(config_id, install_id):
+    if config_id in INSTRUCTION_BACKENDS:
+        value = next((value for value in registry.records('skill', g.user['id']) if value['id'] == install_id), None)
+        if value is not None:
+            return _instruction_install(value, config_id)
     row = registry.record('skill_install', install_id, g.user['id'])
     if row['sandbox_config_id'] != config_id:
         raise StoreError('Skill 安装记录不存在', 404)
@@ -83,6 +98,8 @@ def _install(config_id, install_id):
 
 
 def _install_view(row):
+    if row.get('execution_mode') == 'instructions_only':
+        return row
     return {**{key: row[key] for key in ('id', 'catalog_id', 'sandbox_config_id', 'name', 'description', 'status', 'error', 'version', 'created_at', 'updated_at', 'install_session_id', 'install_message_id') if key in row},
             'enabled': False, 'read_only': True, 'execution_available': False}
 
@@ -90,7 +107,7 @@ def _install_view(row):
 @skill_runtime_bp.route('/api/v1/skills')
 def available_skills():
     config_id = request.args.get('sandbox_config_id') or 'state-backend'
-    if config_id != 'state-backend':
+    if config_id not in INSTRUCTION_BACKENDS:
         registry.record('sandbox', config_id, g.user['id'])
         return jsonify(success=True, data=[], skills_available=False, scripts_available=False)
     return jsonify(success=True, data=[_catalog_view(value) for value in registry.records('skill', g.user['id']) if value.get('enabled', True)],
@@ -151,6 +168,9 @@ def retired_installation(catalog_id=None, config_id=None, install_id=None, scope
 def config_skills(config_id):
     if request.method == 'POST':
         unavailable()
+    if config_id in INSTRUCTION_BACKENDS:
+        return jsonify(success=True, read_only=True, data=[_instruction_install(value, config_id)
+            for value in registry.records('skill', g.user['id'])])
     return jsonify(success=True, read_only=True, data=[_install_view(row) for row in registry.records('skill_install', g.user['id'])
         if row['sandbox_config_id'] == config_id])
 

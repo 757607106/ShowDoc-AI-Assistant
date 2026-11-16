@@ -5,6 +5,7 @@ import json
 import os
 import re
 import uuid
+from contextlib import contextmanager, nullcontext
 from urllib.parse import urlsplit
 
 from psycopg.types.json import Jsonb
@@ -13,6 +14,13 @@ from governance.database import connection
 from governance.store import StoreError
 
 MASKED = '********'
+AGENT_MODEL_FIELDS = {
+    'model_id': ('chat_model', ('KnowledgeQA', 'VLLM')),
+    'rerank_model_id': ('rerank_model', ('Rerank',)),
+    'vlm_model_id': ('vlm_model', ('VLLM',)),
+    'asr_model_id': ('asr_model', ('ASR',)),
+    'query_understand_model_id': ('query_understand_model', ('KnowledgeQA', 'VLLM')),
+}
 
 
 def _masked_map(values, current):
@@ -27,20 +35,58 @@ def _http_url(value):
         return False
 
 
-def records(kind, owner_id):
-    with connection() as conn:
+def records(kind, owner_id, *, _connection=None):
+    with nullcontext(_connection) if _connection is not None else connection() as conn:
         rows = conn.execute('SELECT payload FROM runtime_records WHERE owner_id=%s AND kind=%s ORDER BY created_at,id',
                             (owner_id, kind)).fetchall()
     return [row['payload'] for row in rows]
 
 
-def record(kind, record_id, owner_id):
-    with connection() as conn:
+def record(kind, record_id, owner_id, *, _connection=None):
+    with nullcontext(_connection) if _connection is not None else connection() as conn:
         row = conn.execute('SELECT payload FROM runtime_records WHERE owner_id=%s AND kind=%s AND record_key=%s',
                            (owner_id, kind, record_id)).fetchone()
     if row is None:
         raise StoreError('配置不存在或无权访问', 404)
     return row['payload']
+
+
+def agent_model_references(config):
+    values = [(config.get(field), binding, types) for field, (binding, types) in AGENT_MODEL_FIELDS.items()]
+    suggestions = config.get('question_suggestions') or {}
+    if not isinstance(suggestions, dict) or not isinstance(suggestions.get('follow_ups', {}), dict):
+        raise StoreError('推荐问题配置必须为对象', 400)
+    values.append((suggestions.get('follow_ups', {}).get('model_id'), 'follow_up_model', ('KnowledgeQA', 'VLLM')))
+    return [(model_id, binding, types) for model_id, binding, types in values if model_id]
+
+
+def _lock_model_bindings(conn, owner_id):
+    conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('model-bindings:' + owner_id,))
+
+
+@contextmanager
+def model_bindings_transaction(owner_id):
+    with connection() as conn:
+        _lock_model_bindings(conn, owner_id)
+        yield conn
+
+
+def model_usage(model_id, owner_id, *, _connection=None):
+    agents = []
+    for value in records('agent', owner_id, _connection=_connection):
+        bindings = [binding for referenced, binding, _ in agent_model_references(value.get('config', {}))
+                    if referenced == model_id]
+        if bindings:
+            agents.append({'id': value['id'], 'name': value.get('name', value['id']), 'bindings': bindings})
+    agents.sort(key=lambda value: (value['name'], value['id']))
+    return {'knowledge_bases': [], 'agents': agents[:50], 'knowledge_base_total': 0,
+            'agent_total': len(agents), 'long_term_memory': {'bindings': []}}
+
+
+def default_model_references(model_id, owner_id, *, _connection=None):
+    settings = next((value.get('value', {}) for value in records('settings', owner_id, _connection=_connection)
+                     if value['id'] == 'default-settings'), {})
+    return [field for field, referenced in settings.items() if field.endswith('_model_id') and referenced == model_id]
 
 
 def save_record(kind, value, owner_id):
@@ -51,6 +97,18 @@ def save_record(kind, value, owner_id):
     value['updated_at'] = now()
     metadata = {'type': kind, 'owner_id': owner_id}
     with connection() as conn:
+        if kind == 'agent' or kind == 'settings' and value['id'] == 'default-settings':
+            # Binding writes and deletion share one transaction lock, so neither can leave dangling IDs.
+            _lock_model_bindings(conn, owner_id)
+            references = agent_model_references(value.get('config', {})) if kind == 'agent' else [
+                (model_id, field, ()) for field, model_id in value.get('value', {}).items()
+                if field.endswith('_model_id') and model_id]
+            for model_id, binding, types in references:
+                if not isinstance(model_id, str):
+                    raise StoreError('模型 ID 必须为字符串', 400)
+                model = model_config(model_id, owner_id, _connection=conn)
+                if types and model['type'] not in types:
+                    raise StoreError(f'{binding} 的模型类型必须为 {"、".join(types)}', 400)
         conn.execute('''INSERT INTO runtime_records(id,owner_id,kind,record_key,name,payload,metadata)
             VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (owner_id,kind,record_key)
             DO UPDATE SET payload=excluded.payload,name=excluded.name,updated_at=now()''',
@@ -58,9 +116,9 @@ def save_record(kind, value, owner_id):
     return value
 
 
-def delete_record(kind, record_id, owner_id):
-    record(kind, record_id, owner_id)
-    with connection() as conn:
+def delete_record(kind, record_id, owner_id, *, _connection=None):
+    with nullcontext(_connection) if _connection is not None else connection() as conn:
+        record(kind, record_id, owner_id, _connection=conn)
         conn.execute('DELETE FROM runtime_records WHERE owner_id=%s AND kind=%s AND record_key=%s',
                      (owner_id, kind, record_id))
 
@@ -122,7 +180,7 @@ def default_model_id(owner_id, field='chat_model_id'):
     return value.get('value', {}).get(field) or 'agent-main'
 
 
-def model_config(model_id, owner_id):
+def model_config(model_id, owner_id, *, _connection=None):
     if not model_id or model_id == 'agent-main':
         value = environment_model()
         bailian = os.getenv('BAILIAN_API_KEY', '').strip()
@@ -130,7 +188,7 @@ def model_config(model_id, owner_id):
             base_url=os.getenv('AGENT_BAILIAN_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1') if bailian else
             (os.getenv('DASHSCOPE_API_URL') or 'https://llm-rtc5v8cnt0umugh9.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions').rstrip('/').removesuffix('/chat/completions'))
         return value
-    value = copy.deepcopy(record('model', model_id, owner_id))
+    value = copy.deepcopy(record('model', model_id, owner_id, _connection=_connection))
     from agent.models import validate_model_runtime
     validate_model_runtime(value)
     value['parameters'].update(secrets(value))
@@ -216,10 +274,10 @@ def save_mcp(body, owner_id, service_id=None):
 
 
 def mcp_connection(value):
-    private = secrets(value)
     transport = value['transport_type']
     if transport == 'stdio':
-        return {'transport': 'stdio', **value['stdio_config'], 'env': private.get('env_vars', {})}
+        raise StoreError('当前 Agent 仅支持远程 MCP；禁止在宿主机启动 stdio 服务', 501)
+    private = secrets(value)
     headers = {**private.get('headers', {}), **private.get('custom_headers', {})}
     auth = value.get('auth_config', {})
     if auth.get('auth_type') == 'api_key' and private.get('api_key'):
@@ -227,6 +285,12 @@ def mcp_connection(value):
     if auth.get('auth_type') == 'bearer' and private.get('token'):
         headers['Authorization'] = 'Bearer ' + private['token']
     return {'transport': 'streamable_http' if transport == 'http-streamable' else 'sse', 'url': value['url'], 'headers': headers}
+
+
+def mcp_tool_policy(value, name, read_only):
+    settings = value.get('tool_approvals', {}).get(name, {})
+    return {'enabled': read_only is True and settings.get('enabled', True),
+            'require_approval': read_only is True and settings.get('require_approval', False)}
 
 
 async def mcp_tools(owner_id, config):
@@ -267,15 +331,14 @@ async def mcp_tools(owner_id, config):
         else:
             client = MultiServerMCPClient({value['id']: mcp_auth.mcp_connection(value, owner_id)}, tool_name_prefix=True, tool_interceptors=[authorize])
             tools = await client.get_tools()
-        flags = value.get('tool_approvals', {})
         for candidate in tools:
             original = candidate.name.removeprefix(value['id'] + '_')
-            settings = flags.get(original, {})
-            if settings.get('enabled', True):
+            policy = mcp_tool_policy(value, original, (candidate.metadata or {}).get('readOnlyHint'))
+            if policy['enabled']:
                 if (candidate.metadata or {}).get('readOnlyHint') is True:
                     readonly.update((original, candidate.name))
                 candidate.metadata = {**(candidate.metadata or {}), 'service_id': value['id'],
-                    'require_approval': settings.get('require_approval', (candidate.metadata or {}).get('readOnlyHint') is not True)}
+                    'require_approval': policy['require_approval']}
                 if value.get('usage_instructions', '').strip():
                     candidate.description = f"{value['name']} usage: {value['usage_instructions'][:500]}\n\n{candidate.description}"
                 result.append(candidate)

@@ -42,7 +42,8 @@ def client(monkeypatch):
     def error(exc):
         return {'success': False, 'message': str(exc)}, exc.status
     monkeypatch.setattr(suggestions, 'client_for_user', lambda *args: KnowledgeClient())
-    monkeypatch.setattr(registry, 'model_config', lambda *args: {'parameters': {'api_key': 'fake'}})
+    monkeypatch.setattr(registry, 'model_config', lambda *args, **kwargs: {
+        'type': 'KnowledgeQA', 'parameters': {'api_key': 'fake'}})
     return app.test_client()
 
 

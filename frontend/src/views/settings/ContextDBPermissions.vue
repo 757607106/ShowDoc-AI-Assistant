@@ -76,6 +76,7 @@ void attempt(async()=>{
       <t-descriptions-item label="权限模式">{{advanced?'高级权限模式':profile.mode==='personal_compatibility'?'普通模式':'未知模式'}}</t-descriptions-item>
     </t-descriptions>
     <t-table row-key="knowledge_base_id" :data="profile?.knowledge_base_permissions || []" :columns="permissionColumns">
+      <template #knowledge_base_name="{row}">{{bases.find(base=>base.id===row.knowledge_base_id)?.name || row.knowledge_base_display_name || row.knowledge_base_name}}</template>
       <template #current_permission="{row}">{{permissionLabel(row.current_permission)}}</template>
       <template #advanced_permission="{row}">{{permissionLabel(row.advanced_permission)}}</template>
       <template #direct_permission="{row}">{{permissionLabel(row.direct_permission)}}</template>

@@ -49,6 +49,22 @@ def test_kb_search_proxies_query(client):
     assert '配置连接池' in payload['chunks'][0]['content']
 
 
+def test_global_search_maps_question_without_expanding_scope(client, monkeypatch):
+    from unittest.mock import Mock
+    fake, http = client
+    fake._request = Mock(return_value={'chunks': []})
+    monkeypatch.setattr('webapi.contextdb.client_for_user', lambda: fake)
+    body = {'query': '配置', 'knowledge_base_ids': ['kb-a'], 'document_ids': ['doc-a'], 'top_k': 10}
+    response = http.post('/api/contextdb/v1/knowledge/query', json=body)
+    assert response.status_code == 200
+    fake._request.assert_called_once_with('POST', '/v1/knowledge/query',
+        json_body={'question': '配置', 'knowledge_base_ids': ['kb-a'], 'document_ids': ['doc-a'], 'top_k': 10}, params={})
+    fake._request.reset_mock()
+    response = http.post('/api/contextdb/v1/knowledge/query', json={**body, 'question': '另一个问题'})
+    assert response.status_code == 400
+    fake._request.assert_not_called()
+
+
 def test_kb_reviews_queue_and_actions(client):
     fake, http = client
     kb = fake.ensure_knowledge_base('k2', review_enabled=True)

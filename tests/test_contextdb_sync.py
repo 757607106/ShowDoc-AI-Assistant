@@ -97,6 +97,90 @@ def test_run_sync_preserves_original_filename_without_changing_document_identity
         assert doc['metadata']['title'] == '使用手册'
 
 
+def test_metadata_changes_sync_without_reupload_and_preserve_custom_fields(environment, tmp_path, monkeypatch):
+    store, client, _ = environment
+    source_url = 'https://example.com/docs/' + 'a' * 250
+    record = {'id': 'scoped', 'version_id': 'v1', 'title': '适用范围', 'content': '# 正文',
+              'metadata': {'scope': {'product': 'ERP', 'version': '1.0', 'role': '管理员'}, 'url': source_url}}
+    release_path = make_release_zip(tmp_path / 'scoped.zip', [record])
+    release_id = store.create_release('scope-v1', 'default', 2, ['v1'], release_path)
+    initial = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert initial['errors'] == []
+    document_ids = set(client.documents)
+    for doc in client.documents.values():
+        assert {key: doc['metadata'][key] for key in ('product', 'version', 'role', 'url')} == {
+            'product': 'ERP', 'version': '1.0', 'role': '管理员', 'url': source_url}
+        doc['metadata']['labels'] = ['人工标注', '重要']
+
+    record.update(version_id='v2')
+    record['metadata'] = {'scope': {'product': 'ERP', 'version': '2.0'}, 'url': 'https://example.com/v2'}
+    release_path = make_release_zip(tmp_path / 'scoped-v2.zip', [record])
+    release_id = store.create_release('scope-v2', 'default', 3, ['v2'], release_path)
+    writes = []
+    update_metadata = client.update_document_metadata
+    def write_metadata(metadata, **kwargs):
+        writes.append(kwargs['document_id'])
+        return update_metadata(metadata, **kwargs)
+    def must_not_reupload(*args, **kwargs):
+        raise AssertionError('Metadata-only changes must not resubmit source content')
+    monkeypatch.setattr(client, 'update_document_metadata', write_metadata)
+    monkeypatch.setattr(client, 'upload_file', must_not_reupload)
+    monkeypatch.setattr(client, 'update_file', must_not_reupload)
+    result = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert result['errors'] == [] and result['uploaded'] == 2 and len(writes) == 2
+    assert set(client.documents) == document_ids
+    for kb_id in result['targets'].values():
+        doc = client.list_documents(kb_id, metadata_condition={'product': 'ERP', 'version': '2.0'})['documents'][0]
+        assert doc['metadata']['source_version'] == 'v2'
+        assert doc['metadata']['url'] == 'https://example.com/v2'
+        assert doc['metadata']['labels'] == ['人工标注', '重要']
+        assert 'role' not in doc['metadata']
+    repeated = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert repeated['errors'] == [] and repeated['skipped'] == 2 and len(writes) == 2
+
+
+def test_content_updates_keep_remote_custom_metadata(environment, tmp_path):
+    store, client, release_id = environment
+    run_sync(store, enqueue_sync(store, release_id, 'default'))
+    for doc in client.documents.values():
+        doc['metadata']['approved'] = True
+    release_path = make_release_zip(tmp_path / 'changed.zip', [
+        {'id': 'doc-1', 'version_id': 'v3', 'title': '新标题', 'content': '# 新正文'}])
+    release_id = store.create_release('content-v3', 'default', 2, ['v3'], release_path)
+    result = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert result['errors'] == [] and result['uploaded'] == 2
+    for kb_id in result['targets'].values():
+        doc = next(doc for doc in client.list_documents(kb_id)['documents'] if doc['name'] == 'doc-doc-1.md')
+        assert doc['metadata']['approved'] is True
+        assert doc['metadata']['source_version'] == 'v3'
+
+
+def test_metadata_response_loss_is_reconciled_before_retry(environment, tmp_path, monkeypatch):
+    from integrations.contextdb import ContextDBError
+    store, client, release_id = environment
+    run_sync(store, enqueue_sync(store, release_id, 'default'))
+    release_path = make_release_zip(tmp_path / 'metadata.zip', [
+        {'id': 'doc-1', 'version_id': 'v3', 'title': '标题A', 'content': '# 正文A',
+         'metadata': {'scope': {'version': '3.0'}}}])
+    release_id = store.create_release('metadata-v3', 'default', 2, ['v3'], release_path)
+    update_metadata = client.update_document_metadata
+    def lost_response(metadata, **kwargs):
+        update_metadata(metadata, **kwargs)
+        raise ContextDBError('Response lost after metadata was accepted')
+    def must_not_write(*args, **kwargs):
+        raise AssertionError('Read-back confirmed this metadata; no write is needed')
+    monkeypatch.setattr(client, 'update_document_metadata', lost_response)
+    monkeypatch.setattr(client, 'upload_file', must_not_write)
+    monkeypatch.setattr(client, 'update_file', must_not_write)
+    failed = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert len(failed['errors']) == 2
+    monkeypatch.setattr(client, 'update_document_metadata', must_not_write)
+    repeated = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert repeated['errors'] == [] and repeated['uploaded'] == 0 and repeated['skipped'] == 2
+    for kb_id in repeated['targets'].values():
+        assert len(client.list_documents(kb_id, metadata_condition={'version': '3.0'})['documents']) == 1
+
+
 def test_run_sync_missing_archive_fails_job(environment):
     store, _, release_id = environment
     release = store.get_release(release_id)
@@ -138,7 +222,11 @@ def test_unchanged_pending_review_is_not_resubmitted(environment, monkeypatch):
     monkeypatch.setattr(client,'upload_file',must_not_write)
     monkeypatch.setattr(client,'update_file',must_not_write)
     result=run_sync(store,enqueue_sync(store,release_id,'default'))
-    assert result['uploaded']==0 and result['skipped']==4 and result['errors']==[]
+    assert result['uploaded']==4 and result['errors']==[]
+    assert all(doc['ingest_status']=='pending_review' and doc['metadata']['source_content_hash']
+               for doc in client.documents.values())
+    repeated=run_sync(store,enqueue_sync(store,release_id,'default'))
+    assert repeated['uploaded']==0 and repeated['skipped']==4 and repeated['errors']==[]
 
 
 def test_deleted_environment_target_is_recreated_under_a_name_not_the_retired_id(environment, monkeypatch):

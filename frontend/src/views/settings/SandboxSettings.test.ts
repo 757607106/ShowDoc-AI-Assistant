@@ -1,48 +1,78 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import { fixture, flush } from '../../test-utils/vueFixture'
 import { matchesResourceQuery } from '../../utils/resourceListSearch'
 
 const file = new URL('./SandboxSettings.vue', import.meta.url)
 
-test('session file settings retain archived configurations for viewing and search', async t => {
-  const records = [
-    { id: 'state-backend', name: 'Session files', sandbox_type: 'state' },
-    { id: 'old-docker', name: 'Old analysis', description: 'Invoices', sandbox_type: 'docker' },
-    { id: 'old-host', name: 'Old host', sandbox_type: 'host' },
-  ]
+const records = [
+  { id: 'state-backend', name: 'Session files', sandbox_type: '', config: {} },
+  { id: 'old-docker', name: 'Old analysis', description: 'Invoices', sandbox_type: 'docker', config: {} },
+  { id: 'old-host', name: 'Old host', sandbox_type: 'host', config: {} },
+]
+
+async function setup(t: TestContext, initiallyUnavailable = false) {
+  let unavailable = initiallyUnavailable
+  const errors: string[] = [], successes: string[] = [], writes: unknown[] = []
   const { vm } = fixture(t).component(file, {
-    '@/api/system': { listSandboxConfigs: async () => ({ data: records }) },
+    'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
+    'vue-router': { useRouter: () => ({ push() {} }) },
+    'tdesign-vue-next': { MessagePlugin: { error: (message: string) => errors.push(message), success: (message: string) => successes.push(message) } },
+    '@/components/settings/useConfirmDelete': { useConfirmDelete: () => () => {} },
+    '@/stores/deploymentCapabilities': { useDeploymentCapabilitiesStore: () => ({ ensureLoaded: async () => {}, isSupported: () => true }) },
+    '@/api/chat/index': { getSession: async () => ({}) },
+    '@/utils': { formatStringDate: (value: string) => value },
+    '@/utils/docsUrl': { docsUrl: () => '' },
     '@/utils/resourceListSearch': { matchesResourceQuery },
+    '@/api/system': {
+      listSandboxConfigs: async () => {
+        if (unavailable) throw new Error('offline')
+        return { data: records, workspace_scripts_disabled: true }
+      },
+      NAMED_SANDBOX_BACKEND_TYPES: ['cube', 'e2b', 'docker'],
+      isNamedSandboxBackend: (type: string) => ['cube', 'e2b', 'docker'].includes(type),
+      parseSandboxConflict: () => null,
+      setSandboxWorkspacePolicy: async (disabled: boolean) => { writes.push({ disabled }); throw new Error('Policy unsupported') },
+      deleteSandboxConfig: async (id: string, force: boolean) => { writes.push({ deleted: id, force }); throw new Error('Deletion unsupported') },
+    },
   })
   await flush()
-  assert.deepEqual(Array.from(vm.archived, (item: any) => item.id), ['old-docker', 'old-host'])
-  vm.query = ' invoices '
-  assert.deepEqual(Array.from(vm.archived, (item: any) => item.id), ['old-docker'])
-  assert.equal(vm.records.length, 3, 'filtering must not remove saved configuration data')
+  return { vm, errors, successes, writes, restoreConnection: () => { unavailable = false } }
+}
+
+test('official sandbox filters retain archived configurations and saved row identity', async t => {
+  const { vm } = await setup(t)
+  assert.deepEqual(Array.from(vm.filteredRecords, (item: any) => item.id), records.map(item => item.id))
+  vm.searchQuery = ' invoices '
+  assert.deepEqual(Array.from(vm.filteredRecords, (item: any) => item.id), ['old-docker'])
+  assert.equal(vm.filteredRecords[0], vm.records[1])
+  vm.searchQuery = ''
+  vm.activeType = 'docker'
+  assert.deepEqual(Array.from(vm.filteredRecords, (item: any) => item.id), ['old-docker'])
+  assert.equal(vm.records.length, 3)
+  assert.equal(vm.workspaceScriptsDisabled, true)
   assert.equal(vm.loading, false)
-  assert.equal(vm.error, '')
-  const source = readFileSync(file, 'utf8')
-  assert.match(source, /官方 StateBackend/)
-  assert.match(source, /以下配置仅保留供查看/)
-  assert.doesNotMatch(source, /SandboxConfigDrawer|SandboxSkillsPanel|createSandboxConfig|updateSandboxConfig|deleteSandboxConfig|installConfigSkill/)
 })
 
-test('failed archive reads are visible and an explicit retry can load them', async t => {
-  let unavailable = true
-  const { vm } = fixture(t).component(file, {
-    '@/api/system': { listSandboxConfigs: async () => {
-      if (unavailable) throw new Error('offline')
-      return { data: [{ id: 'old', name: 'Archived', sandbox_type: 'docker' }] }
-    } },
-    '@/utils/resourceListSearch': { matchesResourceQuery },
-  })
-  await flush()
-  assert.ok(vm.error)
-  assert.equal(vm.loading, false)
-  unavailable = false
-  await vm.load()
-  assert.equal(vm.error, '')
-  assert.equal(vm.archived[0].id, 'old')
+test('a failed sandbox list read is surfaced and can be explicitly retried', async t => {
+  const f = await setup(t, true)
+  assert.deepEqual(f.errors, ['offline'])
+  assert.equal(f.vm.loading, false)
+  assert.equal(f.vm.records.length, 0)
+  f.restoreConnection()
+  await f.vm.load()
+  assert.equal(f.vm.records.length, 3)
+  assert.equal(f.vm.loading, false)
+})
+
+test('unsupported sandbox policy and deletion requests keep the current state', async t => {
+  const f = await setup(t)
+  await f.vm.setScriptsDisabled(false)
+  assert.equal(f.vm.workspaceScriptsDisabled, true)
+  assert.equal(f.vm.policySaving, false)
+  await f.vm.removeRecord(f.vm.records[1])
+  assert.equal(f.vm.records.length, 3)
+  assert.deepEqual(f.writes, [{ disabled: false }, { deleted: 'old-docker', force: false }])
+  assert.deepEqual(f.errors, ['Policy unsupported', 'Deletion unsupported'])
+  assert.deepEqual(f.successes, [])
 })

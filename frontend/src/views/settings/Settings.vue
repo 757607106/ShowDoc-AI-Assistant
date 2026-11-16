@@ -62,7 +62,7 @@
     </template>
     <div class="content-wrapper" :class="{
       'content-wrapper--wide': currentSection === 'members',
-      'content-wrapper--resource-list': ['models', 'platform-api-keys', 'model-catalog', 'members', 'sandbox'].includes(currentSection),
+      'content-wrapper--resource-list': ['models', 'mymemory', 'platform-api-keys', 'model-catalog', 'members', 'sandbox'].includes(currentSection),
       'content-wrapper--full': SYSTEM_ADMIN_SECTIONS.has(currentSection) || isIntegrationSection(currentSection),
     }">
       <!-- 角色不允许访问当前 section（deep-link 进来 / 跨空间切换后角色降级）—— 优先于具体 section 渲染。
@@ -111,9 +111,19 @@
           <DefaultSettings />
         </div>
 
+        <!-- 长期记忆（空间级开关） -->
+        <div v-if="currentSection === 'memory'" class="section">
+          <MemoryWorkspaceSettings />
+        </div>
+
         <!-- 助手（个人偏好 + 空间名称与权限上限） -->
         <div v-if="currentSection === 'assistant'" class="section">
           <AssistantSettings />
+        </div>
+
+        <!-- 我的记忆（个人记忆管理） -->
+        <div v-if="currentSection === 'mymemory'" class="section">
+          <MemorySettings />
         </div>
 
         <!-- 沙箱密钥（成员自己的技能 / 沙箱密钥） -->
@@ -157,6 +167,11 @@
 
         <div v-if="currentSection === 'model-catalog'" class="section">
           <ModelCatalog />
+        </div>
+
+        <!-- 系统管理员可见的任务队列运行状态 -->
+        <div v-if="currentSection === 'runtime-queues'" class="section">
+          <RuntimeQueues />
         </div>
 
         <div v-if="currentSection === 'platform-api-keys'" class="section">
@@ -214,8 +229,10 @@ import ModelCatalog from '../system/ModelCatalog.vue'
 import OllamaSettings from './OllamaSettings.vue'
 import WebSearchSettings from './WebSearchSettings.vue'
 import ChatHistorySettings from './ChatHistorySettings.vue'
+import MemorySettings from './MemorySettings.vue'
 import EnvVarSettings from './EnvVarSettings.vue'
 import CredentialVaultSettings from './CredentialVaultSettings.vue'
+import MemoryWorkspaceSettings from './MemoryWorkspaceSettings.vue'
 import DefaultSettings from './DefaultSettings.vue'
 import AssistantSettings from './AssistantSettings.vue'
 import VectorStoreSettings from './VectorStoreSettings.vue'
@@ -225,6 +242,7 @@ import SandboxSettings from './SandboxSettings.vue'
 import WeKnoraCloudSettings from './WeKnoraCloudSettings.vue'
 import TenantMembers from './TenantMembers.vue'
 import SystemSettings from '@/views/system/SystemSettings.vue'
+import RuntimeQueues from '@/views/system/RuntimeQueues.vue'
 import PlatformAPIKeys from '@/views/system/PlatformAPIKeys.vue'
 import SystemAuditLog from '@/views/system/SystemAuditLog.vue'
 import IntegrationSettingsSection from '@/views/integrations/IntegrationSettingsSection.vue'
@@ -315,7 +333,6 @@ const syncSettingsRoute = (sectionKey: string) => {
 }
 
 const isSectionSupported = (key: string): boolean => {
-  if (['memory', 'mymemory', 'runtime-queues', 'envvars', 'browserconnection'].includes(key)) return false
   if (isIntegrationSection(key)) {
     return deploymentCapabilities.isSupported(
       INTEGRATION_TAB_CAPABILITY[integrationTabFromSection(key)],
@@ -362,6 +379,7 @@ const navItems = computed(() => {
     { key: 'websearch', icon: 'search', label: t('settings.webSearchConfig') },
     { key: 'chathistory', icon: 'chat', label: t('chatHistorySettings.title') },
     { key: 'defaults', icon: 'setting-1', label: t('defaultSettings.title') },
+    { key: 'memory', icon: 'bulletpoint', label: t('memoryWorkspaceSettings.title') },
     { key: 'vectorstore', icon: 'data-base', label: t('settings.vectorStoreEngine') },
     { key: 'parser', icon: 'file-search', label: t('settings.parserEngine') },
     { key: 'storage', icon: 'cloud', label: t('settings.storageEngine') },
@@ -369,9 +387,11 @@ const navItems = computed(() => {
     { key: 'system', icon: 'info-circle', label: t('settings.versionInfo') },
     { key: 'system-global', icon: 'server', label: t('settings.system') },
     { key: 'model-catalog', icon: 'control-platform', label: t('modelCatalog.title') },
+    { key: 'runtime-queues', icon: 'queue', label: t('settings.taskQueue') },
     { key: 'platform-api-keys', icon: 'secured', label: t('platformApiKeys.title') },
     { key: 'system-audit-log', icon: 'history', label: t('system.globalSettings.audit.tabLabel') },
     { key: 'userprofile', icon: 'user', label: t('userProfile.title') },
+    { key: 'mymemory', icon: 'bookmark', label: t('memorySettings.title') },
     { key: 'assistant', icon: 'assistant', label: t('assistantSettings.title') },
     { key: 'envvars', icon: 'key', label: envNavLabel() },
     { key: 'credentialvault', icon: 'lock-on', label: t('credentialVault.title') },
@@ -399,12 +419,12 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'account',
       label: t('settings.navGroups.account'),
-      items: pickItems(['general', 'userprofile', 'assistant', 'credentialvault']),
+      items: pickItems(['general', 'userprofile', 'assistant', 'mymemory', 'envvars', 'credentialvault']),
     },
     {
       key: 'workspace',
       label: t('settings.navGroups.workspace'),
-      items: pickItems(['tenant', 'members', 'defaults', 'chathistory']),
+      items: pickItems(['tenant', 'members', 'defaults', 'chathistory', 'memory']),
     },
     {
       key: 'models_runtime',
@@ -430,7 +450,7 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'system_administration',
       label: t('settings.navGroups.systemAdministration'),
-      items: pickItems(['system-global', 'model-catalog', 'platform-api-keys', 'system-audit-log']),
+      items: pickItems(['system-global', 'model-catalog', 'runtime-queues', 'platform-api-keys', 'system-audit-log']),
     },
     {
       key: 'platform',

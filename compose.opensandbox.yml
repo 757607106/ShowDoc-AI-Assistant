@@ -1,0 +1,28 @@
+name: showdoc-agent-sandbox
+services:
+  control:
+    image: opensandbox/server:release-1.2.1
+    restart: unless-stopped
+    network_mode: bridge
+    ports:
+      - "127.0.0.1:8090:8090"
+    environment:
+      OPENSANDBOX_SERVER_API_KEY: ${OPEN_SANDBOX_API_KEY:?Set OPEN_SANDBOX_API_KEY in .env}
+      OPENSANDBOX_STORE_POSTGRESQL_DSN: ${OPENSANDBOX_STORE_POSTGRESQL_DSN:?Set the dedicated OpenSandbox PostgreSQL DSN in .env}
+    configs:
+      - source: opensandbox_config
+        target: /etc/opensandbox/config.toml
+    volumes:
+      # Trusted lifecycle controller only. This is NEVER passed to execution containers.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - sandbox_control_data:/var/lib/opensandbox
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    cpus: 1
+    pids_limit: 128
+configs:
+  opensandbox_config:
+    file: ./deploy/opensandbox.local.toml
+volumes:
+  sandbox_control_data:

@@ -4,7 +4,6 @@ import asyncio
 import io
 import json
 import mimetypes
-import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,7 +14,8 @@ from werkzeug.utils import secure_filename
 
 from agent import sessions
 from governance.database import connection
-from governance.store import StoreError, data_dir
+from governance.knowledge_names import KnowledgeNames
+from governance.store import StoreError
 from webapi.auth import client_for_user, user_id
 from webapi.legacy_runtime import unavailable
 
@@ -32,58 +32,65 @@ def attachment_storage_config():
 
 @chat_resources_bp.route('/api/v1/system/storage-engine-status')
 def attachment_storage_status():
-    directory = data_dir() / 'chat-attachments'
-    directory.mkdir(parents=True, exist_ok=True)
     return jsonify(success=True, data={'engines': [{'name': 'local', 'allowed': True,
-        'available': os.access(directory, os.W_OK), 'description': '成员与会话隔离的聊天附件存储'}],
+        'available': True, 'description': '成员与会话隔离的受控附件存储'}],
         'allowed_providers': ['local'], 'minio_env_available': False})
 
 
 @chat_resources_bp.route('/api/v1/system/parser-engines')
 def attachment_parser_engines():
-    return jsonify(success=True, connected=True, data=[{'Name': 'local', 'Available': True,
-        'Description': '聊天附件本机解析；永久知识库解析由 ContextDB 管理',
+    from agent.sandbox import enabled
+    return jsonify(success=True, connected=enabled(), data=[{'Name': 'local', 'Available': enabled(),
+        'Description': '聊天附件通过 OpenSandbox 隔离解析；永久知识库解析由 ContextDB 管理',
         'FileTypes': [*sorted(extension.lstrip('.') for extension in TEXT_EXTENSIONS), 'pdf', 'docx', 'pptx', 'xlsx', 'xlsm']}])
 
 
-def _text_file(path):
-    if path.suffix.lower() in TEXT_EXTENSIONS:
-        return path.read_text(encoding='utf-8-sig')
-    if path.suffix.lower() == '.docx':
-        from docx import Document
-        document = Document(path)
-        return '\n'.join([p.text for p in document.paragraphs] + ['\t'.join(cell.text for cell in row.cells) for table in document.tables for row in table.rows])
-    if path.suffix.lower() in {'.xlsx', '.xlsm'}:
-        from openpyxl import load_workbook
-        book = load_workbook(path, read_only=True, data_only=True)
-        try:
-            return '\n\n'.join('# ' + sheet.title + '\n' + '\n'.join('\t'.join('' if v is None else str(v) for v in row) for row in sheet.iter_rows(values_only=True)) for sheet in book)
-        finally:
-            book.close()
-    if path.suffix.lower() == '.pptx':
-        from pptx import Presentation
-        return '\n\n'.join('\n'.join(shape.text for shape in slide.shapes if shape.has_text_frame) for slide in Presentation(path).slides)
-    if path.suffix.lower() == '.pdf':
-        import pypdfium2 as pdfium
-        document = pdfium.PdfDocument(path)
-        try:
-            pages = []
-            for i in range(len(document)):
-                page = document[i]
-                text = page.get_textpage()
-                try:
-                    pages.append(text.get_text_range())
-                finally:
-                    text.close()
-                    page.close()
-            result = '\n\n'.join(pages)
-            if result.strip():
-                return result
-        finally:
-            document.close()
-    # Other document formats use the already installed converter; no permanent KB is created.
-    from docling.document_converter import DocumentConverter
-    return DocumentConverter().convert(path).document.export_to_markdown()
+def _attachment_parser_result(name, content, *, image=False):
+    from opensandbox import SandboxSync
+    from opensandbox.models import NetworkPolicy, WriteEntry
+    from opensandbox.models.execd import RunCommandOpts
+    from agent.sandbox import connection_config
+
+    parser = SandboxSync.create('showdoc-attachment-parser:local', connection_config=connection_config(),
+        timeout=timedelta(minutes=5), ready_timeout=timedelta(seconds=90),
+        resource={'cpu': '1', 'memory': '2Gi'}, env={}, volumes=[],
+        network_policy=NetworkPolicy(defaultAction='deny', egress=[]))
+    try:
+        path = '/tmp/input' + Path(name).suffix.lower()
+        parser.files.write_files([WriteEntry(path=path, data=content, mode=644)])
+        command = ['python', '/opt/attachment-parser.py', path]
+        if image:
+            command.append('--image')
+        result = parser.commands.run(command,
+            opts=RunCommandOpts(timeout=timedelta(seconds=180), working_directory='/tmp'))
+        if result.error is not None or result.exit_code != 0:
+            raise StoreError('隔离附件解析失败，请检查文件格式', 422)
+        return json.loads(result.text)
+    finally:
+        parser.destroy()
+
+
+def _parse_attachment(name, content):
+    text = _attachment_parser_result(name, content)['text']
+    if not isinstance(text, str) or not text.strip() or len(text) > 4_000_000:
+        raise StoreError('附件正文为空或超过解析上限', 422)
+    return text
+
+
+def _image_mime(name, content):
+    mime = _attachment_parser_result(name, content, image=True)['mime']
+    if mime not in IMAGE_MIMES:
+        raise StoreError('请提供有效图片', 400)
+    return mime
+
+
+def _attachment_bytes(item):
+    if 'raw_content' not in item:
+        raise StoreError('旧附件尚未迁移到受控存储，请重新上传', 410)
+    try:
+        return base64.b64decode(item['raw_content'], validate=True)
+    except (ValueError, TypeError) as exc:
+        raise StoreError('附件存储内容损坏', 409) from exc
 
 
 def _attachment(sid, attachment_id, owner):
@@ -99,7 +106,7 @@ def _attachment(sid, attachment_id, owner):
 
 
 def _public_attachment(item):
-    return {key: value for key, value in item.items() if key not in ('path', 'text')}
+    return {key: value for key, value in item.items() if key not in ('path', 'text', 'raw_content')}
 
 
 def _store_attachment(sid, owner, name, content, mime=None):
@@ -107,20 +114,20 @@ def _store_attachment(sid, owner, name, content, mime=None):
         raise StoreError('单个聊天附件须为 1 B 至 25 MB', 413)
     attachment_id = str(uuid.uuid4())
     name = Path(name or 'attachment.txt').name[:255]
-    directory = data_dir() / 'chat-attachments' / owner / sid
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / (attachment_id + Path(name).suffix.lower())
-    path.write_bytes(content)
+    sessions.get_session(sid, owner)
     mime = mime or mimetypes.guess_type(name)[0] or 'application/octet-stream'
+    if mime not in IMAGE_MIMES:
+        from agent.sandbox import enabled
+        if not enabled():
+            raise StoreError('聊天附件解析需要配置 OpenSandbox；未执行宿主解析', 503)
     item = {'id': attachment_id, 'session_id': sid, 'file_name': name,
             'file_type': Path(name).suffix.lstrip('.').lower(), 'file_size': len(content), 'mime_type': mime,
-            'status': 'ready', 'token_count': 0, 'chunk_count': 0, 'path': str(path),
+            'status': 'ready', 'token_count': 0, 'chunk_count': 0,
+            'raw_content': base64.b64encode(content).decode('ascii'),
             'expires_at': (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()}
     try:
         if mime not in IMAGE_MIMES:
-            item['text'] = _text_file(path)
-            if not item['text'].strip() or len(item['text']) > 4_000_000:
-                raise ValueError('empty or excessive extracted text')
+            item['text'] = _parse_attachment(name, content)
     except Exception as exc:
         item.update(status='failed', error_message=f'附件解析失败（{type(exc).__name__}），请检查格式或转为文本后重试')
     with connection() as conn:
@@ -151,14 +158,9 @@ def attachment(sid, attachment_id):
     if request.method == 'DELETE':
         with connection() as conn:
             conn.execute("DELETE FROM runtime_records WHERE id=%s AND owner_id=%s AND kind='chat_attachment'", (attachment_id, user_id()))
-        path = Path(item['path']).resolve()
-        if path.is_relative_to((data_dir() / 'chat-attachments').resolve()):
-            path.unlink(missing_ok=True)
         return jsonify(success=True)
     if request.path.endswith('/preview'):
-        if not Path(item['path']).is_file():
-            raise StoreError('附件文件已不存在', 404)
-        return send_file(item['path'], download_name=item['file_name'], mimetype=item['mime_type'])
+        return send_file(io.BytesIO(_attachment_bytes(item)), download_name=item['file_name'], mimetype=item['mime_type'])
     return jsonify(success=True, data=_public_attachment(item))
 
 
@@ -187,7 +189,7 @@ def prepare_attachments(sid, owner, body):
         if item['status'] != 'ready':
             raise StoreError(item.get('error_message') or '附件尚未就绪', 400)
         if item['mime_type'] in IMAGE_MIMES:
-            content = base64.b64encode(Path(item['path']).read_bytes()).decode()
+            content = base64.b64encode(_attachment_bytes(item)).decode()
             blocks.append({'type': 'image_url', 'image_url': {'url': f'data:{item["mime_type"]};base64,{content}'}})
             user_images.append({'id': item['id'], 'url': f'/api/v1/sessions/{sid}/attachments/{item["id"]}/preview', 'file_name': item['file_name']})
         else:
@@ -219,6 +221,7 @@ def prepare_attachments(sid, owner, body):
 @chat_resources_bp.route('/api/v1/knowledge/search')
 def document_picker():
     client = client_for_user()
+    names = KnowledgeNames(user_id())
     query = request.args.get('keyword', '').casefold()
     offset = max(0, request.args.get('offset', 0, type=int))
     limit = min(100, max(1, request.args.get('limit', 20, type=int)))
@@ -230,15 +233,17 @@ def document_picker():
         for base in bases:
             if base.get('name', '').startswith('_governance'):
                 continue
+            base_label = names.base(base)['display_name']
             doc_page = 1
             while True:
                 docs = client.list_documents(base['id'], page=doc_page, page_size=100).get('documents', [])
                 for item in docs:
                     name = item.get('name', '')
+                    display = names.document(item, kb_id=base['id'])['display_name']
                     extension = Path(name).suffix.lstrip('.').lower()
-                    if query in name.casefold() and (not types or extension in types):
-                        matches.append({**item, 'id': item['id'], 'title': name, 'file_name': name,
-                            'file_type': extension, 'knowledge_base_id': base['id'], 'knowledge_base_name': base['name'],
+                    if (query in name.casefold() or query in display.casefold()) and (not types or extension in types):
+                        matches.append({**item, 'id': item['id'], 'title': display, 'file_name': display,
+                            'file_type': extension, 'knowledge_base_id': base['id'], 'knowledge_base_name': base_label,
                             'parse_status': 'completed' if item.get('ingest_status') == 'succeeded' else item.get('ingest_status')})
                 if len(docs) < 100:
                     break
@@ -256,6 +261,9 @@ def _artifact_record(sid, message_id):
         turns = asyncio.run(read(g.user, selected))
         if message_id not in turns:
             raise StoreError('消息不存在', 404)
+        if (selected['agent_config'].get('agent_config', {}).get('sandbox_config_id', 'state-backend') != 'state-backend'
+                and not turns[message_id]):
+            raise StoreError('沙箱未保存按回答归属的历史文件版本；当前仅提供已有 checkpoint 产物', 501)
         return {'artifacts_json': [metadata for metadata, _ in turns[message_id]],
                 'artifacts_truncated': False, '_native_items': turns[message_id]}
     with connection() as conn:
@@ -351,7 +359,7 @@ def artifact_library():
 def transcribe():
     from agent.config import load_agent
     from agent.registry import model_config
-    from openai import OpenAI
+    from agent.models import transcribe_model
     agent = load_agent(request.form.get('agent_id'), user_id())
     config = agent['config']
     if not config.get('audio_upload_enabled') or not config.get('asr_model_id'):
@@ -365,11 +373,8 @@ def transcribe():
     content = upload.read(25 * 1024 * 1024 + 1)
     if not content or len(content) > 25 * 1024 * 1024:
         raise StoreError('音频大小须为 1 B 至 25 MB', 413)
-    params = model['parameters']
-    client = OpenAI(api_key=params.get('api_key') or 'not-required', base_url=params['base_url'], timeout=120)
     try:
-        result = client.audio.transcriptions.create(model=params.get('model_name') or model['name'],
-            file=(secure_filename(upload.filename or 'voice.wav'), content, upload.mimetype),
+        result = transcribe_model(model, (secure_filename(upload.filename or 'voice.wav'), content, upload.mimetype),
             language=(request.form.get('locale') or 'zh').split('-')[0])
     except Exception as exc:
         raise StoreError(f'语音识别失败（{type(exc).__name__}）', 502) from exc

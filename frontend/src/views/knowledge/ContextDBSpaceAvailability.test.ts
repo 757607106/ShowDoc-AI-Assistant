@@ -74,3 +74,13 @@ test('outer tab changes wait for route approval so a Wiki guard can keep its edi
   assert.equal(f.vm.tab, 'wiki')
   assert.equal(f.route.query.wikiPageId, 'old-page')
 })
+
+test('renaming a business space updates the mounted switcher alongside the page title', async t => {
+  const f = await setup(t, space('available', 'wiki'))
+  const renamed = { ...space('available', 'wiki'), name: '新的产品资料' }
+  f.response(renamed); f.vm.name = renamed.name
+  await f.vm.save(); await flush()
+  assert.equal(f.vm.space.name, renamed.name)
+  assert.equal(f.vm.spaces.find((item: any) => item.id === 'product').name, renamed.name)
+  assert.equal(f.vm.nativeId, 'wiki')
+})

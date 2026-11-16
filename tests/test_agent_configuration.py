@@ -14,7 +14,7 @@ from governance.store import StoreError
 
 
 @pytest.fixture
-def configured_owner(platform_test_database, monkeypatch):
+def configured_owner(platform_test_database, monkeypatch, tmp_path):
     schema = 'test_agent_config_' + uuid.uuid4().hex
     with psycopg.connect(platform_test_database, autocommit=True) as conn:
         conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
@@ -86,6 +86,17 @@ def test_agent_crud_copy_preserves_configuration_and_owner(settings_client, conf
     assert client.delete('/api/v1/agents/builtin-smart-reasoning').status_code == 400
 
 
+def test_page_assistant_is_available_without_entering_the_agent_picker(settings_client, configured_owner):
+    identifier = config.INTERNAL_ASSISTANT_ID
+    assert identifier not in {item['id'] for item in settings_client.get('/api/v1/agents').json['data']}
+    response = settings_client.get('/api/v1/agents/' + identifier)
+    assert response.status_code == 200
+    value = response.json['data']
+    assert value['is_builtin'] is True and value['config']['model_id'] == registry.default_model_id(configured_owner)
+    assert 'wiki_read_page' in value['config']['allowed_tools']
+    assert settings_client.put('/api/v1/agents/' + identifier, json={'config': {}}).status_code == 403
+
+
 def test_smart_agent_accepts_upstream_dormant_defaults_and_projects_real_retrieval(settings_client):
     response = settings_client.post('/api/v1/agents', json={'name': '官方默认助手', 'config': {
         'agent_mode': 'smart-reasoning', 'memory_enabled': True, 'multi_turn_enabled': False,
@@ -123,7 +134,7 @@ def test_unconnected_agent_options_reject_save_and_execution_but_keep_old_record
     assert error.value.status == 501
     assert settings_client.post('/api/v1/agents/legacy-config/copy').status_code == 501
     repaired = settings_client.put('/api/v1/agents/legacy-config', json={'config': {}})
-    assert repaired.status_code == 200 and repaired.json['data']['config']['sandbox_config_id'] == 'state-backend'
+    assert repaired.status_code == 200 and repaired.json['data']['config']['sandbox_config_id'] == ''
 
 
 def test_builtin_quick_answer_uses_native_history_without_a_fabricated_turn_limit(settings_client):
@@ -241,7 +252,12 @@ def test_native_tool_catalog_failure_does_not_invent_fallback_tools(settings_cli
     assert 'data' not in response.json
 
 
-def test_mcp_configuration_credentials_and_tool_flags(settings_client, configured_owner):
+def test_mcp_configuration_credentials_and_tool_flags(settings_client, configured_owner, monkeypatch):
+    from types import SimpleNamespace
+    async def discovered_tools():
+        return [SimpleNamespace(name='read', description='Read', args_schema={}, metadata={'readOnlyHint': True})]
+    monkeypatch.setattr('langchain_mcp_adapters.client.MultiServerMCPClient',
+        lambda *args, **kwargs: SimpleNamespace(get_tools=discovered_tools))
     value = settings_client.post('/api/v1/mcp-services', json={'name': 'server', 'transport_type': 'http-streamable',
         'url': 'https://mcp.invalid/mcp', 'headers': {'Secret': 'header-secret'},
         'auth_config': {'auth_type': 'bearer', 'token': 'private-token'}}).json['data']

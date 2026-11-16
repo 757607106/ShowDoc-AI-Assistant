@@ -13,7 +13,9 @@ function routeBlock(name) {
 
 test('platform shell is the only place that mounts the settings modal', () => {
   // Two copies each fetch their own data, so a save in one leaves the other stale.
-  assert.equal(platformShell.match(/<Settings\s*\/>/g)?.length, 1)
+  assert.equal(platformShell.match(/<Settings\b[^>]*\/>/g)?.length, 1)
+  assert.equal(platformShell.match(/<ContextDBSettings\b[^>]*\/>/g)?.length, 1)
+  assert.match(platformShell, /<ContextDBSettings v-if="contextdbSettings"\s*\/>\s*<Settings v-else\s*\/>/)
   assert.doesNotMatch(router, /views\/settings\/Settings\.vue/)
 })
 
@@ -24,9 +26,12 @@ test('/platform/settings keeps a route but renders nothing into the outlet', () 
   assert.match(router, /const SettingsRouteOutlet = defineComponent\(\{[^}]*render: \(\) => null/)
 })
 
-test('settings navigation keeps chat history without exposing retired memory pages', () => {
+test('official settings retain native memory and chat history sections', () => {
   const settings=readFileSync(new URL('../views/settings/Settings.vue',import.meta.url),'utf8')
-  assert.doesNotMatch(settings,/MemorySettings|MemoryWorkspaceSettings|key: 'mymemory'|key: 'memory'/)
+  assert.match(settings,/<MemorySettings\s*\/>/)
+  assert.match(settings,/<MemoryWorkspaceSettings\s*\/>/)
+  assert.match(settings,/key: 'mymemory'/)
+  assert.match(settings,/key: 'memory'/)
   assert.match(settings,/key: 'chathistory'/)
   assert.match(settings,/<ChatHistorySettings\s*\/>/)
 })

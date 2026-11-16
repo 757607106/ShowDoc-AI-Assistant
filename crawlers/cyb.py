@@ -20,6 +20,7 @@ import urllib.parse
 import urllib.request
 
 import requests
+import litellm
 
 from html import escape
 
@@ -186,11 +187,11 @@ class CYBAuthenticator:
                 }
             ],
         }
-        result = self._request_json(
-            DASHSCOPE_API_URL,
-            method="POST",
-            payload=payload,
-            headers={"Authorization": f"Bearer {self.qwen_api_key}"},
+        result = litellm.completion(
+            **payload,
+            custom_llm_provider="openai",
+            api_base=DASHSCOPE_API_URL.rstrip('/').removesuffix('/chat/completions'),
+            api_key=self.qwen_api_key,
             timeout=45,
         )
         raw_text = self._extract_vl_text(result)

@@ -9,6 +9,7 @@ async function setup(t: TestContext, options: { spaces?: any[]; query?: Record<s
   const route = vue.reactive({ params: { kbId: 'native-kb' }, query: options.query || {} })
   const spaceAPI = f.evaluate(readFileSync(new URL('../../api/knowledgeSpaces.ts', import.meta.url), 'utf8'), {
     '@/utils/request': { get() {}, post() {}, patch() {} },
+    '@/utils/assistantDataChange': f.dataChange,
   })
   const page = f.component(new URL('./ContextDBKnowledge.vue', import.meta.url), {
     'vue-router': { useRoute: () => route, useRouter: () => ({ replace: (value: any) => routes.push(value), push() {} }) },

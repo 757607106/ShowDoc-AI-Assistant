@@ -16,11 +16,25 @@ test('document names use captured titles and original filenames while retaining 
   assert.equal(documentDisplayName({ name: '原件.md', metadata: { title: 123, filename: false } }), '原件.md')
 })
 
+test('enriched document and review names remain readable without changing their native names', () => {
+  const document = { name: storedName, display_name: '采购明细.html' }
+  const review = { document_name: storedName, document_display_name: '采购明细.html' }
+  assert.equal(documentDisplayName(document), '采购明细.html')
+  assert.equal(documentDisplayName(review), '采购明细.html')
+  assert.equal(document.name, storedName)
+  assert.equal(review.document_name, storedName)
+  assert.equal(documentDisplayName({ document_name: storedName }), storedName)
+  assert.equal(documentDisplayName({ name: storedName, display_name: ' ', metadata: { title: '历史标题' } }), '历史标题.html')
+  assert.equal(documentDisplayName(null), '')
+})
+
 test('graph labels replace exact source names and leave entity identities and unrelated text intact', () => {
   const document = { name: storedName, metadata: { title: '采购明细' } }
   assert.equal(graphDocumentLabel(storedName, [document]), '采购明细')
   assert.equal(graphDocumentLabel('采购单', [document]), '采购单')
   assert.equal(graphDocumentLabel(`包含 ${storedName}`, [document]), `包含 ${storedName}`)
+  assert.equal(graphDocumentLabel(storedName, [{ ...document, display_name: '采购明细.html', metadata: { title: '001-采购明细' } }]), '采购明细.html')
+  assert.equal(graphDocumentLabel(storedName, [{ ...document, display_name: ' ' }]), '采购明细')
   assert.equal(document.name, storedName)
 })
 
@@ -45,13 +59,29 @@ test('directory rows show source names but retain explicit user renames and fold
   const nodes = { value: [] as any[] }, breadcrumbs = { value: [] }, nodeTotal = { value: 0 }
   const items = [
     { node_type: 'file', display_name: storedName, metadata: { title: '采购明细' } },
-    { node_type: 'file', display_name: '用户重命名.html', metadata: { title: '采购明细' } },
+    { node_type: 'file', display_name: storedName, document_display_name: '云端标题.html' },
+    { node_type: 'file', display_name: '用户重命名.html', document_display_name: '采购明细.html', metadata: { title: '采购明细' } },
     { node_type: 'folder', display_name: '资料目录', metadata: { title: '不覆盖目录' } },
   ]
   const load = new Function('nativeAPI', 'kbId', 'parent', 'nodePage', 'nodes', 'breadcrumbs', 'nodeTotal', 'documentDisplayName', script)(
     { get: async () => ({ data: { items, total: 3 } }) }, { value: 'kb' }, { value: '' }, { value: 1 }, nodes, breadcrumbs, nodeTotal, documentDisplayName,
   )
   await load()
-  assert.deepEqual(nodes.value.map(item => item.label), ['采购明细.html', '用户重命名.html', '资料目录'])
+  assert.deepEqual(nodes.value.map(item => item.label), ['采购明细.html', '云端标题.html', '用户重命名.html', '资料目录'])
   assert.equal(nodes.value[0].display_name, storedName)
+})
+
+test('semantic results show readable names while retaining source names and IDs', async () => {
+  const source = readFileSync(new URL('../api/knowledge-base/index.ts', import.meta.url), 'utf8')
+  const start = source.indexOf('export async function knowledgeSemanticSearch(')
+  const script = ts.transpileModule(source.slice(start, source.indexOf('export function batchReparseKnowledge', start)).replace('export ', '') + '\nreturn knowledgeSemanticSearch', {}).outputText
+  const search = new Function('contextdb', script)({ nativeAPI: { post: async () => ({ data: { chunks: [
+    { document_id: 'doc-1', document_name: storedName, document_display_name: '采购明细.html', content: '原文' },
+    { document_id: 'doc-2', docnm_kwd: '历史原件.md', content: '旧原文' },
+  ] } }) } })
+  const result = await search({ query: '采购' })
+  assert.equal(result.data[0].knowledge_title, '采购明细.html')
+  assert.equal(result.data[0].document_name, storedName)
+  assert.equal(result.data[0].knowledge_id, 'doc-1')
+  assert.equal(result.data[1].knowledge_title, '历史原件.md')
 })

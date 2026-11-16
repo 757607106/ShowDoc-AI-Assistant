@@ -7,6 +7,7 @@ import pytest
 
 from crawlers.base import DocumentStub
 from crawlers.cyb import CYBCrawler
+from crawlers.tiantong import TiantongCrawler
 
 
 def records(path):
@@ -92,3 +93,26 @@ def test_video_link_changes_affect_source_identity_but_view_counts_do_not(tmp_pa
     assert c._source_record(c.fetch_document(stub))['source_sha256'] == first['source_sha256']
     c._items['tutorial-1']['videoUrl'] = 'https://www.bilibili.com/video/updated/'
     assert c._source_record(c.fetch_document(stub))['source_sha256'] != first['source_sha256']
+
+
+def test_tiantong_attachment_keeps_original_name_and_exact_stored_identity(tmp_path):
+    c = TiantongCrawler(str(tmp_path))
+    c.source_only = True
+    c.pipeline.convert = Mock(side_effect=AssertionError('Capture must not parse or execute an attachment'))
+    c._items = {'parent': {'title': '数据库提示说明', 'content': '<p>安装附件中的数据库函数后重试。</p>',
+                          'attachments': [{'fileId': 'dec0e211-77d6-405c-bd4a-b806a181e37b', 'name': 'ClearZeroDirect.sql'}]}}
+    c.list_documents = lambda: [DocumentStub('parent', '数据库提示说明', '常见提示')]
+    stored = 'dec0e211-77d6-405c-bd4a-b806a181e37b_ClearZeroDirect.sql'
+    attachment = tmp_path / 'assets' / 'attachments' / stored
+    attachment.parent.mkdir(parents=True)
+    original = b'-- retained source, never executed\nSELECT 1;'
+    attachment.write_bytes(original)
+    c._download_attachment = Mock(return_value=f'assets/attachments/{stored}')
+    summary = c.crawl()
+    child = next(row for row in records(summary.rag_documents_file) if row['metadata'].get('parent_document_id'))
+    assert child['id'] == f'parent:attachment:{stored}'
+    assert child['source_path'] == f'assets/attachments/{stored}'
+    assert child['title'] == child['metadata']['filename'] == 'ClearZeroDirect.sql'
+    assert child['metadata']['parent_document_id'] == 'parent'
+    assert attachment.read_bytes() == original
+    c.pipeline.convert.assert_not_called()

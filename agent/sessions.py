@@ -1,7 +1,6 @@
 """Owner-scoped platform sessions; messages come from official checkpoints."""
-import os
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -24,6 +23,8 @@ def _public(row):
     state = {key: value for key, value in (row.get('agent_config') or {}).items()
              if key not in ('files', 'message_blocks', 'attachment_ids', 'user_images', 'attachments') and not key.startswith('_')}
     config = {key: value for key, value in (state.get('agent_config') or {}).items() if not key.startswith('_')}
+    if config.get('sandbox_config_id') == 'state-backend':
+        config['sandbox_config_id'] = ''
     if 'agent_config' in state:
         state['agent_config'] = config
     last = {**state, 'model_id': config.get('model_id', state.get('model_id')),
@@ -58,7 +59,7 @@ def list_sessions(owner_id=None, source=None):
     return [row for row in values if source is None or row['source'] == source]
 
 
-def create_session(title='', owner_id=None, agent_config=None, kind=''):
+def create_session(title='', owner_id=None, agent_config=None, kind='', *, _connection=None):
     from psycopg.types.json import Jsonb
     if agent_config is not None and not isinstance(agent_config, dict):
         raise StoreError('agent_config 必须是对象', 400)
@@ -69,7 +70,7 @@ def create_session(title='', owner_id=None, agent_config=None, kind=''):
     if kind:
         config['_kind'] = kind
     sid = str(uuid.uuid4())
-    with connection() as conn:
+    with nullcontext(_connection) if _connection is not None else connection() as conn:
         row = conn.execute('INSERT INTO agent_sessions(id,owner_id,title,agent_config) VALUES (%s,%s,%s,%s) RETURNING *',
                            (sid, _owner(owner_id), str(title or '')[:200], Jsonb(config))).fetchone()
     return _public(row)
@@ -90,7 +91,8 @@ def touch_session(session_id, title=None, owner_id=None):
 @contextmanager
 def _mutation(session_id, owner_id):
     get_session(session_id, owner_id)
-    with psycopg.connect(os.environ['DATABASE_URL'], autocommit=True) as lock:
+    from agent.checkpointer import database_url
+    with psycopg.connect(database_url(), autocommit=True) as lock:
         acquired = lock.execute('SELECT pg_try_advisory_lock(hashtextextended(%s,0))', ('harness:' + session_id,)).fetchone()[0]
         if not acquired:
             raise StoreError('会话正在执行，请等待本次请求结束', 409)
@@ -111,6 +113,8 @@ def _clear_checkpoint(session_id, owner_id):
 
 def delete_session(session_id, owner_id=None):
     with _mutation(session_id, owner_id) as row:
+        from agent.sandbox import destroy_for_session
+        destroy_for_session(row['owner_id'], session_id)
         _clear_checkpoint(session_id, row['owner_id'])
         with connection() as conn:
             conn.execute('DELETE FROM agent_sessions WHERE id=%s AND owner_id=%s', (session_id, row['owner_id']))
@@ -119,6 +123,8 @@ def delete_session(session_id, owner_id=None):
 
 def clear_session(session_id, owner_id=None):
     with _mutation(session_id, owner_id) as row:
+        from agent.sandbox import destroy_for_session
+        destroy_for_session(row['owner_id'], session_id)
         _clear_checkpoint(session_id, row['owner_id'])
     return True
 

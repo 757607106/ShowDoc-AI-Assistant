@@ -45,6 +45,102 @@ def test_native_todo_validation_error_stays_a_tool_error(harness):
     assert not any(event['response_type'] == 'error' for event in streamed)
 
 
+@pytest.mark.parametrize('exit_code', [0, 7, None])
+@pytest.mark.parametrize('delegated', [False, True])
+def test_native_execute_uses_shell_cards_in_stream_history_and_child_replay(harness, exit_code, delegated):
+    client, sid, model, tools, *_ = harness
+    output = 'combined output\n<stderr>diagnostic</stderr>'
+    metadata = {'truncated': True, **({'exit_code': exit_code} if exit_code is not None else {})}
+
+    @tool(response_format='content_and_artifact')
+    def execute(command: str) -> tuple[str, dict]:
+        """Return an SDK-shaped execution result without running a command."""
+        return output, metadata
+
+    tools.append(execute)
+    shell = AIMessage(content='', tool_calls=[call('execute', {'command': 'fixture-command'}, 'native-shell')])
+    model.responses = ([AIMessage(content='', tool_calls=[call('task', {
+        'description': 'Check a command result', 'subagent_type': 'general-purpose'}, 'shell-parent')])]
+        if delegated else []) + [shell, AIMessage(content='command checked')] + (
+        [AIMessage(content='parent answer')] if delegated else [])
+    streamed = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': 'Check the command'}))
+    assert not [event for event in streamed if event['response_type'] == 'error'], streamed
+    rows = client.get(f'/api/v1/messages/{sid}/load').json()['data']
+    if delegated:
+        view = rows[-1]['collaboration_status']['tasks'][0]['session_id']
+        rows = client.get(f'/api/v1/messages/{view}/load').json()['data']
+        streamed = events(client.get(f'/api/v1/sessions/continue-stream/{view}',
+            params={'message_id': rows[-1]['id']}))
+    else:
+        native = client.get(f'/api/v1/harness/sessions/{sid}/state').json()['values']['messages']
+        assert next(message for message in native if message['type'] == 'tool')['name'] == 'execute'
+        assert next(message for message in native if message.get('tool_calls'))['tool_calls'][0]['name'] == 'execute'
+    projected = next(event['data'] for event in streamed if event['response_type'] == 'tool_call')
+    assert projected == {'tool_call_id': 'native-shell', 'tool_name': 'shell_exec',
+                         'arguments': {'command': 'fixture-command'}}
+    result = next(event['data'] for event in streamed if event['response_type'] == 'tool_result')
+    saved = rows[-1]['agent_steps'][0]['tool_calls'][0]
+    assert saved['name'] == 'shell_exec' and saved['args'] == {'command': 'fixture-command'}
+    for value in (result, saved['result']['data']):
+        assert value['tool_call_id'] == 'native-shell' and value['tool_name'] == 'shell_exec'
+        assert value['display_type'] == 'shell_exec' and value['command'] == 'fixture-command'
+        assert value['output'] == output and value['truncated'] is True
+        assert value['success'] is (exit_code in (None, 0))
+        assert ('exit_code' in value) is (exit_code is not None)
+        if exit_code is not None:
+            assert value['exit_code'] == exit_code
+        if exit_code == 7:
+            assert value['error'] == output
+        assert not {'stdout', 'stderr', 'duration_ms', 'work_dir', 'killed'} & value.keys()
+
+
+@pytest.mark.parametrize('decision', ['approve', 'reject', 'edit'])
+def test_shell_approval_replay_keeps_native_execution_and_edited_command(harness, decision):
+    client, sid, model, tools, approvals, *_ = harness
+    executed = []
+
+    @tool(response_format='content_and_artifact')
+    def execute(command: str) -> tuple[str, dict]:
+        """Record an approved command without executing it."""
+        executed.append(command)
+        return 'approved output', {'exit_code': 0, 'truncated': False}
+
+    tools.append(execute)
+    approvals['execute'] = {'allowed_decisions': ['approve', 'reject', 'edit']}
+    model.responses = [AIMessage(content='', tool_calls=[call('execute',
+        {'command': 'original-command'}, 'approval-shell')]), AIMessage(content='command reviewed')]
+    first = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': 'Review the command'}))
+    assert next(event['data'] for event in first if event['response_type'] == 'tool_call')['tool_name'] == 'shell_exec'
+    card = next(event['data'] for event in first if event['response_type'] == 'tool_approval_required')
+    assert card['mcp_tool_name'] == 'execute' and executed == []
+    body = {'decision': 'reject' if decision == 'reject' else 'approve'}
+    if decision == 'edit':
+        body['modified_args'] = {'command': 'edited-command'}
+    accepted = client.post('/api/v1/agent/tool-approvals/' + card['pending_id'], json=body)
+    assert accepted.status_code == 200 and accepted.json()['resumed'] is True
+    assert executed == []
+    params = {'message_id': first[0]['assistant_message_id'], 'resume_pending_id': card['pending_id']}
+    resumed = events(client.get(f'/api/v1/sessions/continue-stream/{sid}', params=params))
+    assert resumed[-1]['response_type'] == 'complete', resumed
+    assert next(event['data'] for event in resumed if event['response_type'] == 'tool_call')['tool_name'] == 'shell_exec'
+    result = next(event['data'] for event in resumed if event['response_type'] == 'tool_result')
+    command = 'edited-command' if decision == 'edit' else 'original-command'
+    assert result['tool_name'] == 'shell_exec' and result['display_type'] == 'shell_exec'
+    assert result['command'] == 'original-command' and result['success'] is (decision != 'reject')
+    assert executed == ([] if decision == 'reject' else [command])
+    if decision == 'edit':
+        assert 'edited-command' in result['output'] and 'approved output' in result['output']
+    history = client.get(f'/api/v1/messages/{sid}/load').json()['data']
+    saved = history[-1]['agent_steps'][0]['tool_calls'][0]['result']['data']
+    assert saved['command'] == 'original-command' and saved['output'] == result['output']
+    native = client.get(f'/api/v1/harness/sessions/{sid}/state').json()['values']['messages']
+    assert next(message for message in native if message.get('tool_calls'))['tool_calls'][0] == {
+        'name': 'execute', 'args': {'command': 'original-command'}, 'id': 'approval-shell', 'type': 'tool_call'}
+    replay = events(client.get(f'/api/v1/sessions/continue-stream/{sid}', params=params))
+    assert replay[-1]['response_type'] == 'stop'
+    assert executed == ([] if decision == 'reject' else [command])
+
+
 @pytest.mark.parametrize('endpoint', ['agent-chat', 'knowledge-chat'])
 def test_official_weknora_chat_history_and_reconnect_do_not_create_shadow_runs(harness, endpoint):
     client, sid, model, *_ = harness

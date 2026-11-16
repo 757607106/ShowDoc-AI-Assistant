@@ -120,6 +120,36 @@ def service(owner, base, oauth=False):
         'auth_config': {'auth_type': 'oauth' if oauth else '', 'scopes': ['read']}}, {}), owner)
 
 
+@pytest.mark.parametrize(('method', 'suffix', 'status'), [
+    ('get', '/tools', 502), ('post', '/test', 200),
+    ('get', '/resources', 501), ('post', '/metadata/refresh', 501), ('get', '/tool-approvals', 501),
+])
+def test_saved_stdio_cannot_start_host_process(authenticated_client, monkeypatch, method, suffix, status):
+    owner = os.environ['TEST_PLATFORM_USER']
+    saved = registry.save_mcp({'name': 'Archived stdio', 'transport_type': 'stdio',
+        'stdio_config': {'command': 'npx', 'args': ['archived-mcp']}}, owner)
+    monkeypatch.setattr('langchain_mcp_adapters.sessions.stdio_client',
+                        lambda *args, **kwargs: pytest.fail('Host process must never start'))
+    endpoint = '/api/v1/mcp-services/' + saved['id']
+    assert authenticated_client.get(endpoint).status_code == 200
+    response = getattr(authenticated_client, method)(endpoint + suffix)
+    assert response.status_code == status, response.json
+    if suffix == '/test':
+        assert response.json['data']['success'] is False
+    assert registry.record('mcp', saved['id'], owner)['stdio_config'] == saved['stdio_config']
+
+
+def test_selected_stdio_connection_is_rejected_before_sdk_discovery(authenticated_client, monkeypatch):
+    owner = os.environ['TEST_PLATFORM_USER']
+    saved = registry.save_mcp({'name': 'Archived stdio', 'transport_type': 'stdio',
+        'stdio_config': {'command': 'uvx', 'args': ['archived-mcp']}}, owner)
+    monkeypatch.setattr('langchain_mcp_adapters.sessions.stdio_client',
+                        lambda *args, **kwargs: pytest.fail('Host process must never start'))
+    with pytest.raises(StoreError, match='禁止在宿主机') as error:
+        asyncio.run(registry.mcp_tools(owner, {'mcp_selection_mode': 'selected', 'mcp_services': [saved['id']]}))
+    assert error.value.status == 501
+
+
 def test_metadata_refresh_is_native_cached_and_stale_on_connection_edit(runtime_client, native_mcp, authenticated_client):
     owner = os.environ['TEST_PLATFORM_USER']
     value = service(owner, native_mcp['base'])

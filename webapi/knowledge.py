@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request
 
 from integrations.contextdb import ContextDBClient, ContextDBError
 from governance.store import Store, StoreError
+from governance.knowledge_names import KnowledgeNames
 
 knowledge_bp = Blueprint('knowledge', __name__)
 
@@ -79,10 +80,11 @@ def knowledge_space_submit(scope):
 @knowledge_bp.route('/api/kb/bases')
 def kb_bases():
     result = _client().list_knowledge_bases(page=1, page_size=100)
+    names = KnowledgeNames(user_id())
     return jsonify(success=True, bases=[
-        {'id': item.get('id'), 'name': item.get('name'),
+        names.base({'id': item.get('id'), 'name': item.get('name'),
          'wiki_enabled': item.get('wiki_enabled'), 'graph_enabled': item.get('graph_enabled'),
-         'review_enabled': item.get('review_enabled')}
+         'review_enabled': item.get('review_enabled')})
         for item in result.get('knowledge_bases', [])
     ])
 
@@ -113,7 +115,7 @@ def kb_search():
         context_token_budget=body.get('context_token_budget'),
         images=body.get('images') or None,
     )
-    return jsonify(success=True, **result)
+    return jsonify(success=True, **KnowledgeNames(user_id()).present('knowledge/query', result))
 
 
 @knowledge_bp.route('/api/kb/graph')
@@ -162,14 +164,16 @@ def kb_reviews():
         page_size=int(request.args.get('page_size', 50)),
     )
     reviews = result.get('reviews', result.get('data', {}).get('reviews', [])) if isinstance(result, dict) else []
-    return jsonify(success=True, reviews=reviews, total=result.get('total', len(reviews)) if isinstance(result, dict) else len(reviews))
+    names = KnowledgeNames(user_id())
+    return jsonify(success=True, reviews=[names.document(item, reference=True, kb_id=kb_id) for item in reviews],
+                   total=result.get('total', len(reviews)) if isinstance(result, dict) else len(reviews))
 
 
 @knowledge_bp.route('/api/kb/reviews/<review_id>')
 def kb_review_detail(review_id):
     content_page = request.args.get('content_page')
     result = _client().get_review(review_id, content_page=int(content_page) if content_page else None)
-    return jsonify(success=True, review=result)
+    return jsonify(success=True, review=KnowledgeNames(user_id()).document(result, reference=True))
 
 
 @knowledge_bp.route('/api/kb/reviews/batch', methods=['POST'])
@@ -216,7 +220,8 @@ def kb_documents():
                                       page_size=int(request.args.get('page_size', 50)),
                                       sort_by='created_at', sort_order='desc')
     documents = result.get('documents', []) if isinstance(result, dict) else []
-    return jsonify(success=True, documents=documents,
+    names = KnowledgeNames(user_id())
+    return jsonify(success=True, documents=[names.document(item, kb_id=kb_id) for item in documents],
                    total=result.get('total', len(documents)) if isinstance(result, dict) else len(documents))
 
 
