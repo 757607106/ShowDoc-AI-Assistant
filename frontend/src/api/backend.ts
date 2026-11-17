@@ -31,11 +31,12 @@ export const api = {
   startTask: (entry: string, payload: any) => unwrap(http.post(`/entries/${entry}/start`, payload)),
   entryDocuments: (entry: string, params: any) => unwrap(http.get(`/entries/${entry}/documents`, { params })),
   taskStatus: (taskId: string) => unwrap(http.get(`/task_status/${taskId}`)),
-  tasks: (spaceScope?: string) => unwrap(http.get('/api/tasks', { params: { space_scope: spaceScope } })),
+  tasks: (spaceScope?: string, pagination: {page?: number; page_size?: number} = {}) => unwrap(http.get('/api/tasks', { params: { space_scope: spaceScope, ...pagination } })),
   cancelTask: (taskId: string) => unwrap(http.post(`/tasks/${taskId}/cancel`)),
   retryTask: (taskId: string) => unwrap(http.post(`/tasks/${taskId}/retry`)),
   publishTask: (taskId: string) => unwrap(http.post(`/tasks/${taskId}/publish`)),
   submitTask: (taskId: string) => unwrap(http.post(`/tasks/${taskId}/submit`)),
+  retrySubmission: (spaceScope: string, taskId: string) => unwrap(http.post(`/api/kb/spaces/${encodeURIComponent(spaceScope)}/retry`, {stage:'upload', task_id:taskId})),
   uploadFiles: (files: File[], knowledgeBaseId: string) => {
     const form = new FormData()
     form.append('knowledge_base_id', knowledgeBaseId)
@@ -47,7 +48,7 @@ export const api = {
   documentSourceUrl: (versionId: string) => `/api/documents/${versionId}/source`,
   reviseDocument: (versionId: string, content: string, reason: string) =>
     unwrap(http.post(`/api/documents/${versionId}/revisions`, { content, reason })),
-  releases: () => unwrap(http.get('/api/releases')),
+  releases: (spaceScope?: string) => unwrap(http.get('/api/releases', {params:{space_scope:spaceScope}})),
   activateRelease: (releaseId: string) => unwrap(http.post(`/api/releases/${releaseId}/activate`)),
   releaseDownloadUrl: (releaseId: string) => `/api/releases/${releaseId}/download`,
   taskDownloadUrl: (taskId: string) => `/download/${taskId}`,

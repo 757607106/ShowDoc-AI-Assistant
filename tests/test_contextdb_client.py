@@ -72,6 +72,87 @@ def test_bare_payload_passthrough():
     assert client.list_knowledge_bases() == {'knowledge_bases': [], 'total': 0}
 
 
+def test_directory_requests_use_real_nodes_and_preserve_zero_version():
+    client, session = make_client([FakeResponse(200, {'node': {'node_id': 'node'}}) for _ in range(4)])
+    client.list_nodes('kb', parent_node_id='parent', page=2, page_size=30)
+    client.create_directory('kb', '云辉煌知识库', parent_node_id='parent')
+    client.ensure_document_node('document')
+    client.move_node('kb', 'node', 'target', 0)
+    assert session.requests[0]['params'] == {
+        'knowledge_base_id': 'kb', 'parent_node_id': 'parent', 'page': 2, 'page_size': 30}
+    assert session.requests[1]['json'] == {
+        'knowledge_base_id': 'kb', 'display_name': '云辉煌知识库', 'parent_node_id': 'parent'}
+    assert session.requests[2]['url'].endswith('/v1/knowledge/nodes/ensure')
+    assert session.requests[2]['json'] == {'document_id': 'document'}
+    assert session.requests[3]['method'] == 'PATCH'
+    assert session.requests[3]['params'] == {'knowledge_base_id': 'kb'}
+    assert session.requests[3]['json'] == {
+        'node_id': 'node', 'parent_node_id': 'target', 'expected_tree_version': 0}
+
+
+def test_directory_requests_omit_root_parent_instead_of_inventing_path():
+    client, session = make_client([FakeResponse(200, {}) for _ in range(2)])
+    client.list_nodes('kb')
+    client.create_directory('kb', '来源')
+    assert 'parent_node_id' not in session.requests[0]['params']
+    assert session.requests[1]['json'] == {'knowledge_base_id': 'kb', 'display_name': '来源'}
+
+
+def test_rename_node_uses_tree_version_and_preserves_original_response():
+    payload = {'node': {'node_id': 'node', 'display_name': '新目录', 'tree_version': 1}, 'tree_revision': 3}
+    client, session = make_client([FakeResponse(200, payload)])
+    assert client.rename_node('kb', 'node', '新目录', 0) == payload
+    assert session.requests[0]['params'] == {'knowledge_base_id': 'kb'}
+    assert session.requests[0]['json'] == {'node_id': 'node', 'display_name': '新目录', 'expected_tree_version': 0}
+
+
+def test_fake_directory_move_preserves_document_and_review(tmp_path):
+    from tests.contextdb_fake import FakeContextDBClient
+    client = FakeContextDBClient()
+    kb = client.create_knowledge_base('测试')['id']
+    root = client.create_directory(kb, '云辉煌知识库')['node']
+    target = client.create_directory(kb, '进货管理', parent_node_id=root['node_id'])['node']
+    source = tmp_path / 'source.md'
+    source.write_text('已采纳正文')
+    doc = client.upload_file(kb, 'source.md', source, file_path='internal-scope',
+                             metadata={'title': '标题'}, parent_node_id=root['node_id'])
+    client.documents[doc['id']]['ingest_status'] = 'pending_review'
+    client.reviews['review'] = {'document_id': doc['id'], 'review_status': 'pending_review'}
+    before = client.get_document(kb, doc['id'])
+    node = client.ensure_document_node(doc['id'])['node']
+    assert node['parent_node_id'] == root['node_id']
+    moved = client.move_node(kb, node['node_id'], target['node_id'], node['tree_version'])['node']
+    assert moved['parent_node_id'] == target['node_id']
+    assert moved['tree_version'] == node['tree_version'] + 1
+    assert client.get_document(kb, doc['id']) == before
+    assert client.reviews['review'] == {'document_id': doc['id'], 'review_status': 'pending_review'}
+    assert client.list_nodes(kb, parent_node_id=target['node_id'])['items'][0]['document_id'] == doc['id']
+    assert client.ensure_document_node(doc['id'])['node']['node_id'] == node['node_id']
+    with pytest.raises(ContextDBConflictError):
+        client.move_node(kb, node['node_id'], root['node_id'], node['tree_version'])
+
+
+def test_fake_legacy_document_node_ensure_is_idempotent_and_same_names_stay_distinct():
+    from tests.contextdb_fake import FakeContextDBClient
+    client = FakeContextDBClient()
+    kb = client.create_knowledge_base('测试')['id']
+    first = client.create_directory(kb, '同名')['node']
+    second = client.create_directory(kb, '同名')['node']
+    assert first['node_id'] != second['node_id']
+    client.documents['legacy'] = {'id': 'legacy', 'knowledge_base_id': kb, 'name': '历史.md',
+        'file_path': 'old-scope', 'text': '历史正文', 'metadata': {}, 'ingest_status': 'succeeded'}
+    node = client.ensure_document_node('legacy')['node']
+    assert client.ensure_document_node('legacy')['node'] == node
+    assert client.get_document(kb, 'legacy')['file_path'] == 'old-scope'
+    assert len(client.documents) == 1
+    other = client.create_knowledge_base('其他')['id']
+    destination = client.create_directory(other, '目标')['node']
+    with pytest.raises(ContextDBError, match='node not found'):
+        client.move_node(kb, node['node_id'], destination['node_id'], 0)
+    with pytest.raises(ContextDBError, match='own subtree'):
+        client.move_node(kb, first['node_id'], first['node_id'], 0)
+
+
 def test_library_lookup_uses_one_complete_official_list_without_pagination():
     bases = [{'id': str(index), 'name': str(index)} for index in range(105)]
     client, session = make_client([FakeResponse(200, {'knowledge_bases': bases, 'total': len(bases)})])

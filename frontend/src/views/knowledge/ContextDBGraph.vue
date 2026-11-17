@@ -7,6 +7,7 @@ import { graphTypeColor as typeColor } from './contextdbGraphPresentation'
 import { documentDisplayName, graphDocumentLabel } from '@/utils/contextdbDocumentName'
 import ContextDBGraphManagement from './ContextDBGraphManagement.vue'
 import DocMarkdown from '@/components/DocMarkdown.vue'
+import { chunkAttachments } from '@/utils/contextdbResources'
 import { dateTime } from '@/utils/platformPresentation'
 
 const props = defineProps<{ kbId: string; canEdit?: boolean }>()
@@ -235,7 +236,7 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
               <t-alert v-if="sourceError" theme="warning" :message="sourceError"><template #operation><t-button variant="text" @click="loadSources">重试来源</t-button></template></t-alert>
               <p v-if="sourceResult" class="graph-scope">本次返回 {{ sources.length }} 个片段<span v-if="sourceResult.truncated">；仅显示部分候选来源，可打开来源文档核对</span>。</p>
               <t-empty v-if="!sourceLoading && !sourceError && !sources.length" description="当前实体没有可读取的来源片段" />
-              <div v-for="item in sources" :key="item.chunk_id" class="graph-source"><t-link v-if="item.document_id" @click="emit('open-source-doc', item.document_id)">{{ displayName(item.document_name) || '来源文档' }}</t-link><p v-if="item.toc_path" class="graph-scope">{{ displayName(item.toc_path) }}</p><DocMarkdown :content="item.content || ''" /></div>
+              <div v-for="item in sources" :key="item.chunk_id" class="graph-source"><t-link v-if="item.document_id" @click="emit('open-source-doc', item.document_id)">{{ displayName(item.document_name) || '来源文档' }}</t-link><p v-if="item.toc_path" class="graph-scope">{{ displayName(item.toc_path) }}</p><DocMarkdown :content="item.content || ''" :source-name="item.document_name" :source-display-name="displayName(item.document_name)" :attachments="chunkAttachments([item], item.document_id)" :kb-id="kbId" /></div>
             </section>
           </template>
         </div>

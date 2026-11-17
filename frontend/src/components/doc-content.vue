@@ -26,6 +26,8 @@ import { useAuthStore } from '@/stores/auth';
 import { useAssistantStore } from '@/stores/assistant';
 import AssistantActionsButton from '@/components/assistant/AssistantActionsButton.vue';
 import DocumentPreview from '@/components/document-preview.vue';
+import ContextDBSourceResources from '@/components/ContextDBSourceResources.vue';
+import ContextDBSourcePreview from '@/components/ContextDBSourcePreview.vue';
 import DocumentFileIcon from '@/views/knowledge/components/DocumentFileIcon.vue';
 import KnowledgeProcessingTimeline from '@/components/knowledge-processing-timeline.vue';
 import { resolveKnowledgeDownloadFileName } from '@/views/knowledge/knowledgeDownloadFileName';
@@ -2162,6 +2164,7 @@ const handleChunkPageChange = (pageInfo: { current: number }) => {
           </div>
 
           <!-- 文档预览视图 -->
+          <ContextDBSourceResources v-if="IS_CONTEXTDB && (viewMode === 'merged' || viewMode === 'chunks')" :key="details.id" :document-ids="[details.id]" :kb-id="kbId || details.knowledge_base_id" />
           <div v-if="(viewMode === 'merged' || viewMode === 'chunks') && details.total > CHUNK_PAGE_SIZE"
             class="chunk-pagination">
             <t-pagination v-model="chunkPage" :total="details.total" :page-size="CHUNK_PAGE_SIZE" size="small"
@@ -2170,7 +2173,8 @@ const handleChunkPageChange = (pageInfo: { current: number }) => {
           </div>
 
           <div v-else-if="viewMode === 'preview'">
-            <DocumentPreview :knowledgeId="details.id" :fileType="details.file_type" :fileName="details.title"
+            <ContextDBSourcePreview v-if="IS_CONTEXTDB" :key="details.id" :document-id="details.id" :kb-id="kbId || details.knowledge_base_id" :title="details.title || details.file_name" />
+            <DocumentPreview v-else :knowledgeId="details.id" :fileType="details.file_type" :fileName="details.title"
               :active="viewMode === 'preview'" />
           </div>
         </section>

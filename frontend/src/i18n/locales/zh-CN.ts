@@ -771,7 +771,7 @@ export default {
   },
   userProfile: {
     title: '用户信息',
-    description: '查看您的账户基础信息（用户 ID、用户名、邮箱、注册时间），并可修改登录密码',
+    description: '查看您的账户基础信息（用户 ID、用户名、账号、注册时间），并可修改登录密码',
     changePassword: {
       label: '修改密码',
       description: '使用当前密码验证后设置新密码。修改成功后所有设备上的登录状态将失效，需要重新登录。',
@@ -4217,7 +4217,6 @@ export default {
     title: '常规设置',
     allSettings: '全部设置',
     personalSettings: '个人设置',
-    helpAndDocs: '帮助与文档',
     description: '配置语言、外观等基础选项',
     settings: '设置',
     close: '关闭设置'
@@ -6740,8 +6739,6 @@ export default {
     clear: '清空',
     website: '官方网站',
     clawhubSkill: 'Claw Skill',
-    github: 'GitHub',
-    githubStarTip: '在 GitHub 打开仓库，若觉得有用欢迎点个 Star',
     on: '开启',
     off: '关闭',
     confirmDelete: '确认删除',
@@ -6773,6 +6770,10 @@ export default {
     }
   },
   auth: {
+    account: '账号',
+    accountPlaceholder: '请输入账号',
+    accountRequired: '请输入账号',
+    accountDescription: '用于登录平台的账号',
     login: '登录',
     logout: '退出',
     oidcLogin: '使用 OIDC 登录',
@@ -6806,7 +6807,7 @@ export default {
     emailInvalid: '请输入正确的邮箱格式',
     passwordRequired: '请输入密码',
     passwordMinLength: '密码至少8个字符',
-    passwordMaxLength: '密码不能超过32个字符',
+    passwordMaxLength: '密码不能超过1024个字符',
     passwordMustContainLetter: '密码必须包含字母',
     passwordMustContainLowercaseLetter: '密码必须包含小写字母',
     passwordMustContainUppercaseLetter: '密码必须包含大写字母',
@@ -6818,7 +6819,7 @@ export default {
     usernameInvalid: '用户名只能包含字母、数字、下划线和中文字符',
     confirmPasswordRequired: '请确认密码',
     passwordMismatch: '两次输入的密码不一致',
-    loginError: '登录错误，请检查邮箱或密码',
+    loginError: '登录错误，请检查账号或密码',
     loginErrorRetry: '登录错误，请稍后重试',
     registerError: '注册错误，请稍后重试',
     workspaceOnboarding: {

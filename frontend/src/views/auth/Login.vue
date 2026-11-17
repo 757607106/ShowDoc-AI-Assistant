@@ -143,9 +143,9 @@
           <div class="form-content">
             <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
               label-align="top">
-              <t-form-item :label="$t('auth.email')" name="email">
-                <t-input v-model="formData.email" :placeholder="$t('auth.emailPlaceholder')" type="text"
-                  autocomplete="email" size="large" :disabled="loading" />
+              <t-form-item :label="$t('auth.account')" name="account">
+                <t-input v-model="formData.account" :placeholder="$t('auth.accountPlaceholder')" type="text"
+                  autocomplete="username" size="large" :disabled="loading" />
               </t-form-item>
 
               <t-form-item :label="$t('auth.password')" name="password">
@@ -394,7 +394,7 @@ const oidcLoginText = computed(() => {
 
 // Login form data
 const formData = reactive<{ [key: string]: any }>({
-  email: '',
+  account: '',
   password: '',
 })
 
@@ -408,14 +408,14 @@ const registerData = reactive<{ [key: string]: any }>({
 
 // Login form validation rules
 const formRules = computed(() => ({
-  email: [
-    { required: true, message: t('auth.emailRequired'), type: 'error' },
-    { email: true, message: t('auth.emailInvalid'), type: 'error' }
+  account: [
+    { required: true, message: t('auth.accountRequired'), type: 'error' },
+    { validator: (value: string) => !!value?.trim(), message: t('auth.accountRequired'), type: 'error' }
   ],
   password: [
     { required: true, message: t('auth.passwordRequired'), type: 'error' },
     { min: 8, message: t('auth.passwordMinLength'), type: 'error' },
-    { max: 32, message: t('auth.passwordMaxLength'), type: 'error' }
+    { max: 1024, message: t('auth.passwordMaxLength'), type: 'error' }
   ],
 }))
 
@@ -618,7 +618,7 @@ const handleLogin = async () => {
     loading.value = true
 
     const response = await login({
-      email: formData.email,
+      account: formData.account.trim(),
       password: formData.password,
     })
 
@@ -682,9 +682,9 @@ const handleRegister = async () => {
     if (response.success) {
       MessagePlugin.success(t('auth.registerSuccess'))
 
-      // Switch to login mode and fill in email
+      // Switch to login mode and retain the registered login identifier.
       isRegisterMode.value = false
-      formData.email = registerData.email
+      formData.account = registerData.email
 
       // Clear register form
       Object.keys(registerData).forEach(key => {

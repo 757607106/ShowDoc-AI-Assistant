@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from governance.database import connection
-from governance.knowledge_names import KnowledgeNames, document_name
+from governance.knowledge_names import KnowledgeNames, captured_filename, document_name, download_name
 from governance.store import Store
 from tests.contextdb_fake import FakeContextDBClient
 
@@ -23,6 +23,32 @@ def test_document_label_fallbacks(document, expected):
     original = deepcopy(document)
     assert document_name(document) == expected
     assert document == original
+
+
+@pytest.mark.parametrize('document,expected', [
+    ({'name': 'doc-hash.md', 'metadata': {'filename': '业务手册.html'}}, '业务手册.md'),
+    ({'name': 'doc-hash.md', 'display_name': '历史采购明细.html'}, '历史采购明细.md'),
+    ({'name': 'doc-hash.md', 'document_display_name': '操作手册', 'metadata': {'filename': '原件.html'}}, '操作手册.md'),
+    ({'name': 'doc-hash.docx', 'metadata': {'filename': '原始手册.docx'}}, '原始手册.docx'),
+    ({'name': 'doc-hash.pdf', 'metadata': {'filename': '手册.PDF'}}, '手册.PDF'),
+    ({'name': 'source', 'display_name': '无扩展名原件'}, '无扩展名原件'),
+    ({'name': 'doc-hash.md', 'metadata': {'filename': '长' * 200 + '.html'}}, '长' * 157 + '.md'),
+])
+def test_download_name_uses_actual_source_extension_without_changing_display_or_identity(document, expected):
+    original = deepcopy(document)
+    assert download_name(document) == expected
+    assert document == original
+
+
+@pytest.mark.parametrize('record,expected', [
+    ({'title': '单位进货排行榜', 'source_format': 'markdown'}, '单位进货排行榜.md'),
+    ({'title': '手册.html', 'source_format': 'html'}, '手册.html'),
+    ({'title': '业务标题', 'metadata': {'filename': '原件.PDF'}, 'archive_source': 'originals/hash.pdf'}, '原件.PDF'),
+    ({'title': '配置说明', 'source_format': 'html', 'content_format': 'markdown'}, '配置说明.html'),
+    ({'title': '', 'source_format': 'markdown'}, ''),
+])
+def test_captured_filename_preserves_business_name_and_original_format(record, expected):
+    assert captured_filename(record) == expected
 
 
 @pytest.fixture()
@@ -249,7 +275,7 @@ def test_chat_stream_and_history_add_readable_names_without_mutating_native_mess
     references = next(event['data']['references'] for event in events if event['response_type'] == 'references')
     assert references == saved['knowledge_references']
     assert references[0]['id'] == 'cloud-doc:1' and references[0]['knowledge_id'] == 'cloud-doc'
-    assert references[0]['knowledge_title'] == 'doc-source.html'
+    assert references[0]['knowledge_title'] == '历史采购明细.html'
     assert references[0]['document_display_name'] == '历史采购明细.html'
     assert state.values == original
 
@@ -274,7 +300,7 @@ def test_chat_citation_uses_cloud_metadata_when_no_local_capture_exists(names_da
     chunk.update(document_id='cloud-only', metadata={'title': '云端采购规范'})
     reference = history(state, 'chat-1', owner_id=owner)[-1]['knowledge_references'][0]
     assert reference['document_display_name'] == '云端采购规范.html'
-    assert reference['knowledge_title'] == 'doc-source.html'
+    assert reference['knowledge_title'] == '云端采购规范.html'
     assert reference['knowledge_id'] == 'cloud-only'
 
 

@@ -68,7 +68,7 @@ function detail(id: string, revision = 'current') {
   }
 }
 
-const chunkPage = (content: string) => ({ success: true, data: { chunks: [{ chunk_id: content, content }], total: 50 } })
+const chunkPage = (content: string, documentId: string) => ({ success: true, data: { document_id: documentId, chunks: [{ chunk_id: content, content }], total: 50 } })
 
 for (const contextdbDeployment of [true, false]) {
   test(`document list ${contextdbDeployment ? 'preserves canonical extensions in ContextDB' : 'retains extension-free WeKnora labels'}`, async t => {
@@ -97,12 +97,12 @@ test('late metadata and chunks from a previous document cannot replace the curre
   hook.getCardDetails({ id: 'a' })
   hook.getCardDetails({ id: 'b' })
   metadata[1].resolve(detail('b'))
-  chunks[1].resolve(chunkPage('b content'))
+  chunks[1].resolve(chunkPage('b content', 'b'))
   await flush()
   const current = JSON.stringify(hook.details)
 
   metadata[0].resolve(detail('a', 'stale'))
-  chunks[0].resolve(chunkPage('a content'))
+  chunks[0].resolve(chunkPage('a content', 'a'))
   await flush()
   assert.equal(JSON.stringify(hook.details), current)
   assert.equal(hook.details.id, 'b')
@@ -132,10 +132,10 @@ test('chunk pagination does not discard pending metadata for the same document',
   hook.getfDetails('a', 2)
   assert.equal(chunks[1].url, '/api/contextdb/v1/knowledge/documents/chunks')
   assert.deepEqual(JSON.parse(JSON.stringify(chunks[1].params)), { document_id: 'a', offset: 25, limit: 25 })
-  chunks[1].resolve(chunkPage('page 2'))
+  chunks[1].resolve(chunkPage('page 2', 'a'))
   await flush()
   metadata[0].resolve(detail('a'))
-  chunks[0].resolve(chunkPage('stale page 1'))
+  chunks[0].resolve(chunkPage('stale page 1', 'a'))
   await flush()
 
   assert.equal(hook.details.id, 'a')

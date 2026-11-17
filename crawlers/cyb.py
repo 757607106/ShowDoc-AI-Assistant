@@ -347,6 +347,7 @@ class CYBCrawler(BaseCrawler):
                 id=document_id,
                 title=(item.get("title") or f"未命名教程_{index}").strip(),
                 category=f"使用教程/{category}",
+                directory_path=['使用教程', item['category'].strip()] if (item.get('category') or '').strip() else ['使用教程'],
             ))
 
         for index, item in enumerate(faqs, 1):
@@ -359,6 +360,7 @@ class CYBCrawler(BaseCrawler):
                 id=document_id,
                 title=(item.get("title") or f"常见问题_{index}").strip(),
                 category=f"常见问题/{faq_type}",
+                directory_path=['常见问题', faq_type] if str(item.get('faqTypeId', '')) in FAQ_TYPE_MAPPING else ['常见问题'],
             ))
 
         print(

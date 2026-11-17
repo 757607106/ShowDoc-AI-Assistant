@@ -63,7 +63,8 @@ def test_run_sync_uploads_cleaned_documents(environment):
     docs = client.list_documents(kb['id'])['documents']
     assert len(docs) == 2
     by_id = {doc['name']: doc for doc in docs}
-    assert by_id['doc-doc-1.md']['metadata']['source_version'] == 'v1'
+    assert by_id['标题A.md']['metadata']['source_version'] == 'v1'
+    assert by_id['标题A.md']['metadata']['filename'] == '标题A.md'
     updated = store.get_job(job['task_id'])
     assert updated['status'] == 'completed' and updated['progress'] == 100
     assert '评审' in updated['message']
@@ -97,7 +98,7 @@ def test_run_sync_preserves_original_filename_without_changing_document_identity
     assert result['errors'] == []
     for kb_id in result['targets'].values():
         doc = client.list_documents(kb_id)['documents'][0]
-        assert doc['name'] == 'doc-uploaded-file.docx'
+        assert doc['name'] == '使用手册（完整版）.docx'
         assert doc['metadata']['filename'] == '使用手册（完整版）.docx'
         assert doc['metadata']['title'] == '使用手册'
 
@@ -155,7 +156,7 @@ def test_content_updates_keep_remote_custom_metadata(environment, tmp_path):
     result = run_sync(store, enqueue_sync(store, release_id, 'default'))
     assert result['errors'] == [] and result['uploaded'] == 1
     for kb_id in result['targets'].values():
-        doc = next(doc for doc in client.list_documents(kb_id)['documents'] if doc['name'] == 'doc-doc-1.md')
+        doc = next(doc for doc in client.list_documents(kb_id)['documents'] if doc['name'] == '标题A.md')
         assert doc['metadata']['approved'] is True
         assert doc['metadata']['source_version'] == 'v3'
 
@@ -201,7 +202,7 @@ def test_partial_failure_keeps_successful_documents_and_official_states(environm
     store,client,release_id=environment
     upload=client.upload_file
     def fail_one(kb,name,path,**kwargs):
-        if name == 'doc-doc-2.md':
+        if name == '标题B.md':
             raise RuntimeError('delivery failed')
         return upload(kb,name,path,**kwargs)
     monkeypatch.setattr(client,'upload_file',fail_one)
@@ -329,7 +330,8 @@ def test_html_review_is_markdown_and_resubmission_preserves_adopted_text(environ
     first = run_sync(store, enqueue_sync(store, release_id, 'default'))
     assert first['errors'] == [] and first['uploaded'] == 1
     doc = next(iter(client.documents.values()))
-    assert doc['name'] == 'doc-html.md' and '<h1>' not in doc['text']
+    assert doc['name'] == '配置手册.md' and '<h1>' not in doc['text']
+    assert doc['metadata']['filename'] == '配置手册.html'
     assert '端口为 8080' in doc['text'] and 'https://example.test/manual/images/step.png' in doc['text']
     assert doc['metadata']['source_content_hash'] == hashlib.sha256(html.encode()).hexdigest()
     assert doc['metadata']['submitted_content_hash'] == hashlib.sha256(doc['text'].encode()).hexdigest()
@@ -422,7 +424,7 @@ def test_lost_upload_response_recovers_without_overwriting_adopted_content(envir
     upload = client.upload_file
     def lost_response(kb_id, name, path, **kwargs):
         result = upload(kb_id, name, path, **kwargs)
-        if name == 'doc-doc-1.md':
+        if name == '标题A.md':
             client.documents[result['id']]['text'] = '已采纳的官方正文'
             raise ContextDBError('response lost after server accepted upload')
         return result
@@ -433,7 +435,7 @@ def test_lost_upload_response_recovers_without_overwriting_adopted_content(envir
     monkeypatch.setattr(client, 'update_file', lambda *a, **kw: pytest.fail('retry must not overwrite adopted content'))
     repeated = run_sync(store, enqueue_sync(store, release_id, 'default'))
     assert repeated['errors'] == [] and repeated['skipped'] == 2
-    assert next(doc for doc in client.documents.values() if doc['name'] == 'doc-doc-1.md')['text'] == '已采纳的官方正文'
+    assert next(doc for doc in client.documents.values() if doc['name'] == '标题A.md')['text'] == '已采纳的官方正文'
 
 
 def test_changing_review_policy_does_not_replace_an_adopted_html_capture(environment, tmp_path, monkeypatch):
@@ -452,3 +454,132 @@ def test_changing_review_policy_does_not_replace_an_adopted_html_capture(environ
     assert repeated['errors'] == [] and repeated['skipped'] == 1
     assert doc['text'] == '已采纳的人工完整稿'
     assert doc['metadata']['source_conversion_fingerprint'] == fingerprint
+
+
+def test_real_names_preserve_legacy_document_identity_and_adopted_content(environment, monkeypatch):
+    store, client, release_id = environment
+    run_sync(store, enqueue_sync(store, release_id, 'default'))
+    originals = {}
+    for doc in client.documents.values():
+        doc['name'] = 'doc-' + doc['metadata']['platform_source_id'] + '.md'
+        doc['text'] = '已经人工采纳的正文'
+        doc['metadata'].pop('filename')
+        originals[doc['id']] = doc['name']
+    monkeypatch.setattr(client, 'upload_file', lambda *a, **kw: pytest.fail('legacy source must not be uploaded again'))
+    monkeypatch.setattr(client, 'update_file', lambda *a, **kw: pytest.fail('adopted content must stay intact'))
+    result = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert result['errors'] == [] and set(client.documents) == set(originals)
+    assert all(doc['name'] == originals[doc['id']] and doc['text'] == '已经人工采纳的正文'
+               and doc['metadata']['filename'] in ('标题A.md', '标题B.md') for doc in client.documents.values())
+
+
+@pytest.mark.parametrize('legacy_conflict', [False, True])
+def test_same_titles_never_overwrite_other_sources_and_lost_response_recovers(environment, tmp_path, monkeypatch, legacy_conflict):
+    from integrations.contextdb import ContextDBError
+    store, client, _ = environment
+    archive = make_release_zip(tmp_path / 'same-titles.zip', [
+        {'id': 'source-one', 'version_id': 'v1', 'title': '操作手册', 'content': '第一来源'},
+        {'id': 'source-two', 'version_id': 'v2', 'title': '操作手册', 'content': '第二来源'},
+    ])
+    release_id = store.create_release('same-titles', 'default', 2, ['v1', 'v2'], archive)
+    upload = client.upload_file
+    def lose_second_response(kb_id, name, path, **kwargs):
+        if legacy_conflict:
+            kwargs['parent_node_id'] = None
+        result = upload(kb_id, name, path, **kwargs)
+        if kwargs['metadata']['platform_source_id'] == 'source-two':
+            client.documents[result['id']]['text'] = '第二来源的人工采纳稿'
+            raise ContextDBError('lost accepted response')
+        return result
+    monkeypatch.setattr(client, 'upload_file', lose_second_response)
+    result = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert result['uploaded'] == 1 and len(result['errors']) == 1 and len(client.documents) == 2
+    documents = {doc['metadata']['platform_source_id']: doc for doc in client.documents.values()}
+    assert documents['source-one']['name'] == '操作手册.md' and documents['source-one']['text'] == '第一来源'
+    if legacy_conflict:
+        assert documents['source-two']['name'].startswith('操作手册-')
+    else:
+        assert documents['source-two']['name'] == '操作手册.md'
+    assert documents['source-one']['id'] != documents['source-two']['id']
+    assert all(doc['metadata']['filename'] == '操作手册.md' for doc in documents.values())
+    monkeypatch.setattr(client, 'upload_file', lambda *a, **kw: pytest.fail('accepted sources must be reconciled'))
+    monkeypatch.setattr(client, 'update_file', lambda *a, **kw: pytest.fail('adopted text must not be replaced'))
+    repeated = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    # A recovered legacy upload may still need its file node moved into the import folder.
+    assert repeated['errors'] == [] and repeated['uploaded'] + repeated['skipped'] == 2
+    assert documents['source-two']['text'] == '第二来源的人工采纳稿'
+    assert len(client.documents) == 2
+    settled = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert settled['errors'] == [] and settled['skipped'] == 2
+
+
+def test_source_updates_use_existing_legacy_filename(environment, tmp_path, monkeypatch):
+    store, client, release_id = environment
+    run_sync(store, enqueue_sync(store, release_id, 'default'))
+    doc = next(doc for doc in client.documents.values() if doc['metadata']['platform_source_id'] == 'doc-1')
+    doc['name'] = 'doc-doc-1.md'
+    original_id = doc['id']
+    updates = []
+    update = client.update_file
+    def record_update(document_id, name, path, **kwargs):
+        updates.append((document_id, name))
+        return update(document_id, name, path, **kwargs)
+    monkeypatch.setattr(client, 'update_file', record_update)
+    archive = make_release_zip(tmp_path / 'legacy-update.zip', [
+        {'id': 'doc-1', 'version_id': 'v3', 'title': '新业务标题', 'content': '更新后的源资料'}])
+    updated = store.create_release('legacy-update', 'default', 2, ['v3'], archive)
+    result = run_sync(store, enqueue_sync(store, updated, 'default'))
+    assert result['errors'] == [] and updates == [(original_id, 'doc-doc-1.md')]
+    assert doc['metadata']['filename'] == '新业务标题.md' and len(client.documents) == 2
+
+
+def test_real_name_collision_with_manual_file_does_not_overwrite_it(environment, tmp_path):
+    store, client, _ = environment
+    kb_id = get_space(store, 'default')['knowledge_base_id']
+    manual = client.create_text_document(kb_id, '手册.md', '手动上传原文', file_path='default')
+    record = {'id': 'crawler-source', 'title': '手册', 'content': '爬虫原文'}
+    release_id = store.create_release('manual-collision', 'default', 2, [],
+        make_release_zip(tmp_path / 'manual-collision.zip', [record]))
+    result = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert result['errors'] == [] and len(client.documents) == 2
+    assert client.documents[manual['id']]['text'] == '手动上传原文'
+
+
+@pytest.mark.parametrize('status', ['rejected', 'uncertain'])
+def test_legacy_name_without_source_ownership_never_adopts_manual_document(environment, tmp_path, monkeypatch, status):
+    from governance.contextdb_sync import _save
+    store, client, _ = environment
+    kb_id = get_space(store, 'default')['knowledge_base_id']
+    manual = client.create_text_document(kb_id, 'doc-source-one.md', '不能覆盖的手动资料', file_path='default')
+    _save(store.owner_id or '', 'default', 'source-one', 'wiki', kb_id, status=status)
+    archive = make_release_zip(tmp_path / 'unowned-legacy-name.zip', [
+        {'id': 'source-one', 'title': '业务手册', 'content': '本次采集的正文'}])
+    release_id = store.create_release('unowned-legacy-name', 'default', 2, [], archive)
+    monkeypatch.setattr(client, 'update_file', lambda *a, **kw: pytest.fail('unowned manual document must never be updated'))
+    result = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert client.documents[manual['id']]['text'] == '不能覆盖的手动资料'
+    assert client.documents[manual['id']]['metadata'] == {}
+    if status == 'uncertain':
+        assert len(result['errors']) == 1 and len(client.documents) == 1
+    else:
+        assert result['errors'] == [] and len(client.documents) == 2
+        assert any(doc['name'] == '业务手册.md' for doc in client.documents.values())
+
+
+@pytest.mark.parametrize('suffix', ['.md', '.docx'])
+def test_long_business_names_keep_their_source_extension(environment, tmp_path, suffix):
+    store, client, _ = environment
+    title = '业务说明' * 50
+    record = {'id': 'long-name', 'title': title, 'content': '原始正文', 'source_format': 'markdown'}
+    if suffix == '.docx':
+        record.update(archive_source='originals/file.docx', metadata={'filename': title + suffix})
+    archive = make_release_zip(tmp_path / 'long-name.zip', [record])
+    if suffix == '.docx':
+        with ZipFile(archive, 'a') as output:
+            output.writestr('originals/file.docx', '原始文件')
+    release_id = store.create_release('long-name', 'default', 2, [], archive)
+    result = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert result['errors'] == []
+    doc = next(iter(client.documents.values()))
+    assert len(doc['name']) == 160 and doc['name'].endswith(suffix)
+    assert doc['metadata']['filename'] == title + suffix

@@ -36,15 +36,15 @@ def main():
     evidence = json.loads(args.knowledge_result.read_text())
     target, agent = evidence['session_id'], evidence['agent_id']
     password = secrets.token_urlsafe(24)
-    owner = create_user('isolation-' + secrets.token_hex(8) + '@example.invalid', '隔离验收', password, 'viewer')
+    owner = create_user('isolation-' + secrets.token_hex(8), '隔离验收', password, 'viewer')
     results = []
     try:
         with connection() as conn:
-            email = conn.execute('SELECT email FROM platform_users WHERE id=%s', (owner,)).fetchone()['email']
+            account = conn.execute('SELECT email AS account FROM platform_users WHERE id=%s', (owner,)).fetchone()['account']
         with make_checkpointer() as saver:
             before = saver.conn.execute('SELECT count(*) AS n FROM checkpoints WHERE thread_id=%s', (target,)).fetchone()['n']
         client = requests.Session()
-        login = client.post(config['backend_url'] + '/api/v1/auth/login', json={'email': email, 'password': password}, timeout=20)
+        login = client.post(config['backend_url'] + '/api/v1/auth/login', json={'account': account, 'password': password}, timeout=20)
         assert login.status_code == 200
         client.headers['Authorization'] = 'Bearer ' + login.json()['token']
         cases = [

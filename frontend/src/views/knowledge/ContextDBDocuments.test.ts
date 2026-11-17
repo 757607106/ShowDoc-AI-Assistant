@@ -6,7 +6,8 @@ import * as vue from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import { Tree } from 'tdesign-vue-next'
 import { fixture, flush } from '../../test-utils/vueFixture.ts'
-import { documentDisplayName } from '../../utils/contextdbDocumentName.ts'
+import { documentDisplayName, documentDownloadName } from '../../utils/contextdbDocumentName.ts'
+import { chunkAttachments } from '../../utils/contextdbResources.ts'
 
 const plain = (value: any) => JSON.parse(JSON.stringify(value))
 const folder = (id = 'folder-a', version = 7) => ({ node_id: id, node_type: 'folder', display_name: '目录', tree_version: version, has_children: true })
@@ -14,7 +15,7 @@ const file = (id = 'node-a', documentId = 'doc-a', version = 3) => ({ node_id: i
 const document = (id = 'doc-a') => ({ id, name: '说明.md', file_name: '说明.md', knowledge_base_id: 'kb-a', ingest_status: 'succeeded', graph_status: 'building', metadata: { keep: 'value' } })
 type Call = { method: string; path: string; data?: any }
 type Options = {
-  canEdit?: boolean; documentId?: string; reviewEnabled?: boolean;
+  canEdit?: boolean; documentId?: string; folderId?: string; reviewEnabled?: boolean;
   nodes?: (params: any) => Promise<any>; document?: (id: string) => Promise<any>;
   write?: (method: string, path: string, body: any) => Promise<any>;
   upload?: (kb: string, file: File, options: any) => Promise<any>;
@@ -48,8 +49,9 @@ async function setup(t: TestContext, options: Options = {}) {
       batchDownloadKnowledge: async (kb: string, ids: string[]) => { calls.push({ method: 'BATCH_DOWNLOAD', path: kb, data: ids }); return new Blob(['zip']) },
     },
     '@/utils/files': { formatFileSize: (value: number) => String(value), getFileIcon: () => 'file' },
-    '@/utils/contextdbDocumentName': { documentDisplayName },
-  }, { kbId: 'kb-a', canEdit: options.canEdit ?? true, wikiEnabled: true, graphEnabled: true, reviewEnabled: options.reviewEnabled ?? true, documentId: options.documentId })
+    '@/utils/contextdbDocumentName': { documentDisplayName, documentDownloadName },
+    '@/utils/contextdbResources': { chunkAttachments },
+  }, { kbId: 'kb-a', canEdit: options.canEdit ?? true, wikiEnabled: true, graphEnabled: true, reviewEnabled: options.reviewEnabled ?? true, documentId: options.documentId, folderId: options.folderId })
   await flush(); await flush()
   return { vm, props: vm.$.props, calls, fixture: f }
 }
@@ -91,6 +93,19 @@ test('the current directory uses node state without depending on document detail
   await f.vm.enterNode('folder-a')
   assert.equal(f.vm.parent, 'folder-a'); assert.equal(f.vm.page, 1)
   assert.equal(f.calls.filter(call => call.method === 'GET').at(-1)!.data.parent_node_id, 'folder-a')
+})
+
+test('downloads preserve the business filename while using the actual source extension from document details', async t => {
+  const f = await setup(t, { document: async id => ({ ...document(id), name: 'doc-hash.md',
+    document_display_name: '原始手册.html', metadata: { filename: '原始手册.html' } }) })
+  await f.vm.download({ ...file(), display_name: '用户重命名.html' })
+  assert.ok(f.calls.some(call => call.method === 'DOCUMENT' && call.path === 'doc-a'))
+  assert.equal(f.calls.at(-1)?.method, 'DOWNLOAD')
+  assert.equal(f.calls.at(-1)?.data, '用户重命名.md')
+  const metadataReads = f.calls.filter(call => call.method === 'DOCUMENT').length
+  await f.vm.download({ ...file(), name: 'actual.pdf', display_name: '实际手册.pdf' })
+  assert.equal(f.calls.at(-1)?.data, '实际手册.pdf')
+  assert.equal(f.calls.filter(call => call.method === 'DOCUMENT').length, metadataReads)
 })
 test('pagination and sorting reach the same official node query rather than silently reloading page one', async t => {
   const f = await setup(t); f.vm.parent = 'folder-a'; f.vm.page = 3; f.vm.pageSize = 50; f.vm.sortBy = 'updated_at'; f.vm.sortOrder = 'desc'
@@ -339,4 +354,21 @@ test('late node, metadata and delete writes cannot clear new-library drafts or r
     else if (kind === 'metadata') { assert.equal(f.vm.metadata.document_id, 'new-doc'); assert.equal(f.vm.metadataText, '{"draft":"新库未提交稿"}') }
     else { assert.equal(f.vm.removing[0].node_id, 'new-folder'); assert.equal(f.vm.recursiveDelete, false) }
   })
+})
+
+
+test('directory deep links load the requested real parent and reject missing or foreign nodes',async t=>{
+  const f=await setup(t,{folderId:'import-root',nodes:async params=>({items:[file()],total:1,parent_node:{node_id:params.parent_node_id||'root',node_type:params.parent_node_id?'folder':'root',knowledge_base_id:'kb-a'}})})
+  assert.equal(f.vm.parent,'import-root');assert.equal(f.vm.rows[0].document_id,'doc-a');assert.equal(f.vm.error,'')
+  for(const current of [{node_id:'root',node_type:'root'},{node_id:'missing',node_type:'file'},{node_id:'missing',node_type:'folder',knowledge_base_id:'other-kb'}])await t.test(JSON.stringify(current),async t=>{
+    const bad=await setup(t,{folderId:'missing',nodes:async()=>({items:[file()],total:1,parent_node:current})})
+    assert.equal(bad.vm.rows.length,0);assert.match(bad.vm.error,/目录不存在|无权访问/)
+  })
+})
+
+test('changing a directory link ignores the old directory response',async t=>{
+  let complete!:(value:any)=>void
+  const f=await setup(t,{folderId:'slow',nodes:async params=>params.parent_node_id==='slow'?new Promise(resolve=>complete=resolve):{items:[],total:0,parent_node:{node_id:params.parent_node_id||'root',node_type:'folder'}}})
+  f.props.folderId='new';await flush();complete({items:[file()],total:1,parent_node:{node_id:'slow',node_type:'folder'}});await flush()
+  assert.equal(f.vm.parent,'new');assert.equal(f.vm.rows.length,0);assert.equal(f.vm.error,'')
 })

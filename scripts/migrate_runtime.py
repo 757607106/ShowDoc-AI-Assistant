@@ -124,7 +124,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--snapshot', type=Path, help='已保存的只读快照（校验 SHA256）')
     parser.add_argument('--apply', action='store_true')
-    parser.add_argument('--owner-email', default=os.getenv('PLATFORM_ADMIN_EMAIL'))
+    parser.add_argument('--owner-account', '--owner-email', dest='owner_account',
+                        default=os.getenv('PLATFORM_ADMIN_ACCOUNT') or os.getenv('PLATFORM_ADMIN_EMAIL') or 'admin',
+                        help='已绑定 ContextDB 成员的平台账号；--owner-email 为兼容别名')
     args = parser.parse_args()
     initialize(); initialize_checkpoints()
     if args.snapshot:
@@ -138,7 +140,8 @@ def main():
     report = {'snapshot':str(path), 'records':len(data['records']), 'cloud_writes':0}
     if args.apply:
         with connection() as conn:
-            owner = conn.execute('SELECT id,contextdb_member_id FROM platform_users WHERE email=%s AND active', (args.owner_email,)).fetchone()
+            owner = conn.execute('SELECT id,contextdb_member_id FROM platform_users WHERE email=%s AND active',
+                                 (args.owner_account.strip().lower(),)).fetchone()
         if not owner or not owner['contextdb_member_id']:
             raise RuntimeError('迁移目标必须是已绑定 ContextDB 成员的有效平台账号')
         report.update(import_snapshot(data, owner['id']))

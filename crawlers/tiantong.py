@@ -20,6 +20,7 @@ class TiantongCrawler(BaseCrawler):
     platform = "tiantong"
     display_name = "天通资源管理中心"
     requires_auth = False
+    root_categories = ('未分类',)
 
     DEFAULT_SITE_BASE_URL = "http://117.172.29.67:6067"
 
@@ -84,6 +85,7 @@ class TiantongCrawler(BaseCrawler):
                     id=item_id,
                     title=(item.get("title") or f"未命名文档_{item_id}").strip(),
                     category=(item.get("categoryName") or "未分类").strip(),
+                    directory_path=[item['categoryName'].strip()] if (item.get('categoryName') or '').strip() else [],
                 ))
 
             if not added:

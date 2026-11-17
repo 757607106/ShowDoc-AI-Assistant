@@ -35,9 +35,7 @@ export const useMenuStore = defineStore('menuStore', () => {
     { title: '', titleKey: 'menu.artifacts', icon: 'artifact', path: 'artifacts', requiredCapability: 'settings.sandbox' },
     { title: '', titleKey: 'menu.agents', icon: 'agent', path: 'agents', requiredCapability: 'agents' },
     { title: '', titleKey: 'toolbox.title', icon: 'toolbox', path: 'toolbox' },
-    { title: '添加资料', icon: 'automation', path: 'collect' },
     { title: '资料任务', icon: 'automation', path: 'tasks' },
-    { title: '提交记录', icon: 'automation', path: 'releases' },
     { title: '知识评审', icon: 'zhishiku', path: 'governance' },
 
     { title: '', titleKey: 'menu.organizations', icon: 'organization', path: 'organizations', requiredCapability: 'organizations' },

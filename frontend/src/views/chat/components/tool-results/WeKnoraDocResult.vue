@@ -56,7 +56,7 @@
       </div>
       <div v-if="read.content" class="doc-read__content">
         <div class="doc-summary">{{ $t('agentStream.weknoraDocs.content') }}</div>
-        <DocMarkdown :source="read.content" />
+        <DocMarkdown :content="read.content" />
         <p v-if="read.truncated" class="doc-note">{{ $t('agentStream.weknoraDocs.truncated') }}</p>
       </div>
       <p v-else-if="!read.outline.length && !read.error" class="doc-empty">{{ $t('agentStream.weknoraDocs.empty') }}</p>
@@ -74,7 +74,7 @@ import {
   parseCatalogPayload,
   safeDocUrl,
 } from '@/utils/catalogToolDisplay'
-import DocMarkdown from './DocMarkdown.vue'
+import DocMarkdown from '@/components/DocMarkdown.vue'
 
 const props = withDefaults(defineProps<{
   mode: 'search' | 'read'

@@ -23,6 +23,7 @@ class ShowDocCrawler(BaseCrawler):
     platform = "showdoc"
     display_name = "ShowDoc"
     requires_auth = False  # 公开项目匿名可爬；auto_login=True 时先登录
+    root_categories = ('根目录',)
 
     def __init__(
         self,
@@ -111,6 +112,12 @@ class ShowDocCrawler(BaseCrawler):
 
     # ---------- BaseCrawler 接口 ----------
 
+    @property
+    def directory_root_name(self):
+        if not self.project_name:
+            self.fetch_item_info()
+        return self.project_name
+
     def _post(self, api_path, extra=None):
         payload = {"s": api_path, **(extra or {})}
         if self.user_token:
@@ -140,7 +147,7 @@ class ShowDocCrawler(BaseCrawler):
             )
         self._item_info = result
         data = result.get("data") or {}
-        self.project_name = (data.get("item_name") or f"项目{self.item_id}").strip()
+        self.project_name = (data.get("item_name") or '').strip() or f"项目{self.item_id}"
         # 合并文档以项目名命名，与旧版 {项目名}_完整文档.md 行为一致。
         self.collection_name = self.project_name
         return self._item_info
@@ -151,7 +158,7 @@ class ShowDocCrawler(BaseCrawler):
 
         stubs = []
         for page in menu.get("pages") or []:
-            stubs.append(self._page_stub(page, "根目录"))
+            stubs.append(self._page_stub(page, "根目录", []))
         stubs.extend(self._walk_catalogs(menu.get("catalogs") or []))
 
         category_count = len({stub.category for stub in stubs})
@@ -161,22 +168,21 @@ class ShowDocCrawler(BaseCrawler):
         )
         return stubs
 
-    def _page_stub(self, page, category):
+    def _page_stub(self, page, category, path=None):
         page_id = str(page.get("page_id"))
         title = (page.get("page_title") or f"未命名页面_{page_id}").strip()
-        return DocumentStub(id=page_id, title=title, category=category)
+        return DocumentStub(id=page_id, title=title, category=category, directory_path=path)
 
-    def _walk_catalogs(self, catalogs, parent_category=""):
+    def _walk_catalogs(self, catalogs, parent_path=None):
         stubs = []
         for catalog in catalogs:
             name = (catalog.get("cat_name") or "未命名目录").strip()
-            category = (
-                f"{parent_category}/{name}" if parent_category else name
-            )
+            path = [*(parent_path or []), name]
+            category = '/'.join(path)
             for page in catalog.get("pages") or []:
-                stubs.append(self._page_stub(page, category))
+                stubs.append(self._page_stub(page, category, path))
             stubs.extend(
-                self._walk_catalogs(catalog.get("catalogs") or [], category)
+                self._walk_catalogs(catalog.get("catalogs") or [], path)
             )
         return stubs
 

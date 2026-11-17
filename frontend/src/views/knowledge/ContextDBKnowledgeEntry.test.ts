@@ -105,3 +105,10 @@ test('Wiki navigation guards also preserve the current source target and URL for
   const before = plain(f.route.query); f.vm.open({ id: 'new-source' }); f.vm.openWikiPage('new-page'); await flush()
   assert.equal(f.vm.tab, 'wiki'); assert.equal(f.vm.documentId, ''); assert.deepEqual(plain(f.route.query), before)
 })
+
+
+test('import directory links select files and view switches clear the directory deep link',async t=>{
+ const f=await setup(t,{query:{tab:'wiki',folder_id:'import-root'}})
+ assert.equal(f.vm.tab,'documents');assert.equal(f.vm.folderId,'import-root')
+ f.vm.selectTab('wiki');await flush();assert.equal(f.vm.tab,'wiki');assert.equal(f.route.query.folder_id,undefined)
+})

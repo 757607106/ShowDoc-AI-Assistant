@@ -1,7 +1,7 @@
 // @ts-nocheck
 <script setup lang="ts">
 import { indexEmbeddedSourceImages } from '@/utils/sourceImage';
-import { ref, shallowRef, watch, onMounted, onUnmounted, onErrorCaptured, nextTick, defineAsyncComponent } from 'vue';
+import { ref, shallowRef, computed, watch, onMounted, onUnmounted, onErrorCaptured, nextTick, defineAsyncComponent } from 'vue';
 import { getKnowledgeDetails, listKnowledgeFiles, previewKnowledgeFile } from '@/api/knowledge-base/index';
 import { previewTemporaryAttachment } from '@/api/chat/temporary-attachments';
 import { downloadArtifact } from '@/api/chat';
@@ -62,6 +62,7 @@ const props = defineProps<{
   artifactIndex?: number;
   fileType: string;
   fileName: string;
+  displayName?: string;
   active: boolean;
   fillHeight?: boolean;
   /** Place preview actions beside the host header's download button. */
@@ -74,6 +75,8 @@ const props = defineProps<{
   /** Where to scroll and what to highlight once the file is rendered. */
   locate?: SourceLocateRequest | null;
 }>();
+
+const displayFileName = computed(() => props.displayName || props.fileName);
 
 export type SourceLocateResult = { found: boolean; precise: boolean; granularity?: string; reason?: string };
 
@@ -118,6 +121,8 @@ const docxContainer = ref<HTMLElement | null>(null);
 const imageNaturalWidth = ref(0);
 const imageNaturalHeight = ref(0);
 let loadedForId = '';
+let previewLoadGeneration = 0;
+let previewDisposed = false;
 let markdownImageGeneration = 0;
 let markdownImageUrls: string[] = [];
 
@@ -268,10 +273,12 @@ function getHighlightLang(ft: string): string {
 }
 
 async function renderDocx(blob: Blob) {
+  const generation = previewLoadGeneration, container = docxContainer.value;
   const { renderAsync } = await import('docx-preview');
-  if (docxContainer.value) {
-    docxContainer.value.innerHTML = '';
-    await renderAsync(blob, docxContainer.value, undefined, {
+  if (container && generation === previewLoadGeneration && !previewDisposed) {
+    // Parse off-screen so an old decoder cannot write into the next document.
+    const staging = document.createElement('div');
+    await renderAsync(blob, staging, undefined, {
       className: 'docx-preview-wrapper',
       inWrapper: true,
       ignoreWidth: false,
@@ -283,7 +290,9 @@ async function renderDocx(blob: Blob) {
       trimXmlDeclaration: true,
       useBase64URL: true,
     });
-    if (docxContainer.value) await indexEmbeddedSourceImages(docxContainer.value);
+    if (generation !== previewLoadGeneration || previewDisposed || docxContainer.value !== container) return;
+    container.replaceChildren(...staging.childNodes);
+    await indexEmbeddedSourceImages(container);
   }
 }
 
@@ -299,8 +308,10 @@ function decodeCSVBlob(arrayBuffer: ArrayBuffer): string {
 }
 
 async function renderExcel(blob: Blob, fileType?: string) {
+  const generation = previewLoadGeneration;
   const XLSX = await import('xlsx');
   const arrayBuffer = await blob.arrayBuffer();
+  if (generation !== previewLoadGeneration || previewDisposed) return;
 
   let workbook;
   const lowerType = fileType?.toLowerCase();
@@ -330,7 +341,9 @@ async function renderExcel(blob: Blob, fileType?: string) {
 }
 
 async function renderText(blob: Blob, fileType: string) {
-  renderTextContent(await blob.text(), fileType);
+  const generation = previewLoadGeneration;
+  const text = await blob.text();
+  if (generation === previewLoadGeneration && !previewDisposed) renderTextContent(text, fileType);
 }
 
 function renderTextContent(text: string, fileType: string) {
@@ -351,7 +364,9 @@ function renderTextContent(text: string, fileType: string) {
 }
 
 async function renderMarkdown(blob: Blob) {
+  const generation = ++markdownImageGeneration;
   const text = await blob.text();
+  if (generation !== markdownImageGeneration || previewDisposed) return;
 
   // 校验文本内容是否有效
   if (!text || typeof text !== 'string') {
@@ -359,11 +374,10 @@ async function renderMarkdown(blob: Blob) {
     return;
   }
 
-  const generation = ++markdownImageGeneration;
   revokeMarkdownImageUrls();
   const previewOptions = {
     // 预览工具栏已经显示文件名；正文第一行的同名 H1 属于重复标题。
-    titles: [props.fileName],
+    titles: [props.fileName, props.displayName],
   };
   // Relative images stay on a data URI unless a sibling file replaces them.
   // Painting the original href makes the browser request it from the page route.
@@ -438,7 +452,7 @@ function getPreviewSourceKey(): string {
 
 // Skill-generated HTML is often a self-contained chart that needs its own
 // scripts. Knowledge-base files and chat attachments are untrusted uploads:
-// they stay as source, matching the previous text preview.
+// Uploaded HTML is sanitized and rendered without script permission.
 function allowsHtmlScriptPreview(): boolean {
   return getPreviewSourceKey().startsWith('artifact:');
 }
@@ -475,18 +489,22 @@ async function loadPreview() {
   if (loadedForId === sourceKey && (!loadedMermaidBlob || loadedMermaidBlob === sourceBlob)) return;
 
   cleanup();
+  const generation = previewLoadGeneration;
+  const current = () => generation === previewLoadGeneration && !previewDisposed && getPreviewSourceKey() === sourceKey;
   loading.value = true;
   error.value = '';
-  htmlViewMode.value = allowsHtmlScriptPreview() ? 'render' : 'source';
+  htmlViewMode.value = 'render';
 
   let ft = resolveFilePreviewExt(props.fileName, props.fileType);
   previewType.value = resolvePreviewKind(ft);
 
   try {
     const rawBlob = await fetchPreviewBlob();
+    if (!current()) return;
     let kind = resolvePreviewKind(ft);
     if (kind === 'unsupported') {
       const sample = new Uint8Array(await rawBlob.slice(0, FILE_PREVIEW_SNIFF_BYTES).arrayBuffer());
+      if (!current()) return;
       const sniffed = sniffPreview(sample);
       kind = sniffed.kind;
       if (sniffed.ext) ft = sniffed.ext;
@@ -503,12 +521,14 @@ async function loadPreview() {
 
     loading.value = false;
     await nextTick();
+    if (!current()) return;
 
     previewExt = ft;
     switch (kind) {
       case 'pdf': {
         if (props.sourceMode) {
-          pdfData.value = await blob.arrayBuffer();
+          const data = await blob.arrayBuffer();
+          if (current()) pdfData.value = data;
         } else {
           blobUrl.value = URL.createObjectURL(blob);
         }
@@ -522,15 +542,16 @@ async function loadPreview() {
       }
       case 'epub': {
         const rendered = await renderEpubPreview(await blob.arrayBuffer());
+        if (!current()) { for (const url of rendered.objectUrls) URL.revokeObjectURL(url); return; }
         epubObjectUrls = rendered.objectUrls;
         epubHtml.value = sanitizeHTML(rendered.html);
         break;
       }
       case 'html': {
-        if (allowsHtmlScriptPreview()) {
-          const previewHtml = buildHtmlPreview(await blob.text());
-          blobUrl.value = URL.createObjectURL(new Blob([previewHtml], { type: 'text/html;charset=utf-8' }));
-        }
+        const sourceHtml = await blob.text();
+        if (!current()) return;
+        const previewHtml = allowsHtmlScriptPreview() ? buildHtmlPreview(sourceHtml) : sanitizeHTML(sourceHtml);
+        blobUrl.value = URL.createObjectURL(new Blob([previewHtml], { type: 'text/html;charset=utf-8' }));
         await renderText(blob, ft || 'html');
         break;
       }
@@ -551,19 +572,20 @@ async function loadPreview() {
         // Markdown 里的 resource:// 等受保护图片需要带鉴权换 blob（无 override
         // 时走应用默认鉴权面：登录态 /files 代理）。已换过的元素幂等跳过。
         await nextTick();
+        if (!current()) return;
         await hydrateProtectedFileImages(previewContent.value);
         break;
       }
       case 'pptx': {
         const prepared = await preparePptxPreview(await blob.arrayBuffer());
-        if (getPreviewSourceKey() !== sourceKey || !props.active) return;
+        if (!current() || !props.active) return;
         pptxSlideCount = prepared.slideCount;
         pptxData.value = prepared.data;
         break;
       }
       case 'mermaid': {
         const source = await blob.text();
-        if (getPreviewSourceKey() === sourceKey && props.sourceBlob === sourceBlob && props.active) {
+        if (current() && props.sourceBlob === sourceBlob && props.active) {
           loadedMermaidBlob = sourceBlob;
           mermaidSource.value = source;
         }
@@ -573,14 +595,16 @@ async function loadPreview() {
     // PPTX renders asynchronously and locates from its rendered event.
     if (kind !== 'pptx') scheduleLocate();
   } catch (err: any) {
+    if (!current()) return;
     console.error('Document preview failed:', err);
     error.value = err?.message || t('preview.loadFailed');
   } finally {
-    loading.value = false;
+    if (current()) loading.value = false;
   }
 }
 
 function cleanup() {
+  previewLoadGeneration++;
   markdownImageGeneration += 1;
   revokeMarkdownImageUrls();
   if (blobUrl.value) {
@@ -926,19 +950,20 @@ watch(
 );
 
 onUnmounted(() => {
+  previewDisposed = true;
   cleanup();
 });
 </script>
 
 <template>
-  <div ref="previewRoot" tabindex="-1" :aria-label="fileName" class="document-preview" :class="{ 'is-fullscreen': isFullscreen, 'fill-height': fillHeight }">
+  <div ref="previewRoot" tabindex="-1" :aria-label="displayFileName" class="document-preview" :class="{ 'is-fullscreen': isFullscreen, 'fill-height': fillHeight }">
     <!-- Toolbar -->
     <Teleport :to="toolbarTarget || 'body'" :disabled="isFullscreen || !toolbarTarget">
       <div class="preview-toolbar" :class="{ 'is-inline': toolbarTarget && !isFullscreen }" v-if="isFullscreen || (!loading && !error && previewType !== 'unsupported')">
-        <span v-if="isFullscreen" class="preview-toolbar-title" :title="fileName">{{ fileName }}</span>
+        <span v-if="isFullscreen" class="preview-toolbar-title" :title="displayFileName">{{ displayFileName }}</span>
         <div class="preview-toolbar-actions">
           <t-button
-            v-if="previewType === 'html' && allowsHtmlScriptPreview()"
+            v-if="previewType === 'html'"
             theme="default" variant="text" size="small" shape="square"
             :title="htmlViewMode === 'render' ? $t('preview.htmlSource') : $t('preview.htmlRendered')"
             :aria-label="htmlViewMode === 'render' ? $t('preview.htmlSource') : $t('preview.htmlRendered')"
@@ -980,33 +1005,33 @@ onUnmounted(() => {
 
     <!-- PDF -->
     <div v-else-if="previewType === 'pdf' && pdfData" class="preview-pdf preview-pdf--source">
-      <PdfSourceViewer :data="pdfData" :file-name="fileName" :locate="locate" @located="(r) => emit('located', r)" />
+      <PdfSourceViewer :data="pdfData" :file-name="displayFileName" :locate="locate" @located="(r) => emit('located', r)" />
     </div>
     <div v-else-if="previewType === 'pdf' && blobUrl" class="preview-pdf">
-      <iframe ref="previewContent" tabindex="0" :title="fileName" :src="blobUrl" class="pdf-iframe" @load="onPreviewFrameLoad" />
+      <iframe ref="previewContent" tabindex="0" :title="displayFileName" :src="blobUrl" class="pdf-iframe" @load="onPreviewFrameLoad" />
     </div>
 
-    <!-- HTML: artifacts render in a unique-origin iframe; other sources stay as source. -->
+    <!-- Source HTML uses sanitized content in an opaque frame without scripts. -->
     <div v-else-if="previewType === 'html'" class="preview-html">
       <iframe
-        v-if="allowsHtmlScriptPreview() && htmlViewMode === 'render' && blobUrl"
+        v-if="htmlViewMode === 'render' && blobUrl"
         ref="previewContent"
         tabindex="0"
-        :title="fileName"
+        :title="displayFileName"
         :src="blobUrl"
         class="html-iframe"
-        sandbox="allow-scripts"
+        :sandbox="allowsHtmlScriptPreview() ? 'allow-scripts' : 'allow-popups allow-popups-to-escape-sandbox'"
         referrerpolicy="no-referrer"
         @load="onPreviewFrameLoad"
       />
-      <pre v-else-if="!allowsHtmlScriptPreview() || htmlViewMode === 'source'" ref="previewContent" tabindex="0" :aria-label="fileName" class="code-preview"><code class="hljs" v-html="highlightedCode"></code></pre>
+      <pre v-else-if="htmlViewMode === 'source'" ref="previewContent" tabindex="0" :aria-label="displayFileName" class="code-preview"><code class="hljs" v-html="highlightedCode"></code></pre>
     </div>
 
     <!-- Image -->
-    <div v-else-if="previewType === 'image' && blobUrl" ref="previewContent" tabindex="0" :aria-label="fileName" class="preview-image">
+    <div v-else-if="previewType === 'image' && blobUrl" ref="previewContent" tabindex="0" :aria-label="displayFileName" class="preview-image">
       <div class="image-wrapper">
         <div class="image-frame">
-          <img :src="blobUrl" :alt="fileName" @load="onImageLoad" />
+          <img :src="blobUrl" :alt="displayFileName" @load="onImageLoad" />
           <div
             v-for="(mark, i) in imageMarks"
             :key="i"
@@ -1023,43 +1048,43 @@ onUnmounted(() => {
 
     <!-- DOCX -->
     <div v-else-if="previewType === 'docx'" class="preview-docx">
-      <div ref="docxContainer" tabindex="0" :aria-label="fileName" class="docx-container" />
+      <div ref="docxContainer" tabindex="0" :aria-label="displayFileName" class="docx-container" />
     </div>
 
     <!-- PPTX -->
-    <div v-else-if="previewType === 'pptx' && pptxData" ref="previewContent" tabindex="0" :aria-label="fileName" class="preview-pptx">
+    <div v-else-if="previewType === 'pptx' && pptxData" ref="previewContent" tabindex="0" :aria-label="displayFileName" class="preview-pptx">
       <vue-office-pptx :key="loadedForId" :src="pptxData" @rendered="onPptxRendered" @error="(e: any) => { error = e?.message || $t('preview.loadFailed'); }" />
     </div>
 
     <!-- Excel -->
     <div v-else-if="previewType === 'excel' && excelHtml" class="preview-excel">
-      <div ref="previewContent" tabindex="0" :aria-label="fileName" class="excel-container" v-html="excelHtml" />
+      <div ref="previewContent" tabindex="0" :aria-label="displayFileName" class="excel-container" v-html="excelHtml" />
     </div>
 
     <!-- EPUB -->
-    <div v-else-if="previewType === 'epub' && epubHtml" ref="previewContent" tabindex="0" :aria-label="fileName" class="preview-markdown preview-epub">
+    <div v-else-if="previewType === 'epub' && epubHtml" ref="previewContent" tabindex="0" :aria-label="displayFileName" class="preview-markdown preview-epub">
       <div class="markdown-body" v-html="epubHtml" />
     </div>
 
     <!-- Markdown -->
-    <div v-else-if="previewType === 'markdown' && markdownHtml" ref="previewContent" tabindex="0" :aria-label="fileName" class="preview-markdown">
+    <div v-else-if="previewType === 'markdown' && markdownHtml" ref="previewContent" tabindex="0" :aria-label="displayFileName" class="preview-markdown">
       <div class="markdown-body" v-html="markdownHtml" />
     </div>
 
     <!-- Text / Code -->
     <div v-else-if="previewType === 'text' && highlightedCode" class="preview-text">
-      <pre ref="previewContent" tabindex="0" :aria-label="fileName" class="code-preview"><code class="hljs" v-html="highlightedCode"></code></pre>
+      <pre ref="previewContent" tabindex="0" :aria-label="displayFileName" class="code-preview"><code class="hljs" v-html="highlightedCode"></code></pre>
     </div>
 
     <!-- Mermaid -->
     <MermaidFilePreview class="preview-mermaid" v-else-if="previewType === 'mermaid' && mermaidSource !== null && active"
-      :key="mermaidSource" :before-open="exitPreviewFullscreen" :source="mermaidSource" :title="fileName" @fallback="mermaidFallback" />
+      :key="mermaidSource" :before-open="exitPreviewFullscreen" :source="mermaidSource" :title="displayFileName" @fallback="mermaidFallback" />
 
     <!-- Audio -->
     <div v-else-if="previewType === 'audio' && blobUrl" class="preview-audio">
       <div class="audio-wrapper">
         <t-icon name="sound" size="48px" />
-        <p class="audio-filename">{{ fileName }}</p>
+        <p class="audio-filename">{{ displayFileName }}</p>
         <audio ref="previewContent" controls :src="blobUrl" class="audio-element">
           {{ $t('preview.audioNotSupported') }}
         </audio>

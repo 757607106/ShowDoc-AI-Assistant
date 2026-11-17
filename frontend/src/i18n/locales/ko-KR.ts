@@ -771,7 +771,7 @@ export default {
   },
   userProfile: {
     title: '사용자 정보',
-    description: '계정 기본 정보(사용자 ID, 사용자 이름, 이메일, 가입 시각)를 확인하고 비밀번호를 변경할 수 있습니다.',
+    description: '계정 기본 정보(사용자 ID, 사용자 이름, 계정, 가입 시각)를 확인하고 비밀번호를 변경할 수 있습니다.',
     changePassword: {
       label: '비밀번호 변경',
       description: '현재 비밀번호를 확인한 뒤 새 비밀번호를 설정합니다. 성공 시 모든 세션이 만료되어 다시 로그인해야 합니다.',
@@ -4215,7 +4215,6 @@ export default {
     title: '일반 설정',
     allSettings: '모든 설정',
     personalSettings: '개인 설정',
-    helpAndDocs: '도움말 및 문서',
     description: '언어, 외관 등 기본 옵션 설정',
     settings: '설정',
     close: '설정 닫기'
@@ -6739,8 +6738,6 @@ export default {
     clear: '지우기',
     website: '공식 웹사이트',
     clawhubSkill: 'Claw Skill',
-    github: 'GitHub',
-    githubStarTip: 'GitHub에서 저장소로 이동합니다. 유용하다면 Star를 부탁드립니다',
     on: '켜기',
     off: '끄기',
     confirmDelete: '삭제 확인',
@@ -6772,6 +6769,10 @@ export default {
     }
   },
   auth: {
+    account: '계정',
+    accountPlaceholder: '계정을 입력하세요',
+    accountRequired: '계정을 입력해주세요',
+    accountDescription: '플랫폼 로그인 계정',
     login: '로그인',
     logout: '로그아웃',
     oidcLogin: 'OIDC로 로그인',
@@ -6805,7 +6806,7 @@ export default {
     emailInvalid: '올바른 이메일 형식을 입력해주세요',
     passwordRequired: '비밀번호를 입력해주세요',
     passwordMinLength: '비밀번호는 최소 8자여야 합니다',
-    passwordMaxLength: '비밀번호는 32자를 초과할 수 없습니다',
+    passwordMaxLength: '비밀번호는 1024자를 초과할 수 없습니다',
     passwordMustContainLetter: '비밀번호에 문자가 포함되어야 합니다',
     passwordMustContainLowercaseLetter: '비밀번호에는 소문자가 포함되어야 합니다',
     passwordMustContainUppercaseLetter: '비밀번호에는 대문자가 포함되어야 합니다',
@@ -6817,7 +6818,7 @@ export default {
     usernameInvalid: '사용자명은 영문자, 숫자, 밑줄(_), 한자만 포함할 수 있습니다',
     confirmPasswordRequired: '비밀번호를 확인해주세요',
     passwordMismatch: '두 비밀번호가 일치하지 않습니다',
-    loginError: '로그인 오류, 이메일 또는 비밀번호를 확인해주세요',
+    loginError: '계정 또는 비밀번호를 확인하세요',
     loginErrorRetry: '로그인 오류, 나중에 다시 시도해주세요',
     registerError: '가입 오류, 나중에 다시 시도해주세요',
     workspaceOnboarding: {

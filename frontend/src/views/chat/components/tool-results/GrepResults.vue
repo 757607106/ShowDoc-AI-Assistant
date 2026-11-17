@@ -3,8 +3,8 @@
     <div v-if="rows.length" class="results-list">
       <ResultRow v-for="(result, index) in rows" :key="result.key" :index="index + 1" :title="result.title"
         :meta="result.meta" :popup-key="result.key" :show-popup="result.chunks.length > 0 || !!result.snippet"
-        :content="result.chunks.length === 1 ? result.snippet : undefined"
-        :chunks="result.chunks.length > 1 ? result.chunks : undefined" :chunk-id="result.chunkId"
+        :content="result.snippet"
+        :chunks="result.chunks" :chunk-id="result.chunkId"
         :knowledge-id="result.knowledgeId" :highlight="searchPattern" :regex="true" />
     </div>
 
@@ -21,6 +21,8 @@ import { cleanSnippet } from './contentClean';
 import ResultRow from './ResultRow.vue';
 import { groupGrepChunkResults } from '@/utils/grepResultsGroup';
 import type { GrepKnowledgeResult, GrepResultsData } from '@/types/tool-results';
+import { IS_CONTEXTDB } from '@/config/contextdb';
+import { documentDisplayName } from '@/utils/contextdbDocumentName';
 
 const props = defineProps<{
   data: GrepResultsData;
@@ -57,7 +59,8 @@ const formatKnowledgeMeta = (result: GrepKnowledgeResult): string => {
 };
 
 const rowFromGroupedChunk = (group: ReturnType<typeof groupGrepChunkResults>[number]): GrepRow => {
-  const title = group.title || t('knowledge.untitledDocument');
+  const original = props.data.chunk_results?.find(item => item.knowledge_id === group.knowledge_id);
+  const title = (group.is_faq ? group.title : documentDisplayName({ ...original, document_name: group.title })) || t('knowledge.untitledDocument');
   const meta = group.is_faq
     ? t('agentStream.grepResults.faqEntry')
     : formatKnowledgeMeta({
@@ -76,7 +79,8 @@ const rowFromGroupedChunk = (group: ReturnType<typeof groupGrepChunkResults>[num
     meta,
     snippet: cleanSnippet(group.match_snippet),
     chunks: group.chunks.map((chunk) => ({
-      content: cleanSnippet(chunk.content),
+      ...props.data.chunk_results?.find(item => (item.faq_id || item.chunk_id) === chunk.chunk_id),
+      content: IS_CONTEXTDB ? chunk.content : cleanSnippet(chunk.content),
       chunk_id: chunk.chunk_id,
       knowledge_id: chunk.knowledge_id,
     })),
@@ -87,12 +91,13 @@ const rowFromGroupedChunk = (group: ReturnType<typeof groupGrepChunkResults>[num
 
 const rowFromKnowledge = (result: GrepKnowledgeResult): GrepRow => ({
   key: result.knowledge_id,
-  title: result.faq_question || result.knowledge_title || t('knowledge.untitledDocument'),
+  title: result.faq_question || documentDisplayName({ ...result, document_name: result.knowledge_title }) || t('knowledge.untitledDocument'),
   meta: formatKnowledgeMeta(result),
   snippet: cleanSnippet(result.match_snippet ?? ''),
   chunks: result.match_snippet
     ? [{
-      content: cleanSnippet(result.match_snippet ?? ''),
+      ...result,
+      content: IS_CONTEXTDB ? result.match_snippet : cleanSnippet(result.match_snippet ?? ''),
       chunk_id: '',
       knowledge_id: result.knowledge_id,
     }]

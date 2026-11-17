@@ -33,6 +33,7 @@ class WebCrawler(BaseCrawler):
     display_name = "通用网页"
     entry_url = ""
     requires_auth = False
+    root_categories = ('网页',)
 
     def __init__(
         self,
@@ -75,6 +76,10 @@ class WebCrawler(BaseCrawler):
 
     def strategy_info(self):
         return describe_web_strategy(self.url)
+
+    @property
+    def directory_root_name(self):
+        return urllib.parse.urlsplit(self.url).netloc.lower()
 
     @staticmethod
     def validate_url(value):
@@ -696,6 +701,7 @@ class WebCrawler(BaseCrawler):
                 "content_completeness": "unknown" if self._record_value(record, ("content", "body", "html", "text", "answer", "solution", "detail")) else "summary",
                 "api_endpoint": plan.url,
                 "api_record_index": index,
+                "import_directory": self.directory_metadata(path=[]),
             },
             source_format="html",
         )
@@ -806,7 +812,7 @@ class WebCrawler(BaseCrawler):
     @staticmethod
     def _blocked_page_reason(document):
         """Detect short challenge/error shells that browsers often report as success."""
-        content = (document.markdown or "").strip()
+        content = (document.markdown or document.content or "").strip()
         if len(content) > 1500:
             return ""
 
@@ -857,6 +863,8 @@ class WebCrawler(BaseCrawler):
         return document
 
     def convert_document(self, document):
+        if self.source_only:
+            return document
         super().convert_document(document)
         reason = self._blocked_page_reason(document)
         if reason:
@@ -998,9 +1006,10 @@ class WebCrawler(BaseCrawler):
                         {"url": document.metadata["url"], "reason": failure_reason}
                     )
                     continue
-                if document.markdown.strip():
+                captured_content = document.content if self.source_only else document.markdown
+                if captured_content.strip():
                     content_fingerprint = hashlib.sha1(
-                        document.markdown.strip().encode("utf-8")
+                        captured_content.strip().encode("utf-8")
                     ).hexdigest()
                     if content_fingerprint in seen_content:
                         print(f"ℹ️ 检测到重复正文，保留来源: {document.metadata['url']}")
@@ -1017,7 +1026,7 @@ class WebCrawler(BaseCrawler):
                 if selected_titles and document.title not in set(selected_titles):
                     continue
                 content_fingerprint = hashlib.sha1(
-                    document.markdown.strip().encode("utf-8")
+                    (document.content if self.source_only else document.markdown).strip().encode("utf-8")
                 ).hexdigest()
                 if content_fingerprint in seen_content:
                     duplicate_pages.append(document.metadata.get("url") or document.id)
@@ -1036,7 +1045,7 @@ class WebCrawler(BaseCrawler):
                 if item.get("reported_total") is not None
             )
             api_saved = sum(int(item.get("documents_created") or 0) for item in api_reports)
-            api_saved = sum(doc.id.startswith("api:") and bool(doc.docling_path)
+            api_saved = sum(doc.id.startswith("api:") and bool(doc.content if self.source_only else doc.docling_path)
                             and not doc.metadata.get("conversion_error") for doc in documents)
             coverage = (
                 round(min(100.0, api_saved / api_expected * 100), 2)

@@ -771,7 +771,7 @@ export default {
   },
   userProfile: {
     title: '使用者資訊',
-    description: '查看您的帳戶基礎資訊（使用者 ID、使用者名、電子信箱、註冊時間），並可修改登入密碼',
+    description: '查看您的帳戶基礎資訊（使用者 ID、使用者名、帳號、註冊時間），並可修改登入密碼',
     changePassword: {
       label: '修改密碼',
       description: '使用當前密碼驗證後設定新密碼。修改成功後所有裝置上的登入狀態將失效，需要重新登入。',
@@ -4217,7 +4217,6 @@ export default {
     title: '常規設定',
     allSettings: '全部設定',
     personalSettings: '個人設定',
-    helpAndDocs: '幫助與文件',
     description: '設定語言、外觀等基礎選項',
     settings: '設定',
     close: '關閉設定'
@@ -6740,8 +6739,6 @@ export default {
     clear: '清空',
     website: '官方網站',
     clawhubSkill: 'Claw Skill',
-    github: 'GitHub',
-    githubStarTip: '在 GitHub 打開倉庫，若覺得有用歡迎點個 Star',
     on: '開啟',
     off: '關閉',
     confirmDelete: '確認刪除',
@@ -6773,6 +6770,10 @@ export default {
     }
   },
   auth: {
+    account: '帳號',
+    accountPlaceholder: '請輸入帳號',
+    accountRequired: '請輸入帳號',
+    accountDescription: '用於登入平台的帳號',
     login: '登入',
     logout: '退出',
     oidcLogin: '使用 OIDC 登入',
@@ -6806,7 +6807,7 @@ export default {
     emailInvalid: '請輸入正確的電子信箱格式',
     passwordRequired: '請輸入密碼',
     passwordMinLength: '密碼至少8個字符',
-    passwordMaxLength: '密碼不能超過32個字符',
+    passwordMaxLength: '密碼不能超過1024個字符',
     passwordMustContainLetter: '密碼必須包含字母',
     passwordMustContainLowercaseLetter: '密碼必須包含小寫字母',
     passwordMustContainUppercaseLetter: '密碼必須包含大寫字母',
@@ -6818,7 +6819,7 @@ export default {
     usernameInvalid: '使用者名只能包含字母、數字、底線和中文字符',
     confirmPasswordRequired: '請確認密碼',
     passwordMismatch: '兩次輸入的密碼不一致',
-    loginError: '登入錯誤，請檢查電子信箱或密碼',
+    loginError: '登入錯誤，請檢查帳號或密碼',
     loginErrorRetry: '登入錯誤，請稍後重試',
     registerError: '註冊錯誤，請稍後重試',
     workspaceOnboarding: {

@@ -100,10 +100,10 @@ const router = createRouter({
       component: () => import("../views/platform/index.vue"),
       meta: { requiresInit: true, requiresAuth: true },
       children: [
-        {path:'collect',name:'collect',component:()=>import('../views/CollectView.vue'),meta:{requiresAuth:true,requiresInit:true}},
+        {path:'collect',name:'collect',redirect:to=>({path:'/platform/tasks',query:{...to.query,view:'tasks',add:'1'},hash:to.hash}),meta:{requiresAuth:true,requiresInit:true}},
         {path:'tasks',name:'tasks',component:()=>import('../views/TasksView.vue'),meta:{requiresAuth:true,requiresInit:true}},
         {path:'captures',name:'captures',redirect:'/platform/knowledge-bases',meta:{requiresAuth:true,requiresInit:true}},
-        {path:'releases',name:'releases',component:()=>import('../views/ReleasesView.vue'),meta:{requiresAuth:true,requiresInit:true}},
+        {path:'releases',name:'releases',redirect:to=>({path:'/platform/tasks',query:{...to.query,view:'history'},hash:to.hash}),meta:{requiresAuth:true,requiresInit:true}},
         {path:'governance',name:'governance',component:()=>import('../views/KnowledgeView.vue'),meta:{requiresAuth:true,requiresInit:true}},
         {
           path: "tenant",

@@ -15,6 +15,13 @@ export function documentDisplayName(doc?: DocumentName | null): string {
   return extension && !title.toLowerCase().endsWith(extension.toLowerCase()) ? title + extension : title
 }
 
+export function documentDownloadName(doc?: DocumentName | null): string {
+  const name = documentDisplayName(doc)
+  const suffix = (doc?.name || doc?.document_name || '').match(/\.[^./\\]+$/)?.[0] || ''
+  if (!suffix || name.toLowerCase().endsWith(suffix.toLowerCase())) return name
+  return name.replace(/\.[^./\\]+$/, '') + suffix
+}
+
 export function graphDocumentLabel(label: string, documents: DocumentName[]): string {
   const document = documents.find(item => item.name === label)
   const display = [document?.document_display_name, document?.display_name].find(value => typeof value === 'string' && value.trim())

@@ -120,6 +120,7 @@ def process_job(store, job):
             store.log(job_id, '正在连接数据源并采集原件', phase='connecting')
             crawler = create_crawler(job['entry'], save_dir=str(output), progress_callback=progress, **job['params'])
             crawler.source_only = True
+            crawler.import_root_name = (job.get('import_directory') or {}).get('root_name', '')
             source_file = output / 'source_documents.jsonl'
             if source_file.exists() and source_file.stat().st_size:
                 summary = asdict(crawler.reprocess_sources(
@@ -198,7 +199,7 @@ def _publish(store, job_id):
         records, chunks, copied_assets = [], [], set()
         for doc in documents:
             artifact_base = f"artifacts/{doc['job_id']}"
-            record = {**{k: doc.get(k) for k in ('id', 'version_id', 'title', 'category', 'content', 'content_format', 'metadata', 'resources', 'source_format')}, 'artifact_base': artifact_base}
+            record = {**{k: doc.get(k) for k in ('id', 'version_id', 'title', 'category', 'content', 'content_format', 'metadata', 'resources', 'source_format', 'source_key', 'job_id', 'revision_of')}, 'artifact_base': artifact_base}
             source_path = doc.get('source', {}).get('source_path')
             if doc.get('content_format') == 'markdown' and not source_path:
                 record['source_content'] = doc.get('source', {}).get('content', doc.get('content', ''))

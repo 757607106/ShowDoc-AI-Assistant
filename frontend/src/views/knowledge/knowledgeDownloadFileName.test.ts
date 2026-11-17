@@ -3,6 +3,11 @@ import test from 'node:test';
 
 import { isBatchDownloadableKnowledge, resolveKnowledgeDownloadFileName } from './knowledgeDownloadFileName.ts';
 
+test('prefers the actual download filename over a source name from before conversion', () => {
+  assert.equal(resolveKnowledgeDownloadFileName({ id: 'converted', download_file_name: '业务原件.md',
+    original_file_name: '业务原件.html', file_name: '业务原件.html', type: 'file' }), '业务原件.md');
+});
+
 test('prefers the original filename over the extensionless display name', () => {
   assert.equal(resolveKnowledgeDownloadFileName({
     id: 'knowledge-1',

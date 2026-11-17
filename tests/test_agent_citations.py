@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import pytest
 
 from agent.citations import AnswerCitations
@@ -79,3 +81,32 @@ def test_source_identity_uses_real_library_document_and_chunk_ids():
     ]
     assert {ref['title'] for ref in citations.references} == {'相同标题.md'}
     assert AnswerCitations(['kb-1']).references == []
+
+
+@pytest.mark.parametrize('fields,expected', [
+    ({'document_display_name': '业务显示名.md', 'display_name': '备用名.md',
+      'metadata': {'filename': '原文件.md'}}, '业务显示名.md'),
+    ({'document_display_name': ' ', 'display_name': '备用名.md',
+      'metadata': {'filename': '原文件.md'}}, '备用名.md'),
+    ({'metadata': {'filename': '单位进货排行榜.md'}}, '单位进货排行榜.md'),
+    ({'doc_metadata': {'filename': '原始手册.docx'}}, '原始手册.docx'),
+    ({'metadata': {'title': '配置手册'}}, '配置手册.md'),
+    ({'metadata': {'title': '配置手册.md'}}, '配置手册.md'),
+    ({'metadata': 'invalid'}, 'doc-' + 'a' * 64 + '.md'),
+    ({'document_name': '', 'metadata': {}}, 'doc-1'),
+])
+def test_readable_citation_names_preserve_native_content_and_identity(fields, expected):
+    original = chunk(**{'document_name': 'doc-' + 'a' * 64 + '.md', **fields})
+    native = {'results': [original, deepcopy(original),
+        {**original, 'knowledge_base_id': 'outside-scope'},
+        {**original, 'chunk_id': 'graph:kb-1:entity', 'citation_eligible': False}]}
+    before = deepcopy(native)
+    citations = AnswerCitations(['kb-1'])
+    citations.register('knowledge.search', native)
+    assert len(citations.references) == 1
+    reference = citations.references[0]
+    assert reference['title'] == reference['knowledge_title'] == reference['knowledge_filename'] == expected
+    assert (reference['knowledge_base_id'], reference['knowledge_id'], reference['id']) == (
+        'kb-1', 'doc-1', 'doc-1_chunk_0')
+    assert reference['content'] == original['content']
+    assert native == before

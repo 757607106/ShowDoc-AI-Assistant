@@ -30,7 +30,7 @@
             <span class="relevance-badge" :class="getRelevanceClass(result.relevance_level)">
               {{ getRelevanceLabel(result.relevance_level) }}
             </span>
-            <span class="knowledge-title">{{ result.knowledge_title }}</span>
+            <span class="knowledge-title">{{ documentDisplayName({ ...result, document_name: result.knowledge_title }) || result.knowledge_title }}</span>
           </div>
           <div class="result-meta">
             <span class="score">{{ (result.score * 100).toFixed(0) }}%</span>
@@ -41,7 +41,8 @@
         </div>
         
         <div class="result-content" :class="{ expanded: expandedResults.includes(result.chunk_id) }">
-          <div class="full-content">{{ result.content }}</div>
+          <ContentPopup v-if="IS_CONTEXTDB" :chunks="[result]" :chunk-id="result.chunk_id" :knowledge-id="result.knowledge_id" />
+          <div v-else class="full-content">{{ result.content }}</div>
         </div>
       </div>
     </div>
@@ -56,6 +57,9 @@
 import { ref } from 'vue';
 import type { GraphQueryResultsData, RelevanceLevel } from '@/types/tool-results';
 import { useI18n } from 'vue-i18n';
+import { IS_CONTEXTDB } from '@/config/contextdb';
+import ContentPopup from './ContentPopup.vue';
+import { documentDisplayName } from '@/utils/contextdbDocumentName';
 
 const props = defineProps<{
   data: GraphQueryResultsData;

@@ -78,7 +78,12 @@ def _forward_file(client, store, resource):
             upload.save(local)
             if not local.stat().st_size:
                 raise StoreError('不能上传空文件', 400)
+            source_name = name
             name, local, _ = prepare_review_file(client, kb_id, name, local, review_enabled=review_enabled)
+            if name != source_name and 'filename' not in (metadata or {}):
+                if len(metadata or {}) >= 32:
+                    raise StoreError('格式转换需保留原始文件名，请在 metadata 预留 filename 字段或减少一个字段', 422)
+                metadata = {**(metadata or {}), 'filename': source_name}
             options = {'metadata': metadata, 'mime_type': 'text/markdown' if name.endswith('.md') else upload.mimetype,
                        'review_template_id': fields.get('review_template_id'), 'review_enabled': review_enabled}
             if request.method == 'PUT':

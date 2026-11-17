@@ -8,16 +8,19 @@ function setup(t: Parameters<typeof fixture>[0], admin = true) {
   const ui = vue.reactive({ showSettingsModal: true, settingsInitialSection: 'models', closeSettings() { this.showSettingsModal = false } })
   const route = vue.reactive({ name: 'settings', query: {} as Record<string, string> })
   const push = t.mock.fn(async (_path: string) => {})
+  const writes: any[] = []
   const page = f.component(new URL('./ContextDBSettings.vue', import.meta.url), {
     'vue-router': { useRoute: () => route, useRouter: () => ({ push }) },
     '@/stores/auth': { useAuthStore: () => ({ hasRole: () => admin }) },
     '@/stores/ui': { useUIStore: () => ui },
     '@/stores/deploymentCapabilities': { useDeploymentCapabilitiesStore: () => ({ isSupported: () => true }) },
-    '@/utils/request': { get: async () => ({ data: [] }) },
+    '@/utils/request': { get: async () => ({ data: [], users: [{ id: 'legacy', email: 'legacy-account', username: '显示名' }] }),
+      post: async (path: string, body: any) => { writes.push({ method: 'POST', path, body }) },
+      patch: async (path: string, body: any) => { writes.push({ method: 'PATCH', path, body }) } },
     '@/api/contextdb': {}, '@/utils/platformPresentation': {},
-    'tdesign-vue-next': { MessagePlugin: {} },
+    'tdesign-vue-next': { MessagePlugin: { success() {} } },
   })
-  return { ...f, ...page, ui, route, push }
+  return { ...f, ...page, ui, route, push, writes }
 }
 
 test('model settings opens from the composer shortcut and route navigation', async t => {
@@ -76,4 +79,26 @@ test('read-only members retain personal settings but cannot enter admin history 
     f.vm.selectSection(section)
     assert.equal(f.vm.section, 'general')
   }
+})
+
+test('member creation sends a plain account and accepts the eight-character default password', async t => {
+  const f = setup(t)
+  f.vm.section = 'members'; await flush()
+  assert.equal(f.vm.users[0].account, 'legacy-account')
+  f.vm.edit(); f.vm.account = ' worker '; f.vm.password = 'admin123'; await f.vm.save()
+  assert.deepEqual(JSON.parse(JSON.stringify(f.writes)), [{ method: 'POST', path: '/api/platform/users',
+    body: { account: 'worker', username: 'worker', password: 'admin123', role: 'viewer' } }])
+  assert.equal(f.vm.formOpen, false)
+})
+
+test('member validation rejects a missing account or invalid password and editing can keep the password', async t => {
+  const f = setup(t)
+  f.vm.edit(); f.vm.password = 'admin123'; await f.vm.save()
+  assert.match(f.vm.error, /账号/); assert.equal(f.writes.length, 0)
+  f.vm.account = 'worker'; f.vm.password = 'short12'; await f.vm.save()
+  assert.match(f.vm.error, /8 至 1024/); assert.equal(f.writes.length, 0)
+  f.vm.password = 'x'.repeat(1025); await f.vm.save(); assert.equal(f.writes.length, 0)
+  f.vm.edit({ id: 'legacy', email: 'legacy-account', role: 'editor' }); assert.equal(f.vm.account, 'legacy-account')
+  await f.vm.save()
+  assert.deepEqual(JSON.parse(JSON.stringify(f.writes)), [{ method: 'PATCH', path: '/api/platform/users/legacy', body: { role: 'editor' } }])
 })

@@ -2926,6 +2926,10 @@ export default {
     passwordMismatch: 'Passwords do not match'
   },
   auth: {
+    account: 'Account',
+    accountPlaceholder: 'Enter account',
+    accountRequired: 'Enter account',
+    accountDescription: 'Your platform sign-in account',
     login: 'Login',
     logout: 'Logout',
     oidcLogin: 'Sign in with OIDC',
@@ -2959,7 +2963,7 @@ export default {
     emailInvalid: 'Enter correct email format',
     passwordRequired: 'Enter password',
     passwordMinLength: 'Password must be at least 8 characters',
-    passwordMaxLength: 'Password cannot exceed 32 characters',
+    passwordMaxLength: 'Password cannot exceed 1024 characters',
     passwordMustContainLetter: 'Password must contain letters',
     passwordMustContainLowercaseLetter: 'Password must contain lowercase letters',
     passwordMustContainUppercaseLetter: 'Password must contain uppercase letters',
@@ -2971,7 +2975,7 @@ export default {
     usernameInvalid: 'Username can only contain letters, numbers, underscores and Chinese characters',
     confirmPasswordRequired: 'Confirm password',
     passwordMismatch: 'Entered passwords do not match',
-    loginError: 'Login error, please check email or password',
+    loginError: 'Login error, please check account or password',
     loginErrorRetry: 'Login error, please try again later',
     registerError: 'Registration error, please try again later',
     workspaceOnboarding: {
@@ -3039,8 +3043,6 @@ export default {
     clear: 'Clear',
     website: 'Official Website',
     clawhubSkill: 'Claw Skill',
-    github: 'GitHub',
-    githubStarTip: 'Open the repo on GitHub — star it if you find it useful',
     on: 'On',
     off: 'Off',
     confirmDelete: 'Confirm Delete',
@@ -5544,7 +5546,6 @@ export default {
       title: 'General Settings',
       allSettings: 'All Settings',
       personalSettings: 'Personal Settings',
-      helpAndDocs: 'Help & Documentation',
       description: 'Configure language, appearance and other basic options',
       settings: 'Settings',
       close: 'Close Settings'
@@ -8971,7 +8972,7 @@ export default {
   },
   userProfile: {
     title: 'User Profile',
-    description: 'View your account info (user ID, username, email, registration time) and change your password.',
+    description: 'View your account info (user ID, username, account, registration time) and change your password.',
     changePassword: {
       label: 'Change password',
       description: 'Verify your current password, then set a new one. All signed-in sessions will be revoked and you will need to sign in again.',

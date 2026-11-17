@@ -75,6 +75,7 @@ async function fixture(options: { kbId?: string; unsupported?: boolean; missingK
       exports, console, window, CustomEvent,
       require(name: string) {
         if (name === 'vue') return require('vue')
+        if (name === '@/config/contextdb') return { IS_CONTEXTDB: false }
         if (name === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key }) }
         if (name === 'vue-router') return { useRouter: () => router, useRoute: () => route }
         if (name === 'pinia') return { storeToRefs: () => toRefs(store) }

@@ -21,7 +21,8 @@
 
     <div class="info-section">
       <div class="info-section-title">{{ $t('chat.fullContentLabel') }}</div>
-      <div class="full-content">{{ data.content }}</div>
+      <ContentPopup v-if="IS_CONTEXTDB" :chunks="[data]" :chunk-id="data.chunk_id" :knowledge-id="data.knowledge_id" />
+      <div v-else class="full-content">{{ data.content }}</div>
     </div>
 
     <div class="info-section">
@@ -38,6 +39,8 @@
 import type { ChunkDetailData } from '@/types/tool-results';
 import { useI18n } from 'vue-i18n';
 import { copyToClipboard as copyTextToClipboard } from '@/utils/clipboard';
+import { IS_CONTEXTDB } from '@/config/contextdb';
+import ContentPopup from './ContentPopup.vue';
 
 const props = defineProps<{
   data: ChunkDetailData;

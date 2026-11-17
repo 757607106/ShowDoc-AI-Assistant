@@ -376,11 +376,20 @@ def kb_document_retry(document_id):
 @knowledge_bp.route('/api/kb/sync-mappings')
 def sync_mappings():
     from governance.database import connection
+    scope = request.args.get('space_scope')
+    if scope is not None:
+        from governance.spaces import get_space
+        scope = get_space(_space_store(), scope)['scope']
+    condition = 'owner_id=%s'
+    params = [user_id()]
+    if scope is not None:
+        condition += ' AND scope=%s'
+        params.append(scope)
     with connection() as conn:
         page=max(1,request.args.get('page',1,type=int))
         size=min(100,max(1,request.args.get('page_size',20,type=int)))
-        total=conn.execute('SELECT count(*) AS n FROM knowledge_sync WHERE owner_id=%s',(user_id(),)).fetchone()['n']
-        rows = conn.execute('SELECT * FROM knowledge_sync WHERE owner_id=%s ORDER BY updated_at DESC,source_id,target_mode LIMIT %s OFFSET %s', (user_id(),size,(page-1)*size)).fetchall()
+        total=conn.execute(f'SELECT count(*) AS n FROM knowledge_sync WHERE {condition}',params).fetchone()['n']
+        rows = conn.execute(f'SELECT * FROM knowledge_sync WHERE {condition} ORDER BY updated_at DESC,source_id,target_mode LIMIT %s OFFSET %s', (*params,size,(page-1)*size)).fetchall()
     for row in rows:
         if not row['document_id']:
             continue

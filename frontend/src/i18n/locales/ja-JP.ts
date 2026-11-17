@@ -2926,6 +2926,10 @@ export default {
     passwordMismatch: 'パスワードが一致しません'
   },
   auth: {
+    account: 'アカウント',
+    accountPlaceholder: 'アカウントを入力',
+    accountRequired: 'アカウントを入力してください',
+    accountDescription: 'プラットフォームへのログイン用アカウント',
     login: 'ログイン',
     logout: 'ログアウト',
     oidcLogin: 'OIDCでログイン',
@@ -2959,7 +2963,7 @@ export default {
     emailInvalid: '正しいメールアドレスの形式で入力してください',
     passwordRequired: 'パスワードを入力してください',
     passwordMinLength: 'パスワードは8文字以上で入力してください',
-    passwordMaxLength: 'パスワードは32文字以内で入力してください',
+    passwordMaxLength: 'パスワードは1024文字以内で入力してください',
     passwordMustContainLetter: 'パスワードには英字を含めてください',
     passwordMustContainLowercaseLetter: 'パスワードには英小文字を含めてください',
     passwordMustContainUppercaseLetter: 'パスワードには英大文字を含めてください',
@@ -2971,7 +2975,7 @@ export default {
     usernameInvalid: 'ユーザ名に使用できるのは英数字、アンダースコア、漢字のみです',
     confirmPasswordRequired: 'パスワードを再入力してください',
     passwordMismatch: '入力したパスワードが一致しません',
-    loginError: 'ログインに失敗しました。メールアドレスまたはパスワードを確認してください',
+    loginError: 'アカウントまたはパスワードを確認してください',
     loginErrorRetry: 'ログインに失敗しました。しばらくしてから再試行してください',
     registerError: '登録に失敗しました。しばらくしてから再試行してください',
     workspaceOnboarding: {
@@ -3039,8 +3043,6 @@ export default {
     clear: 'クリア',
     website: '公式サイト',
     clawhubSkill: 'Claw Skill',
-    github: 'GitHub',
-    githubStarTip: 'GitHubでリポジトリを開きます。役に立ったらStarをお願いします',
     on: 'オン',
     off: 'オフ',
     confirmDelete: '削除の確認',
@@ -5544,7 +5546,6 @@ export default {
       title: '一般設定',
       allSettings: 'すべての設定',
       personalSettings: '個人設定',
-      helpAndDocs: 'ヘルプとドキュメント',
       description: '言語や外観などの基本オプションを設定します',
       settings: '設定',
       close: '設定を閉じる'
@@ -8971,7 +8972,7 @@ export default {
   },
   userProfile: {
     title: 'ユーザ情報',
-    description: 'アカウント情報（ユーザID、ユーザ名、メールアドレス、登録日時）を確認し、パスワードを変更できます。',
+    description: 'アカウント情報（ユーザID、ユーザ名、アカウント、登録日時）を確認し、パスワードを変更できます。',
     changePassword: {
       label: 'パスワードを変更',
       description: '現在のパスワードを確認してから新しいパスワードを設定します。ログイン中のすべてのセッションは無効化され、再度ログインが必要になります。',

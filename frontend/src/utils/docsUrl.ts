@@ -6,7 +6,6 @@ export const DOCS_BASE_URL = 'https://weknora.weixin.qq.com/docs/'
  * suffix. docsUrl.test.ts checks each one (and its anchor) still exists.
  */
 export const DOC_PAGES = {
-  home: '',
   tenantAuth: '03-features/01-tenant-auth',
   models: '03-features/06-models',
   modelsCompat: '03-features/06-models#协议兼容覆盖-compat-json',

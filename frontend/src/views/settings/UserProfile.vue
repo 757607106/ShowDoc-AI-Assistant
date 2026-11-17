@@ -44,14 +44,14 @@
         </div>
       </div>
 
-      <!-- 邮箱 -->
+      <!-- 登录账号 -->
       <div class="setting-row">
         <div class="setting-info">
-          <label>{{ $t('tenant.api.emailLabel') }}</label>
-          <p class="desc">{{ $t('tenant.api.emailDescription') }}</p>
+          <label>{{ $t('auth.account') }}</label>
+          <p class="desc">{{ $t('auth.accountDescription') }}</p>
         </div>
         <div class="setting-control">
-          <span class="info-value">{{ userInfo?.email || '-' }}</span>
+          <span class="info-value">{{ userInfo?.account || userInfo?.email || '-' }}</span>
         </div>
       </div>
 

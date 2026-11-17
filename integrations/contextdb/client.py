@@ -200,6 +200,35 @@ class ContextDBClient:
     def delete_knowledge_base(self, kb_id):
         return self._request("DELETE", "/v1/knowledge/knowledge_bases", params={"knowledge_base_id": kb_id})
 
+    # ---------- 文件目录树 ----------
+
+    def list_nodes(self, knowledge_base_id, *, parent_node_id=None, page=1, page_size=100):
+        params = {'knowledge_base_id': knowledge_base_id, 'page': page, 'page_size': page_size}
+        if parent_node_id is not None:
+            params['parent_node_id'] = parent_node_id
+        return self._request('GET', '/v1/knowledge/nodes', params=params)
+
+    def create_directory(self, knowledge_base_id, display_name, *, parent_node_id=None):
+        body = {'knowledge_base_id': knowledge_base_id, 'display_name': display_name}
+        if parent_node_id is not None:
+            body['parent_node_id'] = parent_node_id
+        return self._request('POST', '/v1/knowledge/nodes', json_body=body)
+
+    def ensure_document_node(self, document_id):
+        return self._request('POST', '/v1/knowledge/nodes/ensure', json_body={'document_id': document_id})
+
+    def move_node(self, knowledge_base_id, node_id, parent_node_id, expected_tree_version):
+        return self._request('PATCH', '/v1/knowledge/nodes',
+            params={'knowledge_base_id': knowledge_base_id}, json_body={
+                'node_id': node_id, 'parent_node_id': parent_node_id,
+                'expected_tree_version': expected_tree_version})
+
+    def rename_node(self, knowledge_base_id, node_id, display_name, expected_tree_version):
+        return self._request('PATCH', '/v1/knowledge/nodes',
+            params={'knowledge_base_id': knowledge_base_id}, json_body={
+                'node_id': node_id, 'display_name': display_name,
+                'expected_tree_version': expected_tree_version})
+
     # ---------- 知识文档 ----------
 
     def create_text_document(self, knowledge_base_id, name, text, *, file_path=None, metadata=None,

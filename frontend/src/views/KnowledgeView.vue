@@ -4,6 +4,8 @@ import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { getBasePermissions, knowledgeAccess, listBases, nativeAPI, type BasePermissionProfile } from '@/api/contextdb'
 import { useAuthStore } from '@/stores/auth'
 import DocMarkdown from '@/components/DocMarkdown.vue'
+import ContextDBSourcePreview from '@/components/ContextDBSourcePreview.vue'
+import ContextDBSourceResources from '@/components/ContextDBSourceResources.vue'
 import StructuredFields from '@/components/StructuredFields.vue'
 import { contextdbDateTime as dateTime } from '@/utils/platformPresentation'
 import { documentDisplayName } from '@/utils/contextdbDocumentName'
@@ -31,7 +33,8 @@ const allSelected = computed(() => selectableRows.value.length > 0 && selectable
 const reviewRow = ref<any>(null), reviewDetail = ref<any>(null), detailLoading = ref(false), contentPage = ref(1)
 const reviewActing = ref(false), reviewError = ref(''), reviewNotice = ref(''), conflictNotice = ref('')
 const reviewDocument = ref<any>(null), reviewStatusError = ref(''), reviewStatusLoading = ref(false)
-const editing = ref(false), editedContent = ref(''), resolutions = ref<Record<string, string>>({})
+const editing = ref(false), showRewriteEditor = ref(false), editedContent = ref(''), resolutions = ref<Record<string, string>>({})
+const originalMode = ref('original')
 const rejectTarget = ref<'single' | 'batch' | ''>('')
 let alive = true, contextRequest = 0, reviewListRequest = 0, reviewBatchRequest = 0, reviewRequest = 0, reviewStatusRequest = 0
 const stateLabel = (state: string) => REVIEW_STATES.find(item => item.value === state)?.label || '—'
@@ -69,7 +72,7 @@ async function loadContext() {
 function clearReview() {
   reviewRequest++; reviewStatusRequest++
   reviewRow.value = null; reviewDetail.value = null; reviewDocument.value = null; detailLoading.value = false
-  editing.value = false; editedContent.value = ''; resolutions.value = {}; reviewError.value = ''; reviewNotice.value = ''; conflictNotice.value = ''
+  editing.value = false; showRewriteEditor.value = false; editedContent.value = ''; originalMode.value = 'original'; resolutions.value = {}; reviewError.value = ''; reviewNotice.value = ''; conflictNotice.value = ''
   reviewStatusError.value = ''; reviewStatusLoading.value = false; rejectTarget.value = ''
 }
 function canLeaveReview() { return !editing.value || window.confirm('当前修改尚未提交，确定要离开吗？') }
@@ -97,7 +100,7 @@ function canReviewAction(row: any, action: string) {
 }
 function canBatchReview(action: string) {
   const rows = reviews.value.filter(row => selectedReviewIds.value.includes(row.review_id))
-  return !reviewLoading.value && !reviewBatchActing.value && !reviewActing.value && rows.length > 0 && rows.length <= 50 && rows.length === selectedReviewIds.value.length && rows.every(row => canReviewAction(row, action))
+  return !editing.value && !reviewLoading.value && !reviewBatchActing.value && !reviewActing.value && rows.length > 0 && rows.length <= 50 && rows.length === selectedReviewIds.value.length && rows.every(row => canReviewAction(row, action))
 }
 function toggleAll(checked: boolean) { selectedReviewIds.value = checked ? selectableRows.value.map(row => row.review_id) : [] }
 function toggleSelection(id: string, checked: boolean) { selectedReviewIds.value = checked ? [...selectedReviewIds.value, id] : selectedReviewIds.value.filter(value => value !== id) }
@@ -135,7 +138,8 @@ async function loadReviewPage(page: number) {
   try {
     const result = await readReview(id, page)
     if (!alive || request !== reviewRequest || reviewRow.value?.review_id !== id) return false
-    if (result.review?.review_id !== id) throw new Error('评审记录不一致，请重新读取')
+    if (result.review?.review_id !== id || ['document_id', 'knowledge_base_id'].some(key => reviewRow.value[key] && result.review?.[key] !== reviewRow.value[key])) throw new Error('评审记录不一致，请重新读取')
+    if (result.review.original_content && result.review.original_content.page !== page) throw new Error('评审原文分页不一致，请重新读取')
     reviewDetail.value = result.review; contentPage.value = page
     return true
   } catch (error: any) { if (alive && request === reviewRequest) reviewError.value = error.message; return false }
@@ -151,12 +155,13 @@ async function openReview(row: any) {
 }
 async function startEditing() {
   if (reviewActing.value || !canReviewAction(reviewDetail.value, 'confirm')) return
+  if (editing.value) { showRewriteEditor.value = true; return }
   const detail = reviewDetail.value, request = ++reviewRequest
   reviewError.value = ''; reviewActing.value = true
   try {
     const text = await reviewEditableContent(detail, readReview)
     if (!alive || request !== reviewRequest || reviewDetail.value?.review_id !== detail.review_id) return
-    editedContent.value = text; editing.value = true
+    editedContent.value = text; editing.value = true; showRewriteEditor.value = true
   } catch (error: any) { if (alive && request === reviewRequest) reviewError.value = error.message }
   finally { if (alive && request === reviewRequest) reviewActing.value = false }
 }
@@ -201,7 +206,7 @@ async function actReview(action: string, confirmed = false) {
     if (!alive || request !== reviewRequest || reviewRow.value?.review_id !== id) return
     if (result.data?.review_id !== id) throw new Error('评审操作结果未确认，请刷新后核对')
     reviewDetail.value = { ...reviewDetail.value, ...result.data }; reviewRow.value = { ...reviewRow.value, ...result.data }
-    editing.value = false; conflictNotice.value = ''; reviewDocument.value = null; reviewNotice.value = '操作成功'
+    editing.value = false; showRewriteEditor.value = false; conflictNotice.value = ''; reviewDocument.value = null; reviewNotice.value = '操作成功'
     await loadReviews(false)
     if (!['reject', 'reject_reupload'].includes(action)) await refreshReviewStatus()
   } catch (error: any) { if (alive && request === reviewRequest) reviewError.value = error.message }
@@ -264,8 +269,21 @@ onBeforeUnmount(() => { alive = false; contextRequest++; reviewListRequest++; re
             <section class="review-section"><h4>冲突与处理记录</h4><p v-if="!conflicts.length" class="section-empty">-</p><div v-for="(conflict, index) in conflicts" :key="conflict.id || conflict.conflict_id || index" class="conflict-record"><StructuredFields :model-value="conflict" readonly /><t-select v-if="canReviewAction(reviewDetail, 'confirm')" v-model="resolutions[conflict.id || conflict.conflict_id]" :options="conflictOptions" clearable placeholder="选择处理方式" :disabled="reviewActing" /></div><t-button v-if="conflicts.length && canReviewAction(reviewDetail, 'confirm')" size="small" variant="outline" :loading="reviewActing" @click="saveConflictDraft">保存处理记录</t-button><p v-if="conflictNotice">{{ conflictNotice }}</p><p v-if="reviewDetail.human_action">{{ actionLabels[reviewDetail.human_action] || reviewDetail.human_action }} · {{ dateTime(reviewDetail.human_action_at) }}</p></section>
             <section class="review-section"><h4>自矛盾详情</h4><p v-if="!contradictions.length" class="section-empty">-</p><StructuredFields v-else :model-value="contradictions" readonly /></section>
             <section class="review-section"><h4>原文与重写对比</h4><div class="review-comparison">
-              <section class="comparison-column"><h5>原文</h5><div class="comparison-body"><h6>原始评分</h6><div class="inline-scores"><span>逻辑度 {{ score(reviewDetail.original_logic_score) }}</span><span>噪音度 {{ score(reviewDetail.original_noise_score) }}</span><span>自矛盾度 {{ score(reviewDetail.original_contradiction_score) }}</span></div><h6>文件内容</h6><DocMarkdown :content="reviewDetail.original_content?.text || '暂无内容'" /><t-pagination v-if="reviewDetail.original_content?.total_pages > 1" size="small" :total="reviewDetail.original_content.total_pages" :page-size="1" :current="contentPage" :show-page-size="false" :disabled="reviewActing || editing" @current-change="loadReviewPage" /></div></section>
-              <section class="comparison-column"><h5>重写建议</h5><div class="comparison-body"><h6>重写后评分</h6><div class="inline-scores"><span>逻辑度 {{ score(reviewDetail.logic_score) }}</span><span>噪音度 {{ score(reviewDetail.noise_score) }}</span><span>自矛盾度 {{ score(reviewDetail.contradiction_score) }}</span></div><div class="content-label"><h6>文件内容</h6><t-button v-if="canReviewAction(reviewDetail, 'accept_rewrite') && !reviewDetail.rewritten_content && !editing" size="small" variant="text" :loading="reviewActing" @click="startEditing">编辑</t-button></div><t-textarea v-if="canReviewAction(reviewDetail, 'accept_rewrite') && (reviewDetail.rewritten_content || editing)" v-model="editedContent" :autosize="{ minRows: 12, maxRows: 40 }" :disabled="reviewActing" aria-label="重写文件内容" @change="editing = true" /><DocMarkdown v-else :content="reviewDetail.rewritten_content || '暂无重写建议'" /><h6>重写原因</h6><p>{{ reviewDetail.rewrite_reason || '—' }}</p><h6>信息完整性校验</h6><StructuredFields v-if="Object.keys(rewriteInfo).length" :model-value="rewriteInfo" readonly /><p v-else class="section-empty">暂无校验结果</p></div></section>
+              <section class="comparison-column"><h5>原文</h5><div class="comparison-body">
+                <h6>原始评分</h6><div class="inline-scores"><span>逻辑度 {{ score(reviewDetail.original_logic_score) }}</span><span>噪音度 {{ score(reviewDetail.original_noise_score) }}</span><span>自矛盾度 {{ score(reviewDetail.original_contradiction_score) }}</span></div>
+                <div class="content-label"><h6>文件内容</h6><t-radio-group v-model="originalMode" size="small" aria-label="原文显示方式"><t-radio-button value="original">当前原件</t-radio-button><t-radio-button value="parsed">本次评审文本</t-radio-button></t-radio-group></div>
+                <p class="section-empty">原件展示当前可下载版本；本次评审内容请核对评审文本。</p>
+                <ContextDBSourcePreview v-if="originalMode === 'original'" :key="`${reviewDetail.review_id}:${reviewDetail.updated_at || ''}`" :document-id="reviewDetail.document_id" :kb-id="reviewDetail.knowledge_base_id" :title="documentDisplayName(reviewDetail)" />
+                <template v-else><p class="section-empty">以下为评审使用的解析文本；原始链接、图片及排版请在原件中核对。</p><DocMarkdown :content="reviewDetail.original_content?.text || '暂无解析内容'" :source-name="reviewDetail.document_name" :source-display-name="documentDisplayName(reviewDetail)" /><t-pagination v-if="reviewDetail.original_content?.total_pages > 1" size="small" :total="reviewDetail.original_content.total_pages" :page-size="1" :current="contentPage" :show-page-size="false" :disabled="reviewActing || editing" @current-change="loadReviewPage" /></template>
+              </div></section>
+              <section class="comparison-column"><h5>重写建议</h5><div class="comparison-body">
+                <h6>重写后评分</h6><div class="inline-scores"><span>逻辑度 {{ score(reviewDetail.logic_score) }}</span><span>噪音度 {{ score(reviewDetail.noise_score) }}</span><span>自矛盾度 {{ score(reviewDetail.contradiction_score) }}</span></div>
+                <div class="content-label"><h6>文件内容</h6><t-button v-if="canReviewAction(reviewDetail, 'accept_rewrite')" size="small" variant="text" :loading="reviewActing" @click="showRewriteEditor ? showRewriteEditor = false : startEditing()">{{ showRewriteEditor ? '预览' : '编辑' }}</t-button></div>
+                <t-textarea v-if="showRewriteEditor && canReviewAction(reviewDetail, 'accept_rewrite')" v-model="editedContent" :autosize="{ minRows: 12, maxRows: 40 }" :disabled="reviewActing" aria-label="重写文件内容" />
+                <DocMarkdown v-else :content="(editing ? editedContent : reviewDetail.rewritten_content) || '暂无重写建议'" :source-name="reviewDetail.document_name" :source-display-name="documentDisplayName(reviewDetail)" />
+                <ContextDBSourceResources :key="`${reviewDetail.review_id}:${reviewDetail.updated_at || ''}`" :document-ids="[reviewDetail.document_id]" :kb-id="reviewDetail.knowledge_base_id" />
+                <h6>重写原因</h6><p>{{ reviewDetail.rewrite_reason || '—' }}</p><h6>信息完整性校验</h6><StructuredFields v-if="Object.keys(rewriteInfo).length" :model-value="rewriteInfo" readonly /><p v-else class="section-empty">暂无校验结果</p>
+              </div></section>
             </div></section>
             <t-alert v-if="reviewStatusError" theme="warning" :message="reviewStatusError" /><t-alert v-if="reviewDocument?.ingest_error_message" theme="error" :message="reviewDocument.ingest_error_message" />
           </template>

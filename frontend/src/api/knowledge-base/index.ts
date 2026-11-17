@@ -660,6 +660,7 @@ export const KNOWLEDGE_CHUNK_PAGE_SIZE = 25;
 
 export async function getKnowledgeDetailsCon(id: string, page: number) {
   const res = await contextdb.nativeAPI.get('knowledge/documents/chunks', {document_id:id,offset:(page-1)*KNOWLEDGE_CHUNK_PAGE_SIZE,limit:KNOWLEDGE_CHUNK_PAGE_SIZE});
+  if (res.data?.document_id !== id) throw new Error('来源切片归属不一致，请重新读取');
   return {success:true,data:(res.data.chunks || []).map((c:any)=>({...c,id:c.chunk_id})),total:res.data.total};
 }
 

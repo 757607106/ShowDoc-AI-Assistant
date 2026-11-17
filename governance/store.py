@@ -69,7 +69,7 @@ class Store:
         from governance.database import initialize
         initialize()
 
-    def _list(self, condition, *, sort_by=None, sort_order=None, limit=None):
+    def _list(self, condition, *, sort_by=None, sort_order=None, limit=None, offset=0):
         from governance.database import connection
         from psycopg.types.json import Jsonb
         condition = dict(condition)
@@ -82,6 +82,9 @@ class Store:
         if limit is not None:
             query += ' LIMIT %s'
             params.append(int(limit))
+        if offset:
+            query += ' OFFSET %s'
+            params.append(int(offset))
         with connection() as conn:
             return [self._record(row) for row in conn.execute(query, params)]
 
@@ -206,7 +209,7 @@ class Store:
 
     def create_job(self, entry, params=None, selected_ids=None, selected_titles=None,
                    retry_of=None, kind='crawl', scope=None, version_id=None,
-                   document_id=None, revision_reason='', applicability=None):
+                   document_id=None, revision_reason='', applicability=None, import_directory=None):
         params = params or {}
         job_id = str(uuid.uuid4())
         payload = {
@@ -216,6 +219,7 @@ class Store:
             'collection_id': job_id,
             'document_id': document_id, 'revision_reason': revision_reason,
             'applicability': applicability or {}, 'source_key': source_scope(entry, params),
+            'import_directory': import_directory or {},
             'phase': 'queued', 'progress': 0, 'total_pages': 0, 'completed_pages': 0,
             'failed_pages': 0, 'skipped_pages': 0, 'current_item': '',
             'message': '任务已入队,等待 worker', 'start_time': now(), 'end_time': None,
@@ -226,6 +230,8 @@ class Store:
         if retry_of:
             previous = self.get_job(retry_of)
             payload['collection_id'] = previous.get('collection_id', retry_of)
+            if import_directory is None:
+                payload['import_directory'] = previous.get('import_directory', {})
         if version_id and document_id:
             original = self.get_document(version_id)
             payload['source_key'] = original.get('source_key', payload['source_key'])
@@ -260,9 +266,25 @@ class Store:
         doc = self._find_job_doc(job_id)
         return self._job_from_doc(doc)
 
-    def list_jobs(self):
-        documents = self._list({'type': 'job'}, sort_by='created_at', sort_order='desc', limit=50)
+    def list_jobs(self, scope=None, *, page=1, page_size=50):
+        condition = {'type': 'job'}
+        if scope is not None:
+            condition['scope'] = scope
+        documents = self._list(condition, sort_by='created_at', sort_order='desc',
+                               limit=page_size, offset=(page - 1) * page_size)
         return [self._job_from_doc(doc) for doc in documents]
+
+    def count_jobs(self, scope=None):
+        from governance.database import connection
+        from psycopg.types.json import Jsonb
+        condition = {'type': 'job'}
+        if self.owner_id is not None:
+            condition['owner_id'] = self.owner_id
+        if scope is not None:
+            condition['scope'] = scope
+        with connection() as conn:
+            return conn.execute('SELECT count(*) AS n FROM runtime_records WHERE metadata @> %s',
+                                (Jsonb(condition),)).fetchone()['n']
 
     def _guard_doc(self, doc, job_id):
         if not self.active_attempt:
@@ -448,12 +470,22 @@ class Store:
         for record in documents:
             record = dict(record)
             record['metadata'] = {**record.get('metadata', {}), 'scope': job.get('applicability', {})}
+            if (job.get('import_directory') or {}).get('root_name'):
+                directory = record['metadata'].get('import_directory')
+                if directory:
+                    record['metadata']['import_directory'] = {**directory,
+                        'root_name': job['import_directory']['root_name']}
             if job.get('document_id') and job.get('version_id'):
                 original = self.get_document(job['version_id'])
                 if original['scope'] != scope:
                     raise StoreError('修订文档不属于当前业务空间', 409)
                 record['title'] = original['title']
                 record['category'] = original.get('category', '')
+                original_directory = (original.get('metadata') or {}).get('import_directory')
+                if original_directory:
+                    record['metadata']['import_directory'] = original_directory
+                else:
+                    record['metadata'].pop('import_directory', None)
             source = sources.get(str(record['id']), {})
             record['source_format'] = source.get('source_format') or record.get('source_format', '')
             legacy_id = digest([self.owner_id, job['source_key'], str(record['id'])])
@@ -462,6 +494,8 @@ class Store:
             doc_id = job.get('document_id') or (legacy_id if legacy_doc else
                 digest([self.owner_id, scope, job['source_key'], str(record['id'])]))
             identity_metadata = {k: record['metadata'].get(k) for k in ('scope', 'content_source_field', 'content_completeness')}
+            if record['metadata'].get('import_directory'):
+                identity_metadata['import_directory'] = record['metadata']['import_directory']
             identity_metadata['conversion'] = record['metadata'].get('conversion', {}).get('fingerprint')
             version_id = digest([doc_id, source.get('source_sha256') or digest(source),
                                  identity_metadata, record.get('title'), record.get('category'), record.get('content', '')])
@@ -619,8 +653,11 @@ class Store:
                           'active': True, 'created_at': now(), 'updated_at': now()})
             return release_id
 
-    def list_releases(self):
-        releases = self._list({'type': 'release'}, sort_by='created_at', sort_order='desc', limit=50)
+    def list_releases(self, scope=None):
+        condition = {'type': 'release'}
+        if scope is not None:
+            condition['scope'] = scope
+        releases = self._list(condition, sort_by='created_at', sort_order='desc', limit=50)
         output = []
         for release in releases:
             metadata = release['metadata']

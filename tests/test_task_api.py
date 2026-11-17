@@ -1,6 +1,7 @@
 """任务生命周期 API 契约测试(app 路由 × ContextDB 治理存储替身)。"""
 import json
 import io
+import os
 import sys
 from pathlib import Path
 
@@ -208,3 +209,87 @@ def test_write_json_atomic(tmp_path):
     write_json(target, {'a': 1})
     assert json.loads(target.read_text()) == {'a': 1}
     assert not target.with_suffix('.json.part').exists()
+
+
+def test_task_links_use_release_ids_and_expose_only_the_latest_public_submission(client):
+    store = app_module.get_store()
+    capture = store.create_job('file', {'file_paths': ['/private/PRIVATE-PATH/source.md'],
+        'file_names': ['安装说明.pdf', '更新记录.md'], 'user_token': 'PRIVATE-TOKEN'})
+    release_id = store.create_release(capture['task_id'], 'default', 1, [], 'archive.zip')
+    old = store.create_job('contextdb', {'release_id': release_id}, kind='ctxdb_sync')
+    latest = store.create_job('contextdb', {'release_id': release_id, 'secret': 'PRIVATE-SYNC'}, kind='ctxdb_sync')
+    store.update_job(latest['task_id'], status='running', phase='uploading', progress=42,
+                     message='正在提交', logs=[{'message': 'PRIVATE-LOG'}])
+    response = client.get(f"/task_status/{capture['task_id']}")
+    capture_payload = response.json
+    assert capture_payload['source_name'] == '安装说明.pdf 等 2 份'
+    assert capture_payload['submission_id'] == release_id
+    assert capture_payload['sync_task_id'] == latest['task_id'] != old['task_id']
+    summary = capture_payload['submission_task']
+    assert summary['task_id'] == latest['task_id'] and summary['source_task_id'] == capture['task_id']
+    assert summary['status'] == 'running' and summary['phase'] == 'uploading' and summary['progress'] == 42
+    assert 'logs' not in summary and 'params' not in summary
+    assert all(secret not in response.text for secret in ('PRIVATE-PATH', 'PRIVATE-TOKEN', 'PRIVATE-SYNC', 'PRIVATE-LOG'))
+    submitted = client.get(f"/task_status/{latest['task_id']}").json
+    assert submitted['release_id'] == release_id and submitted['source_task_id'] == capture['task_id']
+    assert submitted['submission_task'] is None
+    standalone = store.create_job('contextdb', {'release_id': 'missing'}, kind='ctxdb_sync')
+    assert client.get(f"/task_status/{standalone['task_id']}").json['source_task_id'] is None
+    named = store.create_job('showdoc', {'user_token': 'PRIVATE-TOKEN'}, import_directory={'root_name': '产品手册'})
+    assert client.get(f"/task_status/{named['task_id']}").json['source_name'] == '产品手册'
+
+
+def test_task_pagination_filters_before_limiting_and_keeps_owners_separate(client):
+    fake = app_module.get_store().client
+    store = Store(client=fake, owner_id=os.environ['TEST_PLATFORM_USER'])
+    app_module.app.extensions['governance_store'] = store
+    target = store.create_job('file', {}, scope='older-target')
+    for _ in range(53):
+        store.create_job('file', {}, scope='recent')
+    other = Store(client=fake, owner_id='another-owner')
+    other.create_job('file', {}, scope='foreign-only')
+    other.create_job('file', {}, scope='recent')
+    default = client.get('/api/tasks').json
+    assert default['total'] == 54 and len(default['tasks']) == 50
+    assert default['page'] == 1 and default['page_size'] == 50
+    scoped = client.get('/api/tasks?space_scope=older-target').json
+    assert scoped['total'] == 1 and [row['task_id'] for row in scoped['tasks']] == [target['task_id']]
+    pages = [client.get(f'/api/tasks?page={page}&page_size=20').json for page in (1, 2, 3)]
+    ids = [row['task_id'] for page in pages for row in page['tasks']]
+    assert [len(page['tasks']) for page in pages] == [20, 20, 14]
+    assert len(set(ids)) == len(ids) == 54 and target['task_id'] in ids
+    assert client.get('/api/tasks?page=999999999999999999999999999999').json['tasks'] == []
+    assert client.get('/api/tasks?space_scope=foreign-only').status_code == 404
+    for query in ('page=0', 'page=-1', 'page=no', 'page_size=0', 'page_size=101', 'page_size=no'):
+        assert client.get('/api/tasks?' + query).status_code == 400
+
+
+def test_release_scope_filter_precedes_the_recent_fifty_limit(client):
+    store = app_module.get_store()
+    for index in range(53):
+        scope = 'older-target' if index == 0 else 'recent'
+        store._create('release', f'release-{index}', {'version_ids': [], 'job_id': 'capture', 'scope': scope},
+            {'release_id': f'release-{index}', 'job_id': 'capture', 'scope': scope, 'active': False})
+    assert len(client.get('/api/releases').json['releases']) == 50
+    scoped = client.get('/api/releases?space_scope=older-target')
+    assert scoped.status_code == 200 and [row['id'] for row in scoped.json['releases']] == ['release-0']
+
+
+def test_document_status_scope_filter_uses_the_same_scope_before_pagination(client):
+    from governance.database import connection
+    from governance.spaces import save_space
+    fake = app_module.get_store().client
+    owner = os.environ['TEST_PLATFORM_USER']
+    store = Store(client=fake, owner_id=owner)
+    app_module.app.extensions['governance_store'] = store
+    save_space(store, {'scope': 'target', 'name': '目标库', 'mode': 'wiki'})
+    with connection() as conn:
+        for scope, count, record_owner in (('target', 23, owner), ('other', 21, owner), ('target', 2, 'another-owner')):
+            conn.execute('''INSERT INTO knowledge_sync(owner_id,scope,source_id,target_mode,knowledge_base_id,status)
+                SELECT %s,%s,'source-' || value,'wiki','kb','pending' FROM generate_series(1,%s) AS value''',
+                (record_owner, scope, count))
+    response = client.get('/api/kb/sync-mappings?space_scope=target&page=2&page_size=20')
+    assert response.status_code == 200 and response.json['total'] == 23
+    assert len(response.json['mappings']) == 3 and all(row['scope'] == 'target' for row in response.json['mappings'])
+    assert client.get('/api/kb/sync-mappings').json['total'] == 44
+    assert client.get('/api/kb/sync-mappings?space_scope=unknown').status_code == 404

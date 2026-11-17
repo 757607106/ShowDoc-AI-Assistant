@@ -42,6 +42,43 @@ def test_native_file_create_update_preserve_body_metadata_and_final_id(library):
     assert fake.get_document(kb, response.json['data']['id'])['text'] == '完整替换正文'
 
 
+@pytest.mark.parametrize('metadata,filename', [({'tag': 'original'}, '业务手册.html'),
+    ({'filename': '指定原件.html', 'tag': 'original'}, '指定原件.html')])
+def test_review_conversion_keeps_original_filename_metadata(library, monkeypatch, metadata, filename):
+    import json
+    _, fake, http, kb = library
+    monkeypatch.setattr('webapi.contextdb_files.prepare_review_file',
+        lambda client, base, name, path, **kwargs: ('业务手册.md', path, True))
+    upload = Mock(wraps=fake.upload_file)
+    monkeypatch.setattr(fake, 'upload_file', upload)
+    response = http.post('/api/contextdb/v1/knowledge/files', data={
+        'knowledge_base_id': kb, 'metadata': json.dumps(metadata),
+        'file': (BytesIO(b'# source'), '业务手册.html')})
+    assert response.status_code == 200
+    assert upload.call_args.args[1] == '业务手册.md'
+    assert upload.call_args.kwargs['metadata'] == {**metadata, 'filename': filename}
+
+
+@pytest.mark.parametrize('converted,status', [(True, 422), (False, 200)])
+def test_review_conversion_does_not_silently_drop_full_metadata(library, monkeypatch, converted, status):
+    import json
+    _, fake, http, kb = library
+    metadata = {f'key{index}': str(index) for index in range(32)}
+    monkeypatch.setattr('webapi.contextdb_files.prepare_review_file',
+        lambda client, base, name, path, **kwargs: ('业务手册.md' if converted else name, path, converted))
+    upload = Mock(wraps=fake.upload_file)
+    monkeypatch.setattr(fake, 'upload_file', upload)
+    response = http.post('/api/contextdb/v1/knowledge/files', data={
+        'knowledge_base_id': kb, 'metadata': json.dumps(metadata),
+        'file': (BytesIO(b'# source'), '业务手册.html')})
+    assert response.status_code == status
+    if converted:
+        assert '预留 filename' in response.json['message']
+        upload.assert_not_called()
+    else:
+        assert upload.call_args.kwargs['metadata'] == metadata
+
+
 @pytest.mark.parametrize('fields,status', [({'metadata': '[]'}, 400),
     ({'metadata': '{bad'}, 400), ({'review_enabled': 'FALSE'}, 400)])
 def test_native_file_validates_policy_and_metadata_before_upload(library, monkeypatch, fields, status):

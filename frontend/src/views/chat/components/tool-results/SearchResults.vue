@@ -29,6 +29,7 @@ import type { SearchResultsData, SearchResultItem, RelevanceLevel } from '@/type
 import { getMatchTypeIcon } from '@/utils/tool-icons';
 import ResultRow from './ResultRow.vue';
 import { useI18n } from 'vue-i18n';
+import { documentDisplayName } from '@/utils/contextdbDocumentName';
 
 const props = defineProps<{
   data: SearchResultsData;
@@ -62,12 +63,13 @@ const groupedResults = computed<GroupedResult[]>(() => {
       map.set(key, {
         key,
         knowledge_id: r.knowledge_id,
-        title: (isFaq ? faqQuestion : r.knowledge_title) || r.knowledge_title,
+        title: (isFaq ? faqQuestion : documentDisplayName({ ...r, document_name: r.knowledge_title })) || r.knowledge_title,
         chunks: [],
       });
       order.push(key);
     }
     map.get(key)!.chunks.push({
+      ...r,
       content: r.content,
       chunk_id: r.chunk_id,
       knowledge_id: r.knowledge_id,

@@ -1,6 +1,6 @@
 // Native ContextDB transport and WeKnora view-field mapping; no local knowledge state.
 import { get, post, put, del, patch, getDown, postUpload } from '@/utils/request'
-import { documentDisplayName } from '@/utils/contextdbDocumentName'
+import { documentDisplayName, documentDownloadName } from '@/utils/contextdbDocumentName'
 
 export type KnowledgeMode = 'source' | 'graph' | 'wiki'
 export interface ContextDBBase {
@@ -85,9 +85,10 @@ export function documentView(doc: any) {
     pending: 'pending', uploading: 'processing', ai_reviewing: 'processing',
     pending_review: 'pending_review', failed: 'failed', deleting: 'deleting', deleted: 'deleted' }
   return { ...doc, file_name: documentDisplayName(doc), original_file_name: documentDisplayName(doc), file_type: String(doc.name || '').split('.').pop(),
+    download_file_name: documentDownloadName(doc),
     type: 'file',
     file_size: doc.size_bytes, parse_status: statuses[doc.ingest_status] || doc.ingest_status,
-    source: doc.file_path, custom_metadata: doc.metadata, knowledge_base_id: doc.knowledge_base_id,
+    source: doc.file_path, folder_path: doc.file_path || '', custom_metadata: doc.metadata, knowledge_base_id: doc.knowledge_base_id,
   }
 }
 

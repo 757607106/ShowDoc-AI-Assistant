@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from common.converter import RAGContentPipeline, clean_filename, write_jsonl, truncate_incomplete_jsonl
 from common.quality import assess_documents
+from common.source_directories import import_directory
 
 
 class CrawlCancelled(RuntimeError):
@@ -27,6 +28,7 @@ class DocumentStub:
     title: str
     category: str
     source_url: str = ""
+    directory_path: list[str] | None = None
 
 
 @dataclass
@@ -86,6 +88,7 @@ class BaseCrawler:
     site_base_url = ""       # 站点根地址，图片/链接绝对化的基准
     requires_auth = True     # 是否需要登录
     source_only = False
+    root_categories = ()
 
     def __init__(self, save_dir, progress_callback=None):
         self.save_dir = save_dir
@@ -93,12 +96,22 @@ class BaseCrawler:
         self.asset_dir = os.path.join(save_dir, "assets")
         # 合并汇总文档的标题/文件名；按项目爬取的平台可在获取项目名后覆盖。
         self.collection_name = f"{self.display_name}知识库"
+        self.import_root_name = ""
         self.pipeline = RAGContentPipeline(
             asset_dir=self.asset_dir,
             site_base_url=self.site_base_url,
         )
 
     # ---------- 子类接口 ----------
+
+    @property
+    def directory_root_name(self):
+        return self.display_name
+
+    def directory_metadata(self, category='', *, path=None):
+        if path is None and category in self.root_categories:
+            path = []
+        return import_directory(self.import_root_name or self.directory_root_name, category, path=path)
 
     def authenticate(self):
         """需要登录的平台覆写；免登录平台保持默认空实现。"""
@@ -189,6 +202,8 @@ class BaseCrawler:
                     stub.id, stub.title, stub.category, "", "",
                     {"fetch_error": str(exc), "url": stub.source_url}, "html"
                 )
+            document.metadata['import_directory'] = self.directory_metadata(
+                stub.category, path=stub.directory_path)
             documents.append(document)
             self._journal_source(document)
             for resource in document.resources.get("links", []):
@@ -202,7 +217,8 @@ class BaseCrawler:
                     f"{document.id}:attachment:{path.name}", resource.get("text") or path.name,
                     document.category, "", document.updated_at,
                     {"parent_document_id": document.id, "filename": resource.get("filename") or path.name,
-                     "url": document.metadata.get("url", self.entry_url)},
+                     "url": document.metadata.get("url", self.entry_url),
+                     "import_directory": document.metadata['import_directory']},
                     "file", source_path=local,
                 )
                 documents.append(child)
@@ -211,6 +227,18 @@ class BaseCrawler:
         return documents
 
     def _source_record(self, doc):
+        directory = doc.metadata.get('import_directory')
+        if isinstance(directory, dict) and isinstance(directory.get('path'), list) and directory.get('root_name'):
+            directory = import_directory(self.import_root_name or directory['root_name'], path=directory['path'])
+        else:
+            path = None
+            if self.platform == 'showdoc' and doc.category == '根目录':
+                cat_id = doc.metadata.get('cat_id')
+                if cat_id is None:
+                    raise ValueError('旧 ShowDoc 来源缺少目录标识，无法确认“根目录”是否为真实子目录')
+                path = [] if str(cat_id) == '0' else ['根目录']
+            directory = self.directory_metadata(doc.category, path=path)
+        doc.metadata['import_directory'] = directory
         content = self.assemble_html(doc, doc.content) if self.source_only and doc.source_format == 'html' else doc.content
         if doc.source_path:
             path = (Path(self.save_dir) / doc.source_path).resolve()
@@ -272,6 +300,8 @@ class BaseCrawler:
         if resume_collection or failed:
             self.authenticate()
             stubs = self._filter_selection(self.list_documents(), selected_ids, selected_titles)
+            listed = {stub.id: stub for stub in stubs}
+            failed = [listed.get(stub.id, stub) for stub in failed]
         if resume_collection:
             existing = {doc.id for doc in documents}
             failed.extend(stub for stub in stubs if stub.id not in existing)

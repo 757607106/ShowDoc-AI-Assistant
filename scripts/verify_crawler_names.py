@@ -81,7 +81,8 @@ def main():
         return body
 
     identity = api('POST', '/api/v1/auth/login', json={
-        'email': os.environ['PLATFORM_ADMIN_EMAIL'], 'password': os.environ['PLATFORM_ADMIN_PASSWORD']})
+        'account': os.getenv('PLATFORM_ADMIN_ACCOUNT') or os.getenv('PLATFORM_ADMIN_EMAIL') or 'admin',
+        'password': os.environ['PLATFORM_ADMIN_PASSWORD']})
     session.headers['Authorization'] = 'Bearer ' + identity['access_token']
     assert report.get('owner_id', identity['user']['id']) == identity['user']['id'], 'Report belongs to another owner'
     report['owner_id'] = identity['user']['id']

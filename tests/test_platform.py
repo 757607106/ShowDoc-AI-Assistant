@@ -73,6 +73,27 @@ def test_batch_download_uses_source_titles_and_original_filenames(authenticated_
         assert archive.namelist() == ['采购明细.html', '使用手册（完整版）.docx', 'original.pdf']
 
 
+def test_batch_download_converted_sources_use_actual_extensions_and_distinct_business_names(authenticated_client, monkeypatch):
+    import webapi.contextdb as proxy
+    client = Mock()
+    details = [
+        {'knowledge_base_id': 'kb', 'name': 'doc-one.md', 'metadata': {'filename': '原始手册.html'}, 'download_url': 'https://files.example/a'},
+        {'knowledge_base_id': 'kb', 'name': 'doc-two.md', 'metadata': {'filename': '原始手册.html'}, 'download_url': 'https://files.example/b'},
+        {'knowledge_base_id': 'kb', 'name': 'doc-three.pdf', 'metadata': {'filename': '完整手册.pdf'}, 'download_url': 'https://files.example/c'},
+    ]
+    client._request.side_effect = details
+    upstream = Mock()
+    upstream.iter_content.return_value = [b'original source bytes']
+    client._session.get.return_value = upstream
+    monkeypatch.setattr(proxy, 'client_for_user', lambda: client)
+    response = authenticated_client.post('/api/v1/knowledge-bases/kb/knowledge/batch-download', json={'ids': ['a', 'b', 'c']})
+    assert response.status_code == 200
+    with ZipFile(BytesIO(response.data)) as archive:
+        assert archive.namelist() == ['原始手册.md', '原始手册 (2).md', '完整手册.pdf']
+        assert all(archive.read(name) == b'original source bytes' for name in archive.namelist())
+    assert [detail['name'] for detail in details] == ['doc-one.md', 'doc-two.md', 'doc-three.pdf']
+
+
 def test_batch_download_checks_library_and_download_permission_before_fetching(authenticated_client, monkeypatch):
     import webapi.contextdb as proxy
     client = Mock()

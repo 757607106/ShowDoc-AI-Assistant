@@ -13,6 +13,7 @@ class FileCrawler(BaseCrawler):
     platform = "file"
     display_name = "上传文件"
     requires_auth = False
+    root_categories = ('上传文件',)
 
     def __init__(self, save_dir, file_paths, progress_callback=None, file_names=None):
         super().__init__(save_dir, progress_callback)

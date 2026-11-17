@@ -12,6 +12,8 @@ from pathlib import Path
 from zipfile import ZipFile
 
 from governance.database import connection
+from governance.import_directories import ImportDirectories
+from governance.knowledge_names import captured_filename
 from governance.store import StoreError, now, safe_name
 from integrations.contextdb import ContextDBConflictError, ContextDBError
 
@@ -72,13 +74,19 @@ def _mapping(owner, scope, source, kb_id):
                             (owner, scope, source, kb_id)).fetchone()
 
 
-def _find_document(client, kb, name, scope):
+def _find_document(client, kb, name, scope, source=None):
     page = 1
     while True:
         result = client.list_documents(kb, page=page, page_size=100)
         items = result.get('documents', [])
         for doc in items:
-            if doc.get('name') == name and doc.get('file_path', '') == scope:
+            metadata = doc.get('metadata') or {}
+            if (source is not None and metadata.get('platform_source_id') == source and
+                    (metadata.get('governance_scope') == scope or doc.get('file_path', '') == scope)):
+                return doc
+            if doc.get('file_path', '') != scope:
+                continue
+            if source is None and doc.get('name', '').casefold() == name.casefold():
                 return doc
         if len(items) < 100:
             return None
@@ -99,6 +107,9 @@ def _document_metadata(record, scope, source, digest, conversion_fingerprint, su
                     source_version=str(record.get('version_id', ''))[:200], source_content_hash=digest,
                     source_conversion_fingerprint=conversion_fingerprint,
                     title=str(record.get('title', ''))[:200])
+    filename = captured_filename(record)
+    if filename:
+        metadata['filename'] = filename
     if submitted_hash is not None:
         metadata['submitted_content_hash'] = submitted_hash
     return metadata
@@ -117,12 +128,15 @@ def _source_payload(store, kb, record, name, content, pipeline):
         return name, path.read_bytes(), fingerprint
 
 
-def _deliver(store, record, archive, mode, kb, scope, pipeline):
+def _deliver(store, record, archive, mode, kb, scope, pipeline, directories):
     owner = store.owner_id or ''
     source = str(record['id'])
     suffix = Path(record['archive_source']).suffix.lower() if record.get('archive_source') else {
         'html': '.html', 'text': '.txt', 'markdown': '.md', 'md': '.md'}.get(record.get('content_format') or record.get('source_format') or 'markdown', '')
-    name = f"doc-{safe_name(source)}{suffix}"
+    legacy_name = f"doc-{safe_name(source)}{suffix}"
+    from common.converter import clean_filename
+    filename = captured_filename(record)
+    name = clean_filename(Path(filename).stem)[:160 - len(suffix)] + suffix if filename else legacy_name
     content = archive.read(record['archive_source']) if record.get('archive_source') else record.get('content', '').encode('utf-8')
     if not content.strip():
         raise StoreError(f'源文档为空: {source}', 422)
@@ -145,7 +159,8 @@ def _deliver(store, record, archive, mode, kb, scope, pipeline):
         name, content, fingerprint = _source_payload(store, kb, record, name, content, pipeline)
         submitted_hash = hashlib.sha256(content).hexdigest()
     if row and doc is None:
-        doc = _find_document(store.client, kb['id'], name, scope)
+        legacy_name = str(Path(legacy_name).with_suffix(Path(name).suffix))
+        doc = _find_document(store.client, kb['id'], legacy_name, scope, source)
         if doc is None and row['status'] in ('uploading', 'uncertain'):
             raise StoreError('上次上传结果未知，官方列表尚未返回该文档；请核实后重试，防止重复提交', 409)
     if doc and doc.get('ingest_status') in ('deleted', 'deleting'):
@@ -158,6 +173,7 @@ def _deliver(store, record, archive, mode, kb, scope, pipeline):
         raise StoreError('上次写入结果未知，官方文档尚未确认目标内容版本；请核实后重试，防止覆盖或重复提交', 409)
     metadata = _document_metadata(record, scope, source, digest, fingerprint, submitted_hash, doc.get('metadata') if doc else None)
     metadata_changed = doc is not None and metadata != doc.get('metadata', {})
+    parent_node_id, import_root = directories.target(record)
     try:
         if unchanged:
             result = doc
@@ -165,6 +181,8 @@ def _deliver(store, record, archive, mode, kb, scope, pipeline):
                 result = {**doc, **store.client.update_document_metadata(metadata, document_id=doc['id'])}
         else:
             _save(owner, scope, source, mode, kb['id'], status='uploading', error=None)
+            if doc and Path(doc.get('name', '')).suffix.lower() == Path(name).suffix.lower():
+                name = clean_filename(doc['name'])
             with tempfile.TemporaryDirectory(prefix='ctxdb-sync-') as directory:
                 path = Path(directory) / name
                 path.write_bytes(content)
@@ -173,23 +191,32 @@ def _deliver(store, record, archive, mode, kb, scope, pipeline):
                     result = store.client.update_file(doc['id'], name, path, metadata=metadata, mime_type=mime)
                 else:
                     try:
-                        result = store.client.upload_file(kb['id'], name, path, file_path=scope, metadata=metadata, mime_type=mime)
+                        result = store.client.upload_file(kb['id'], name, path, file_path=scope, metadata=metadata, mime_type=mime,
+                                                          parent_node_id=parent_node_id)
                     except ContextDBConflictError as exc:
                         if exc.error_code != 1003:
                             raise
                         existing = _find_document(store.client, kb['id'], name, scope)
                         if existing is None:
                             raise
-                        metadata = _document_metadata(record, scope, source, digest, fingerprint, submitted_hash, existing.get('metadata'))
-                        unchanged = (existing.get('metadata', {}).get('source_content_hash') == digest and
-                                     existing.get('metadata', {}).get('source_conversion_fingerprint', '') == fingerprint)
-                        metadata_changed = metadata != existing.get('metadata', {})
-                        if unchanged:
-                            result = existing
-                            if metadata_changed:
-                                result = {**existing, **store.client.update_document_metadata(metadata, document_id=existing['id'])}
+                        if existing.get('metadata', {}).get('platform_source_id') != source:
+                            # Equal business titles do not make two sources the same document.
+                            name = f'{Path(name).stem[:140]}-{hashlib.sha256(source.encode()).hexdigest()[:12]}{Path(name).suffix}'
+                            path = path.with_name(name)
+                            path.write_bytes(content)
+                            result = store.client.upload_file(kb['id'], name, path, file_path=scope, metadata=metadata, mime_type=mime,
+                                                              parent_node_id=parent_node_id)
                         else:
-                            result = store.client.update_file(existing['id'], name, path, metadata=metadata, mime_type=mime)
+                            metadata = _document_metadata(record, scope, source, digest, fingerprint, submitted_hash, existing.get('metadata'))
+                            unchanged = (existing.get('metadata', {}).get('source_content_hash') == digest and
+                                         existing.get('metadata', {}).get('source_conversion_fingerprint', '') == fingerprint)
+                            metadata_changed = metadata != existing.get('metadata', {})
+                            if unchanged:
+                                result = existing
+                                if metadata_changed:
+                                    result = {**existing, **store.client.update_document_metadata(metadata, document_id=existing['id'])}
+                            else:
+                                result = store.client.update_file(existing['id'], name, path, metadata=metadata, mime_type=mime)
         _save(owner, scope, source, mode, kb['id'], document_id=result['id'], source_hash=digest,
               source_version=str(record.get('version_id', '')), conversion_fingerprint=fingerprint,
               status=result.get('ingest_status', 'unknown'),
@@ -197,6 +224,8 @@ def _deliver(store, record, archive, mode, kb, scope, pipeline):
         detail = store.client.get_document(kb['id'], result['id'])
         _save(owner, scope, source, mode, kb['id'], status=detail.get('ingest_status', 'unknown'),
               event_id=detail.get('latest_ingest_event_id'), error=detail.get('ingest_error_message'))
+        directories.attach(result['id'], parent_node_id)
+        directories.populated(import_root)
         return not unchanged or metadata_changed
     except Exception as exc:
         definite = isinstance(exc, ContextDBError) and exc.status_code is not None and 400 <= exc.status_code < 500
@@ -222,6 +251,11 @@ def run_sync(store, job):
         raise StoreError('治理提交包缺失', 404)
     scope = release['scope']
     kb = _target(store, scope, mode, target_id)
+    capture_job_record = store._find('job', job_id=release['job_id'])
+    capture_job = store.get_job(release['job_id']) if capture_job_record else {}
+    root_name = (capture_job.get('import_directory') or {}).get('root_name')
+    root_names = {capture_job['source_key']: root_name} if root_name else {}
+    directories = ImportDirectories(store, kb['id'], root_names=root_names)
     from common.converter import RAGContentPipeline
     pipeline = RAGContentPipeline(Path(release['archive_path']).with_suffix('') / 'assets')
     failures = []
@@ -244,7 +278,7 @@ def run_sync(store, job):
                     if not store.get_release(release['id'])['active']:
                         raise StoreError('该提交已被更新批次取代，停止写入旧内容', 409)
                     kb = _target(store, scope, mode, target_id)
-                    delivered = _deliver(store, record, archive, mode, kb, scope, pipeline)
+                    delivered = _deliver(store, record, archive, mode, kb, scope, pipeline, directories)
                 if delivered:
                     uploaded += 1
                     stage['uploaded'] += 1

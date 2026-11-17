@@ -771,7 +771,7 @@ export default {
   },
   userProfile: {
     title: 'Информация о пользователе',
-    description: 'Просмотр базовых данных аккаунта (ID пользователя, имя, email, дата регистрации) и смена пароля.',
+    description: 'Просмотр базовых данных аккаунта (ID пользователя, имя, логин, дата регистрации) и смена пароля.',
     changePassword: {
       label: 'Сменить пароль',
       description: 'Подтвердите текущий пароль и задайте новый. После успешной смены все сессии будут отозваны, потребуется повторный вход.',
@@ -4215,7 +4215,6 @@ export default {
     title: 'Общие настройки',
     allSettings: 'Все настройки',
     personalSettings: 'Личные настройки',
-    helpAndDocs: 'Справка и документация',
     description: 'Настройка языка, внешнего вида и других базовых параметров',
     settings: 'Настройки',
     close: 'Закрыть настройки'
@@ -6739,8 +6738,6 @@ export default {
     clear: 'Очистить',
     website: 'Официальный сайт',
     clawhubSkill: 'Claw Skill',
-    github: 'GitHub',
-    githubStarTip: 'Открыть репозиторий на GitHub — поставьте Star, если проект полезен',
     on: 'Вкл',
     off: 'Выкл',
     confirmDelete: 'Подтвердить удаление',
@@ -6772,6 +6769,10 @@ export default {
     }
   },
   auth: {
+    account: 'Логин',
+    accountPlaceholder: 'Введите логин',
+    accountRequired: 'Введите логин',
+    accountDescription: 'Учётная запись для входа на платформу',
     login: 'Вход',
     logout: 'Выход',
     oidcLogin: 'Войти через OIDC',
@@ -6805,7 +6806,7 @@ export default {
     emailInvalid: 'Введите правильный формат электронной почты',
     passwordRequired: 'Введите пароль',
     passwordMinLength: 'Пароль должен быть не менее 8 символов',
-    passwordMaxLength: 'Пароль не может превышать 32 символа',
+    passwordMaxLength: 'Пароль не может превышать 1024 символа',
     passwordMustContainLetter: 'Пароль должен содержать буквы',
     passwordMustContainLowercaseLetter: 'Пароль должен содержать строчные буквы',
     passwordMustContainUppercaseLetter: 'Пароль должен содержать прописные буквы',
@@ -6817,7 +6818,7 @@ export default {
     usernameInvalid: 'Имя пользователя может содержать только буквы, цифры, подчёркивания и китайские иероглифы',
     confirmPasswordRequired: 'Подтвердите пароль',
     passwordMismatch: 'Введённые пароли не совпадают',
-    loginError: 'Ошибка входа, пожалуйста, проверьте электронную почту или пароль',
+    loginError: 'Ошибка входа, проверьте логин или пароль',
     loginErrorRetry: 'Ошибка входа, пожалуйста, повторите попытку позже',
     registerError: 'Ошибка регистрации, пожалуйста, повторите попытку позже',
     workspaceOnboarding: {

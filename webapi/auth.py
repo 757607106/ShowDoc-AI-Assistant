@@ -3,6 +3,7 @@ import argparse
 import os
 import re
 import secrets
+import unicodedata
 import uuid
 
 from cryptography.fernet import Fernet
@@ -47,12 +48,22 @@ def client_for_user(owner_id=None):
     return ContextDBClient(api_key=cipher().decrypt(row['contextdb_key_encrypted'].encode()).decode())
 
 
-def create_user(email, username, password, role='viewer', api_key=None):
-    if role not in ('admin', 'editor', 'viewer') or not isinstance(password, str) or len(password) < 12:
-        raise StoreError('角色无效或密码不足 12 位', 400)
-    email = str(email).strip().lower()
-    if '@' not in email or len(email) > 255 or not str(username).strip():
-        raise StoreError('请提供有效邮箱和用户名', 400)
+def normalize_account(value):
+    if not isinstance(value, str):
+        raise StoreError('账号须为 1 至 255 字文本，不能包含空白或控制字符', 400)
+    account = value.strip().lower()
+    if (not account or len(account) > 255 or
+            any(char.isspace() or unicodedata.category(char).startswith('C') for char in account)):
+        raise StoreError('账号须为 1 至 255 字文本，不能包含空白或控制字符', 400)
+    return account
+
+
+def create_user(account, username, password, role='viewer', api_key=None):
+    if role not in ('admin', 'editor', 'viewer') or not isinstance(password, str) or not 8 <= len(password) <= 1024:
+        raise StoreError('角色无效或密码长度不在 8 至 1024 位之间', 400)
+    account = normalize_account(account)
+    if not isinstance(username, str) or not username.strip():
+        raise StoreError('请提供有效显示名称', 400)
     member_id = encrypted = None
     if api_key:
         profile = ContextDBClient(api_key=api_key).current_permissions()
@@ -62,10 +73,11 @@ def create_user(email, username, password, role='viewer', api_key=None):
     from psycopg.errors import UniqueViolation
     try:
         with connection() as conn:
+            # Retain the unique legacy column for existing users and WeKnora clients.
             conn.execute('INSERT INTO platform_users(id,email,username,password_hash,role,contextdb_member_id,contextdb_key_encrypted) VALUES (%s,%s,%s,%s,%s,%s,%s)',
-                         (uid, email, username.strip(), generate_password_hash(password), role, member_id, encrypted))
+                         (uid, account, username.strip(), generate_password_hash(password), role, member_id, encrypted))
     except UniqueViolation as exc:
-        raise StoreError('邮箱或 ContextDB 成员已绑定其他平台账号', 409) from exc
+        raise StoreError('账号或 ContextDB 成员已绑定其他平台账号', 409) from exc
     return uid
 
 
@@ -132,7 +144,7 @@ def finish_audit(response):
 def _identity(row):
     role = {'admin': 'owner', 'editor': 'contributor', 'viewer': 'viewer'}[row['role']]
     user = {k: row[k] for k in ('id', 'email', 'username', 'active', 'created_at', 'updated_at')}
-    user.update(tenant_id=1, is_active=row['active'], is_system_admin=False, preferences=row.get('preferences', {}))
+    user.update(account=row['email'], tenant_id=1, is_active=row['active'], is_system_admin=False, preferences=row.get('preferences', {}))
     tenant = {'id': 1, 'name': os.getenv('PLATFORM_NAME', '企业知识库'), 'status': 'active',
               'owner_id': row['id'] if row['role'] == 'admin' else '', 'created_at': row['created_at'], 'updated_at': row['updated_at']}
     return {'user': user, 'tenant': tenant, 'memberships': [{'tenant_id': 1, 'tenant_name': tenant['name'], 'role': role}],
@@ -153,10 +165,17 @@ def login():
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
         raise StoreError('请求必须是 JSON 对象', 400)
+    try:
+        account = normalize_account(body.get('account', body.get('email', '')))
+    except StoreError:
+        raise StoreError('账号或密码错误', 401) from None
+    password = body.get('password')
+    if not isinstance(password, str) or not password or len(password) > 1024:
+        raise StoreError('账号或密码错误', 401)
     with connection() as conn:
-        row = conn.execute('SELECT * FROM platform_users WHERE email=%s AND active', (str(body.get('email', '')).strip().lower(),)).fetchone()
-    if row is None or not check_password_hash(row['password_hash'], str(body.get('password', ''))):
-        raise StoreError('邮箱或密码错误', 401)
+        row = conn.execute('SELECT * FROM platform_users WHERE email=%s AND active', (account,)).fetchone()
+    if row is None or not check_password_hash(row['password_hash'], password):
+        raise StoreError('账号或密码错误', 401)
     return _issue(row)
 
 
@@ -175,13 +194,18 @@ def logout():
 
 @auth_bp.post('/api/v1/auth/change-password')
 def change_password():
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        raise StoreError('请求必须是 JSON 对象', 400)
     password = body.get('new_password')
-    if not isinstance(password, str) or len(password) < 12 or len(password) > 1024:
-        raise StoreError('新密码长度须为12至1024位', 400)
+    if not isinstance(password, str) or not 8 <= len(password) <= 1024:
+        raise StoreError('新密码长度须为 8 至 1024 位', 400)
+    old_password = body.get('old_password')
+    if not isinstance(old_password, str) or len(old_password) > 1024:
+        raise StoreError('当前密码错误', 400)
     with connection() as conn:
         row = conn.execute('SELECT password_hash FROM platform_users WHERE id=%s FOR UPDATE', (g.user['id'],)).fetchone()
-        if not check_password_hash(row['password_hash'], str(body.get('old_password', ''))):
+        if not check_password_hash(row['password_hash'], old_password):
             raise StoreError('当前密码错误', 400)
         conn.execute('UPDATE platform_users SET password_hash=%s,updated_at=now() WHERE id=%s',
                      (generate_password_hash(password), g.user['id']))
@@ -222,7 +246,7 @@ def oidc_config():
 @auth_bp.route('/api/v1/auth/registration-config')
 @auth_bp.route('/api/v1/auth/config')
 def registration_config():
-    return jsonify(success=True, enabled=False, registration_mode='invite_only', disable_registration=True, complex_password_enabled=True)
+    return jsonify(success=True, enabled=False, registration_mode='invite_only', disable_registration=True, complex_password_enabled=False)
 
 
 @auth_bp.route('/api/platform/users', methods=['GET', 'POST'])
@@ -230,12 +254,14 @@ def users():
     if g.user['role'] != 'admin':
         raise StoreError('需要平台管理员权限', 403)
     if request.method == 'POST':
-        body = request.get_json(silent=True) or {}
-        uid = create_user(body.get('email', ''), body.get('username', ''), body.get('password', ''),
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            raise StoreError('请求必须是 JSON 对象', 400)
+        uid = create_user(body.get('account', body.get('email', '')), body.get('username', ''), body.get('password', ''),
                           body.get('role', 'viewer'), body.get('contextdb_api_key'))
         return jsonify(success=True, id=uid), 201
     with connection() as conn:
-        rows = conn.execute('SELECT id,email,username,role,contextdb_member_id,active,created_at FROM platform_users ORDER BY created_at').fetchall()
+        rows = conn.execute('SELECT id,email AS account,email,username,role,contextdb_member_id,active,created_at FROM platform_users ORDER BY created_at').fetchall()
     return jsonify(success=True, users=rows)
 
 
@@ -277,9 +303,9 @@ def update_user(uid):
         fields['active'] = body['active']
     if uid == user_id() and (fields.get('role', 'admin') != 'admin' or fields.get('active') is False):
         raise StoreError('不能撤销当前管理员自己的权限', 409)
-    if body.get('password'):
-        if not isinstance(body['password'], str) or len(body['password']) < 12:
-            raise StoreError('密码至少 12 位', 400)
+    if 'password' in body and body['password'] not in (None, ''):
+        if not isinstance(body['password'], str) or not 8 <= len(body['password']) <= 1024:
+            raise StoreError('密码长度须为 8 至 1024 位', 400)
         fields['password_hash'] = generate_password_hash(body['password'])
     if body.get('contextdb_api_key'):
         key = str(body['contextdb_api_key'])
@@ -314,10 +340,10 @@ def main():
             if conn.execute('SELECT 1 FROM platform_users LIMIT 1').fetchone():
                 print('平台账号已存在，未修改现有账号。')
                 return
-        email = os.getenv('PLATFORM_ADMIN_EMAIL', '')
-        password = os.getenv('PLATFORM_ADMIN_PASSWORD', '')
-        uid = create_user(email, '管理员', password, 'admin', os.getenv('CONTEXTDB_API_KEY'))
-        print('平台管理员已创建，密码保存在本机 .env；ContextDB 成员绑定已验证。')
+        account = os.getenv('PLATFORM_ADMIN_ACCOUNT') or os.getenv('PLATFORM_ADMIN_EMAIL') or 'admin'
+        password = os.getenv('PLATFORM_ADMIN_PASSWORD', 'admin123')
+        create_user(account, '管理员', password, 'admin', os.getenv('CONTEXTDB_API_KEY'))
+        print('平台管理员已创建，账号和密码请以本机配置为准。')
 
 
 if __name__ == '__main__':

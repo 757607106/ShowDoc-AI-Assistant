@@ -4,6 +4,13 @@
       <!-- Pre-rendered HTML (already sanitized upstream) -->
       <div v-if="isHtml" class="full-content html-content" v-html="processedContent"></div>
 
+      <template v-else-if="IS_CONTEXTDB">
+        <DocMarkdown v-for="(chunk, index) in sourceChunks" :key="chunk.chunk_id || index"
+          :content="chunk.content" :source-name="chunk.document_name || chunk.docnm_kwd || chunk.knowledge_title"
+          :source-display-name="documentDisplayName(chunk)" :kb-id="chunk.knowledge_base_id || chunk.kb_id"
+          :attachments="chunkAttachments([chunk], chunk.knowledge_id || chunk.document_id || chunk.doc_id || '')" />
+      </template>
+
       <!-- Merged chunks from the same document -->
       <template v-else-if="blocks.length > 1">
         <div v-for="(block, idx) in blocks" :key="block.chunk_id || idx" class="chunk-block">
@@ -32,11 +39,24 @@ import { computed } from 'vue';
 import { sanitizeHTML } from '@/utils/security';
 import { highlightText, highlightRegex } from '@/components/GlobalCommandPalette/useHighlight';
 import { cleanContent } from './contentClean';
+import { IS_CONTEXTDB } from '@/config/contextdb';
+import DocMarkdown from '@/components/DocMarkdown.vue';
+import { chunkAttachments } from '@/utils/contextdbResources';
+import { documentDisplayName } from '@/utils/contextdbDocumentName';
 
 interface ChunkContent {
   content: string;
   chunk_id?: string;
   knowledge_id?: string;
+  document_id?: string;
+  doc_id?: string;
+  document_name?: string;
+  docnm_kwd?: string;
+  knowledge_title?: string;
+  knowledge_base_id?: string;
+  kb_id?: string;
+  chunk_index?: number;
+  attachments?: unknown[];
 }
 
 interface Props {
@@ -66,13 +86,14 @@ const renderBlock = (raw: string): string => {
   return props.regex ? highlightRegex(cleaned, pattern) : highlightText(cleaned, pattern);
 };
 
-const blocks = computed(() => {
-  const source: ChunkContent[] = props.chunks?.length
+const sourceChunks = computed<ChunkContent[]>(() => props.chunks?.length
     ? props.chunks
     : props.content
       ? [{ content: props.content, chunk_id: props.chunkId, knowledge_id: props.knowledgeId }]
-      : [];
-  return source
+      : []);
+
+const blocks = computed(() => {
+  return sourceChunks.value
     .map((c) => ({ chunk_id: c.chunk_id, html: renderBlock(c.content) }))
     .filter((b) => b.html.trim() !== '');
 });

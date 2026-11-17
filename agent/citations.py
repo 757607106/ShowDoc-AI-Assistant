@@ -4,6 +4,8 @@ Rule reference: Tencent/WeKnora internal/modelcontext/citations.go at the commit
 in frontend/UPSTREAM.json; upstream notices remain in frontend/UPSTREAM-LICENSE.
 """
 
+from governance.knowledge_names import document_name
+
 _SOURCE_TOOLS = {'knowledge.search', 'knowledge.list_entity_chunks'}
 _LOCATION_FIELDS = ('chunk_index', 'toc_path', 'page_start', 'page_end', 'attachments',
                     'source_locator', 'source_locators', 'source_id', 'source_hash')
@@ -43,8 +45,8 @@ class AnswerCitations:
             key = (kb_id, document_id, chunk_id)
             if key in self._seen:
                 continue
-            title = chunk.get('document_name') or chunk.get('doc_name') or chunk.get('docnm_kwd')
-            title = title if isinstance(title, str) and title.strip() else document_id
+            title = next((name for name in (chunk.get('document_display_name'), chunk.get('display_name'),
+                          document_name(chunk)) if isinstance(name, str) and name.strip()), document_id)
             reference = {'id': chunk_id, 'knowledge_id': document_id, 'knowledge_base_id': kb_id,
                          'title': title, 'knowledge_title': title, 'knowledge_filename': title,
                          'content': content, 'score': chunk.get('score', chunk.get('similarity'))}

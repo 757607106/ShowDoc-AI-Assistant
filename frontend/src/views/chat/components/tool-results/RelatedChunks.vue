@@ -16,8 +16,9 @@
         >
           <template #content>
             <ContentPopup 
-              :content="chunk.content"
+              :chunks="[chunk]"
               :chunk-id="chunk.chunk_id"
+              :knowledge-id="chunk.knowledge_id"
             />
           </template>
           <div class="result-header">

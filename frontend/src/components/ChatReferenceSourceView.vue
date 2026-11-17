@@ -37,7 +37,8 @@
       class="reference-source__preview"
       :knowledge-id="target.knowledgeId"
       :file-type="isManual ? 'md' : meta.fileType"
-      :file-name="meta.fileName || displayName"
+      :file-name="meta.sourceFileName || meta.fileName || displayName"
+      :display-name="displayName"
       :active="active"
       source-mode
       fill-height
@@ -54,6 +55,7 @@
       </t-button>
       <p class="reference-source__url">{{ meta.knowledgeSource }}</p>
     </div>
+    <ContextDBSourceResources v-if="IS_CONTEXTDB && active && mode === 'file'" class="reference-source__resources" :document-ids="[target.knowledgeId]" :kb-id="target.knowledgeBaseId" />
   </div>
 </template>
 
@@ -64,6 +66,8 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import DocumentPreview from '@/components/document-preview.vue'
+import ContextDBSourceResources from '@/components/ContextDBSourceResources.vue'
+import { IS_CONTEXTDB } from '@/config/contextdb'
 import ArtifactFileIcon from '@/views/chat/components/ArtifactFileIcon.vue'
 import { getChunkByIdOnly, getKnowledgeDetails } from '@/api/knowledge-base/index'
 import { isKnownPreviewableFile } from '@/utils/filePreview'
@@ -110,13 +114,13 @@ const edited = ref(false)
 const imageDigest = ref<string>()
 const imageContext = ref<SourceLocateRequest['imageContext']>()
 let locateToken = 0
-const meta = reactive({ fileName: '', fileType: '', knowledgeSource: '', knowledgeType: '', title: '' })
+const meta = reactive({ fileName: '', sourceFileName: '', fileType: '', knowledgeSource: '', knowledgeType: '', title: '' })
 let loadVersion = 0
 /** The knowledge whose file the preview currently shows. */
 let shownKnowledgeId = ''
 
 const displayName = computed(() => meta.fileName || props.target.fileName || props.target.title || '')
-const displayTitle = computed(() => props.target.title || meta.title || displayName.value)
+const displayTitle = computed(() => IS_CONTEXTDB ? meta.title || displayName.value : props.target.title || meta.title || displayName.value)
 // The preview endpoint streams manual metadata.content as Markdown, even
 // though these entries have file_type="manual" and no physical file path.
 const isManual = computed(() => meta.knowledgeSource === 'manual' ||
@@ -164,6 +168,7 @@ function isWebUrl(value: string) {
 
 async function loadMeta(version: number) {
   meta.fileName = props.target.fileName || ''
+  meta.sourceFileName = ''
   meta.fileType = ''
   meta.knowledgeSource = props.target.knowledgeSource || ''
   meta.knowledgeType = ''
@@ -174,11 +179,12 @@ async function loadMeta(version: number) {
     if (version !== loadVersion) return
     const data = res?.data || {}
     sourceHash.value = data.file_hash || ''
-    meta.fileName = meta.fileName || data.file_name || ''
+    meta.sourceFileName = IS_CONTEXTDB ? data.name || '' : ''
+    meta.fileName = IS_CONTEXTDB ? data.file_name || meta.fileName : meta.fileName || data.file_name || ''
     meta.fileType = data.file_type || ''
     meta.knowledgeSource = meta.knowledgeSource || data.source || ''
     meta.knowledgeType = data.type || ''
-    meta.title = meta.title || data.title || ''
+    meta.title = IS_CONTEXTDB ? data.display_name || data.file_name || data.title || meta.title : meta.title || data.title || ''
   } catch {
     // Without details the file name from the reference decides below.
   }

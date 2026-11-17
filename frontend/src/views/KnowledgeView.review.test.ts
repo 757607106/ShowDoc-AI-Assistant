@@ -118,6 +118,47 @@ test('empty rewrite text cannot submit and existing unedited rewrites never send
   const body = f.calls.find(call => call.path === 'knowledge/reviews/action')!.data
   assert.equal(body.action, 'accept_rewrite'); assert.equal('edited_content' in body, false)
 })
+test('review opens original and rewrite previews and explicit editing preserves the complete draft across preview toggles', async t => {
+  const f = await setup(t)
+  assert.equal(f.vm.originalMode, 'original'); assert.equal(f.vm.editing, false); assert.equal(f.vm.showRewriteEditor, false)
+  await f.vm.startEditing()
+  assert.equal(f.vm.showRewriteEditor, true); assert.equal(f.vm.editedContent, '完整重写正文🙂')
+  const draft = '[功能说明](https://example.com/help)\n\n![界面](https://example.com/image.png)\n完整人工稿🙂'
+  f.vm.editedContent = draft; f.vm.showRewriteEditor = false
+  const reads = f.calls.filter(call => call.path === 'knowledge/reviews/detail').length
+  f.vm.selectedReviewIds = ['review-a']; await f.vm.actReviews('accept_rewrite')
+  assert.equal(f.calls.some(call => call.method === 'POST'), false)
+  await f.vm.startEditing()
+  assert.equal(f.vm.showRewriteEditor, true); assert.equal(f.vm.editedContent, draft)
+  assert.equal(f.calls.filter(call => call.path === 'knowledge/reviews/detail').length, reads)
+  f.vm.showRewriteEditor = false; await f.vm.actReview('accept_rewrite')
+  assert.equal(f.calls.find(call => call.path === 'knowledge/reviews/action')!.data.edited_content, draft)
+  assert.equal(f.vm.showRewriteEditor, false)
+})
+test('changing review resets its source and editor views while old parsed pages cannot replace the new review', async t => {
+  let finish!: (value: any) => void, delayPage = false
+  const f = await setup(t, { read: async (path, params) => {
+    if (path === 'knowledge/reviews') return { reviews: [review()], total: 1 }
+    if (delayPage && params.content_page === 2) return await new Promise(resolve => { finish = resolve })
+    return review(params.review_id)
+  } })
+  f.vm.originalMode = 'parsed'; delayPage = true
+  const pending = f.vm.loadReviewPage(2)
+  await f.vm.openReview(review('new'))
+  assert.equal(f.vm.originalMode, 'original'); assert.equal(f.vm.showRewriteEditor, false)
+  finish({ ...review(), original_content: { page: 2, text: '旧正文', total_pages: 2, total_chars: 6 } }); await pending
+  assert.equal(f.vm.reviewDetail.review_id, 'new'); assert.equal(f.vm.contentPage, 1)
+})
+test('detail refuses mismatched document, knowledge base or parsed page without replacing the current content', async t => {
+  for (const changed of [{ document_id: 'another-doc' }, { knowledge_base_id: 'another-kb' }, { original_content: { page: 2, text: '错误页' } }]) {
+    const f = await setup(t)
+    f.vm.reviewRow = { ...review(), ...changed }
+    if ('original_content' in changed) f.vm.reviewRow = review()
+    const loaded = await f.vm.loadReviewPage('original_content' in changed ? 2 : 1)
+    assert.equal(loaded, false); assert.match(f.vm.reviewError, /不一致/)
+    assert.equal(f.vm.reviewDetail.document_id, 'doc-review-a'); assert.equal(f.vm.contentPage, 1)
+  }
+})
 test('closing a review rejects delayed detail and document-state responses', async t => {
   let finish!: (value: any) => void
   const f = await setup(t)

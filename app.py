@@ -155,11 +155,51 @@ def task_payload(task, include_logs=True):
         'failed_pages', 'skipped_pages', 'current_item', 'message', 'start_time', 'end_time', 'retry_of', 'scope', 'kind')}
     submitted = store._find('release', job_id=task['task_id'])
     queued = False
+    sync_task = None
+    submission_task = None
     if submitted:
         with connection() as conn:
-            queued = conn.execute('''SELECT 1 FROM runtime_records WHERE owner_id=%s AND kind='job'
-                AND payload->>'kind'='ctxdb_sync' AND payload->'params'->>'release_id'=%s LIMIT 1''',
-                (store.owner_id or '', submitted['metadata']['release_id'])).fetchone() is not None
+            sync_task = conn.execute('''SELECT payload,metadata FROM runtime_records WHERE owner_id=%s AND kind='job'
+                AND payload->>'kind'='ctxdb_sync' AND payload->'params'->>'release_id'=%s
+                ORDER BY created_at DESC LIMIT 1''',
+                (store.owner_id or '', submitted['metadata']['release_id'])).fetchone()
+            queued = sync_task is not None
+        if sync_task:
+            submission_task = {key: sync_task['metadata'].get(key, sync_task['payload'].get(key))
+                for key in ('task_id', 'entry', 'kind', 'scope', 'status', 'phase', 'progress',
+                            'message', 'total_pages', 'completed_pages', 'failed_pages', 'skipped_pages',
+                            'start_time', 'end_time')}
+            submission_task.update(entry_name='资料提交', source_name='知识库资料提交',
+                release_id=submitted['metadata']['release_id'], source_task_id=task['task_id'])
+    release_id = task['params'].get('release_id') if task['kind'] == 'ctxdb_sync' else None
+    source_release = store._find('release', release_id=release_id) if release_id else None
+    source_task_id = (source_release['metadata'].get('job_id') if source_release and
+                      source_release['metadata'].get('scope') == task['scope'] else None)
+    source_name = (task.get('import_directory') or {}).get('root_name')
+    file_names = task['params'].get('file_names') or []
+    if task['kind'] == 'ctxdb_sync':
+        source_name = '知识库资料提交'
+    elif not source_name and file_names:
+        source_name = str(file_names[0]) + (f' 等 {len(file_names)} 份' if len(file_names) > 1 else '')
+    from governance.import_directories import imported_locations
+    if task['kind'] == 'ctxdb_sync':
+        kb_ids = [task['params'].get('knowledge_base_id')]
+    else:
+        space_record = store._find('knowledge_space', scope=task['scope'])
+        if space_record:
+            kb_ids = [store._body(space_record['id']).get('knowledge_base_id')]
+        else:
+            with connection() as conn:
+                kb_ids = [row['knowledge_base_id'] for row in conn.execute('''SELECT DISTINCT knowledge_base_id
+                    FROM knowledge_sync WHERE owner_id=%s AND scope=%s''',
+                    (store.owner_id or '', task['scope'])).fetchall()]
+    terminal = ('completed', 'partial', 'failed', 'cancelled')
+    payload['import_directories'] = [location for kb_id in kb_ids if kb_id
+        for location in imported_locations(store, kb_id,
+            task.get('source_key') if task['kind'] != 'ctxdb_sync' else None)]
+    payload['directory_sync_complete'] = (task['status'] in terminal if task['kind'] == 'ctxdb_sync' else
+        bool((sync_task and sync_task['metadata'].get('status') in terminal) or
+             task['status'] in ('partial', 'failed', 'cancelled') or task['phase'] == 'submission_failed'))
     payload.update(
         entry_name=ENTRIES.get(task['entry'], type('E', (), {'display_name': task['entry']})()).display_name,
         successful_pages=max(0, task['completed_pages'] - task['failed_pages']),
@@ -171,6 +211,11 @@ def task_payload(task, include_logs=True):
         publish_available=bool(task['status'] == 'completed' and documents),
         submit_available=bool(task['kind'] != 'ctxdb_sync' and task['status'] == 'completed' and documents and not queued),
         submission_id=submitted['metadata']['release_id'] if submitted else None,
+        sync_task_id=submission_task['task_id'] if submission_task else None,
+        submission_task=submission_task,
+        release_id=release_id,
+        source_task_id=source_task_id,
+        source_name=source_name,
         metrics={
             'documents': summary.get('total_documents', len(documents)),
             'exported_documents': summary.get('total_documents', len(documents)),
@@ -324,12 +369,35 @@ def entry_documents(key):
         params = entry_crawler_params(key, request.args)
         if entry.key == 'showdoc' and not params.get('item_id'):
             raise ApiError('缺少item_id参数')
+        kb_id = request.args.get('knowledge_base_id')
+        store = None
+        if kb_id is not None:
+            if not kb_id.strip() or len(kb_id) > 200:
+                raise ApiError('请选择有效的知识库')
+            kb_id = kb_id.strip()
+            store = get_store()
+            store.client.get_knowledge_base(kb_id)
 
         crawler = create_crawler(entry.key, save_dir=LISTING_SAVE_DIR, **params)
         crawler.authenticate()
-        pages = stubs_to_pages(crawler.list_documents())
-        return jsonify({'success': True, 'pages': pages})
-    except ApiError:
+        stubs = crawler.list_documents()
+        pages = [{**page, 'directory_path': crawler.directory_metadata(stub.category, path=stub.directory_path)['path']}
+                 for page, stub in zip(stubs_to_pages(stubs), stubs)]
+        from governance.store import source_scope
+        directory = {'root_name': crawler.directory_root_name, 'source_key': source_scope(entry.key, params),
+                     'preview_complete': not (entry.key == 'web' and params.get('crawl_mode') == 'site')}
+        if store:
+            mapped = store._find('import_directory', knowledge_base_id=kb_id, source_key=directory['source_key'])
+            if mapped:
+                node_id = store._body(mapped['id']).get('node_id')
+                if not node_id:
+                    raise ApiError('已有来源目录尚未确认，请核对目录后重试', 409)
+                node = store.client.list_nodes(kb_id, parent_node_id=node_id, page_size=1).get('parent_node')
+                if not node or node.get('node_type') != 'folder' or node.get('node_id') != node_id:
+                    raise ApiError('已有来源目录已改变，请核对目录后重试', 409)
+                directory['root_name'] = node['display_name']
+        return jsonify({'success': True, 'pages': pages, 'directory': directory})
+    except (StoreError, ContextDBError):
         raise
     except Exception as e:
         return jsonify({
@@ -371,6 +439,13 @@ def entry_start(key):
     if key == 'file':
         raise ApiError('文件请通过上传入口提交', 400)
     body = json_body()
+    directory = None
+    if 'import_root_name' in body:
+        from common.source_directories import validate_import_root_name
+        try:
+            directory = {'root_name': validate_import_root_name(body['import_root_name'])}
+        except ValueError as error:
+            raise ApiError(str(error)) from error
     params = entry_crawler_params(key, body)
     if key == 'showdoc' and not params.get('item_id'):
         raise ApiError('缺少 item_id 参数', 400)
@@ -387,7 +462,7 @@ def entry_start(key):
         if scope:
             require_writable_space(store, scope)
         job = store.create_job(entry.key, params, body.get('selected_ids'), body.get('selected_titles'), scope=scope,
-                               applicability=applicability(body.get('scope')))
+                               applicability=applicability(body.get('scope')), import_directory=directory)
     return jsonify(success=True, task_id=job['task_id'], message='任务已入队')
 
 
@@ -403,7 +478,17 @@ def task_list():
     if scope is not None:
         from governance.spaces import get_space
         scope = get_space(store, scope)['scope']
-    return jsonify(success=True, tasks=[task_payload(j, False) for j in store.list_jobs() if scope is None or j['scope'] == scope])
+    try:
+        page = int(request.args.get('page', 1))
+        size = int(request.args.get('page_size', 50))
+    except ValueError:
+        raise ApiError('分页参数必须是整数', 400)
+    if page < 1 or not 1 <= size <= 100:
+        raise ApiError('页码须大于 0，每页条数须为 1 至 100', 400)
+    total = store.count_jobs(scope)
+    jobs = store.list_jobs(scope, page=page, page_size=size) if (page - 1) * size < total else []
+    return jsonify(success=True, tasks=[task_payload(j, False) for j in jobs],
+                   total=total, page=page, page_size=size)
 
 
 @app.route('/tasks/<task_id>/cancel', methods=['POST'])
@@ -548,7 +633,12 @@ def publish_task(task_id):
 
 @app.route('/api/releases')
 def list_releases():
-    return jsonify(success=True, releases=get_store().list_releases())
+    store = get_store()
+    scope = request.args.get('space_scope')
+    if scope is not None:
+        from governance.spaces import get_space
+        scope = get_space(store, scope)['scope']
+    return jsonify(success=True, releases=store.list_releases(scope))
 
 
 @app.route('/api/releases/<release_id>/activate', methods=['POST'])

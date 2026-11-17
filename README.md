@@ -18,7 +18,7 @@ uv pip install --python .venv/bin/python -r requirements.txt
 cp .env.example .env  # 仅在 .env 尚不存在时执行
 ```
 
-填写 `.env` 的 ContextDB、模型和平台配置：`POSTGRES_PASSWORD`、`DATABASE_URL`、`AGENT_DATABASE_URL`、`FLASK_SECRET_KEY`、`CREDENTIAL_ENCRYPTION_KEY`、`PLATFORM_ADMIN_EMAIL`、`PLATFORM_ADMIN_PASSWORD`。两个应用 DSN 必须使用不同数据库、不同受限账号，禁止使用 Compose 的引导管理员。已有共享库按[隔离迁移说明](docs/guides/agent-postgres-isolation.md)先备份、盘点再切换。Fernet 密钥可用 `.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` 生成；账号密码至少 12 位，邮箱须有有效域名。数据库连接串中的密码需 URL 编码。
+填写 `.env` 的 ContextDB、模型和平台配置：`POSTGRES_PASSWORD`、`DATABASE_URL`、`AGENT_DATABASE_URL`、`FLASK_SECRET_KEY`、`CREDENTIAL_ENCRYPTION_KEY`、`PLATFORM_ADMIN_ACCOUNT`、`PLATFORM_ADMIN_PASSWORD`。两个应用 DSN 必须使用不同数据库、不同受限账号，禁止使用 Compose 的引导管理员。已有共享库按[隔离迁移说明](docs/guides/agent-postgres-isolation.md)先备份、盘点再切换。Fernet 密钥可用 `.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` 生成；平台使用账号和密码登录，无需邮箱格式，密码长度为 8 至 1024 位。默认管理员为 `admin / admin123`，首次引导会创建账号，已有账号不会被启动或引导过程重置；旧配置 `PLATFORM_ADMIN_EMAIL` 仍作为账号配置的兼容别名。数据库连接串中的密码需 URL 编码。
 
 ```bash
 docker compose -f compose.postgres.yml up -d
@@ -65,7 +65,7 @@ Wiki 编译器接管准入结果为 **未通过**：完整受影响页定位、�
 # 只读备份旧 _governance，生成校验和
 .venv/bin/python -m scripts.migrate_runtime
 # 校验快照后导入指定的已绑定平台账号，不修改/删除旧云端记录
-.venv/bin/python -m scripts.migrate_runtime --snapshot downloads/migrations/<timestamp>.json --apply --owner-email admin@knowledge.local
+.venv/bin/python -m scripts.migrate_runtime --snapshot downloads/migrations/<timestamp>.json --apply --owner-account admin
 
 .venv/bin/pytest -q
 cd frontend && npm run type-check && npm run build-only

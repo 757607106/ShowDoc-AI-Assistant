@@ -19,12 +19,13 @@ const base=ref<any>(null), permissions=ref<BasePermissionProfile|null>(null), er
 const editable=computed(()=>knowledgeAccess({id:kbId.value},permissions.value,auth.hasRole('contributor')).write)
 const manageable=computed(()=>knowledgeAccess({id:kbId.value},permissions.value,auth.hasRole('contributor')).manage)
 const tab=ref('documents'), documentId=ref('')
+const folderId=computed(()=>typeof route.query.folder_id==='string'?route.query.folder_id:'')
 const wikiRef=ref<{permitNavigation:()=>boolean}|null>(null), issuesRef=ref<{permitNavigation:()=>boolean}|null>(null)
 const canRefresh=()=>wikiRef.value?.permitNavigation()!==false && issuesRef.value?.permitNavigation()!==false
 const viewTabs=computed(()=>[{key:'documents',label:'文件'},...(base.value?.wiki_enabled?[{key:'wiki',label:'知识 Wiki'}]:[]),...(base.value?.graph_enabled?[{key:'graph',label:'知识图谱'}]:[]),...(!base.value?.wiki_enabled?[{key:'ontology',label:'本体约束'}]:[])])
 const permissionMode=computed(()=>permissions.value?.mode==='personal_compatibility'?'兼容权限模式':permissions.value?.mode==='advanced'?'高级权限模式':'')
 let request=0
-function viewQuery(value:string){const {view,document_id,documentId,knowledge_id,...query}=route.query;return {...query,tab:value}}
+function viewQuery(value:string){const {view,document_id,documentId,knowledge_id,folder_id,...query}=route.query;return {...query,tab:value}}
 function selectTab(value:string){if(canRefresh()){tab.value=value;documentId.value='';if(!props.embedded)void router.replace({query:viewQuery(value)})}}
 function open(item:any){if(canRefresh()){documentId.value=item.id;tab.value='documents';if(!props.embedded)void router.replace({query:{...viewQuery('documents'),document_id:item.id}})}}
 function openWikiPage(pageId:string){if(canRefresh()){tab.value='wiki';documentId.value='';void router.replace({query:{...viewQuery('wiki'),wikiPageId:pageId}})}}
@@ -35,18 +36,18 @@ async function loadBase(){
     const result=await getBase(target);if(token!==request)return
     base.value=result.data
     const requested=props.view||String(route.query.view||route.query.tab||'documents')
-    tab.value=route.query.document_id||route.query.documentId||route.query.knowledge_id?'documents':requested==='nodes'?'documents':requested==='history'&&base.value.wiki_enabled?'history':viewTabs.value.some(item=>item.key===requested)?requested:'documents'
+    tab.value=route.query.document_id||route.query.documentId||route.query.knowledge_id||folderId.value?'documents':requested==='nodes'?'documents':requested==='history'&&base.value.wiki_enabled?'history':viewTabs.value.some(item=>item.key===requested)?requested:'documents'
     documentId.value=String(route.query.document_id||route.query.documentId||route.query.knowledge_id||'')
     try{const profile=await getBasePermissions();if(token===request)permissions.value=profile}catch(e:any){if(token===request)error.value=e.message}
   }catch(e:any){if(token===request)error.value=e.message}
   finally{if(token===request)baseLoading.value=false}
 }
 watch(kbId,()=>{base.value=null;permissions.value=null;documentId.value='';void loadBase()},{immediate:true})
-watch(()=>[props.view,route.query.tab,route.query.view,route.query.document_id,route.query.documentId,route.query.knowledge_id],()=>{
+watch(()=>[props.view,route.query.tab,route.query.view,route.query.document_id,route.query.documentId,route.query.knowledge_id,route.query.folder_id],()=>{
   if(!base.value||!canRefresh())return
   const id=String(route.query.document_id||route.query.documentId||route.query.knowledge_id||'')
   const value=props.view||String(route.query.view||route.query.tab||'documents')
-  tab.value=id?'documents':value==='nodes'?'documents':value==='history'&&base.value.wiki_enabled?'history':viewTabs.value.some(item=>item.key===value)?value:'documents'
+  tab.value=id||folderId.value?'documents':value==='nodes'?'documents':value==='history'&&base.value.wiki_enabled?'history':viewTabs.value.some(item=>item.key===value)?value:'documents'
   documentId.value=id
 })
 defineExpose({canRefresh})
@@ -60,7 +61,7 @@ defineExpose({canRefresh})
     <div class="knowledge-body"><t-alert v-if="error" theme="error" :message="error" close />
       <EmptyState v-if="!base&&!baseLoading" icon="folder" title="暂时无法读取知识库"><t-button variant="outline" @click="loadBase">刷新</t-button></EmptyState>
       <t-loading v-else-if="!base" text="加载中" />
-      <ContextDBDocuments v-else-if="tab==='documents'" :kb-id="kbId" :can-edit="editable" :wiki-enabled="base.wiki_enabled" :graph-enabled="base.graph_enabled" :review-enabled="base.review_enabled" :document-id="documentId" :base-name="base.name" />
+      <ContextDBDocuments v-else-if="tab==='documents'" :kb-id="kbId" :can-edit="editable" :wiki-enabled="base.wiki_enabled" :graph-enabled="base.graph_enabled" :review-enabled="base.review_enabled" :document-id="documentId" :folder-id="folderId" :base-name="base.name" />
       <ContextDBWiki ref="wikiRef" v-else-if="tab==='wiki'" :kb-id="kbId" :can-edit="editable" @open-source-doc="id=>open({id})"><template #compile><ContextDBWikiCompile :kb-id="kbId" :can-edit="editable" @open-source-doc="id=>open({id})" /></template></ContextDBWiki>
       <ContextDBGraph v-else-if="tab==='graph'" :kb-id="kbId" :can-edit="editable" @open-source-doc="id=>open({id})" />
       <ContextDBWikiIssues ref="issuesRef" v-else-if="tab==='history'" :kb-id="kbId" :can-edit="editable" @open-page="openWikiPage" @open-source-doc="id=>open({id})" />

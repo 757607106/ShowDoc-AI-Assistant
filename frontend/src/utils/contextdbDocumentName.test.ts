@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import test from 'node:test'
 import ts from 'typescript'
-import { documentDisplayName, graphDocumentLabel } from './contextdbDocumentName.ts'
+import { documentDisplayName, documentDownloadName, graphDocumentLabel } from './contextdbDocumentName.ts'
 
 const storedName = `doc-${'a'.repeat(64)}.html`
 
@@ -28,6 +28,17 @@ test('enriched document and review names remain readable without changing their 
   assert.equal(documentDisplayName(null), '')
 })
 
+test('download names preserve business stems and match the actual file extension after conversion', () => {
+  const converted = { name: 'doc-hash.md', display_name: '原始手册.html', metadata: { filename: '原始手册.html' } }
+  assert.equal(documentDownloadName(converted), '原始手册.md')
+  assert.equal(documentDisplayName(converted), '原始手册.html')
+  assert.equal(converted.name, 'doc-hash.md')
+  assert.equal(documentDownloadName({ name: 'doc-hash.docx', metadata: { filename: '原始手册.docx' } }), '原始手册.docx')
+  assert.equal(documentDownloadName({ name: 'doc-hash.pdf', metadata: { filename: '手册.PDF' } }), '手册.PDF')
+  assert.equal(documentDownloadName({ name: 'source.md', document_display_name: '业务标题' }), '业务标题.md')
+  assert.equal(documentDownloadName(null), '')
+})
+
 test('graph labels replace exact source names and leave entity identities and unrelated text intact', () => {
   const document = { name: storedName, metadata: { title: '采购明细' } }
   assert.equal(graphDocumentLabel(storedName, [document]), '采购明细')
@@ -42,7 +53,7 @@ test('document view supplies readable names to list, preview and single-file dow
   const source = readFileSync(new URL('../api/contextdb.ts', import.meta.url), 'utf8')
   const script = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
   const exports: any = {}
-  vm.runInNewContext(script, { exports, require: (name: string) => name === '@/utils/contextdbDocumentName' ? { documentDisplayName } : {} })
+  vm.runInNewContext(script, { exports, require: (name: string) => name === '@/utils/contextdbDocumentName' ? { documentDisplayName, documentDownloadName } : {} })
   const doc = exports.documentView({ id: 'official-id', name: storedName, metadata: { title: '采购明细' }, ingest_status: 'succeeded' })
   assert.equal(doc.name, storedName)
   assert.equal(doc.id, 'official-id')
@@ -50,6 +61,10 @@ test('document view supplies readable names to list, preview and single-file dow
   assert.equal(doc.original_file_name, '采购明细.html')
   assert.equal(doc.file_type, 'html')
   assert.equal(doc.parse_status, 'completed')
+  const converted = exports.documentView({ id: 'official-id', name: 'doc-hash.md', metadata: { filename: '原件.html' } })
+  assert.equal(converted.file_name, '原件.html')
+  assert.equal(converted.download_file_name, '原件.md')
+  assert.equal(converted.name, 'doc-hash.md')
 })
 
 test('directory rows show source names but retain explicit user renames and folder names', async () => {

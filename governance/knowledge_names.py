@@ -7,8 +7,25 @@ from uuid import UUID
 from governance.database import connection
 
 
+def captured_filename(record):
+    metadata = record.get('metadata') or {}
+    filename = _captured_attachment_name(record) or metadata.get('filename')
+    if isinstance(filename, str) and filename.strip():
+        return filename.strip()
+    title = record.get('title')
+    if not isinstance(title, str) or not title.strip():
+        return ''
+    suffix = Path(record.get('archive_source') or record.get('source_path') or '').suffix
+    if not suffix:
+        suffix = {'html': '.html', 'text': '.txt', 'markdown': '.md', 'md': '.md'}.get(
+            record.get('source_format') or record.get('content_format') or 'markdown', '')
+    title = title.strip()
+    return title if not suffix or title.lower().endswith(suffix.lower()) else title + suffix
+
+
 def document_name(document):
     metadata = document.get('metadata') or document.get('doc_metadata') or {}
+    metadata = metadata if isinstance(metadata, dict) else {}
     filename = metadata.get('filename')
     if isinstance(filename, str) and filename.strip():
         return filename.strip()
@@ -21,6 +38,19 @@ def document_name(document):
     extension = re.search(r'\.[a-z\d]{1,12}$', name, re.I)
     suffix = extension[0] if extension else ''
     return title + suffix if suffix and not title.lower().endswith(suffix.lower()) else title
+
+
+def download_name(document):
+    name = next((value.strip() for value in (document.get('document_display_name'), document.get('display_name'))
+                 if isinstance(value, str) and value.strip()), document_name(document))
+    source = document.get('name') or document.get('document_name') or document.get('doc_name') or document.get('docnm_kwd') or ''
+    suffix = Path(source).suffix
+    if not suffix:
+        return name
+    old_suffix = Path(name).suffix
+    stem = name[:-len(old_suffix)] if old_suffix else name
+    suffix = old_suffix if old_suffix.lower() == suffix.lower() else suffix
+    return stem[:160 - len(suffix)] + suffix
 
 
 def _captured_attachment_name(capture):

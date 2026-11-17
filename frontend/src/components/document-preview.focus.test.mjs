@@ -139,6 +139,7 @@ test('every document scroll target is tabbable and key events keep native behavi
     assert.ok(/tabindex="0"|\bcontrols\b/.test(tag[0]), tag[0])
   }
   assert.doesNotMatch(template, /@key(?:down|up)/)
-  assert.match(template, /sandbox="allow-scripts"/)
+  assert.match(template, /:sandbox="allowsHtmlScriptPreview\(\) \? 'allow-scripts' : 'allow-popups allow-popups-to-escape-sandbox'"/)
+  assert.doesNotMatch(template, /allow-same-origin/)
   assert.deepEqual(compileTemplate({ source: template, filename: 'document-preview.vue', id: 'preview' }).errors, [])
 })

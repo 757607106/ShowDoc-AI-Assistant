@@ -18,6 +18,8 @@ class FakeContextDBClient:
         self.reviews = {}
         self.review_settings = {}
         self.events = {}
+        self.nodes = {}
+        self.tree_revisions = {}
         self._ids = itertools.count(1)
         self.mcp_calls = []
 
@@ -85,6 +87,102 @@ class FakeContextDBClient:
     def delete_knowledge_base(self, kb_id):
         self.knowledge_bases.pop(self._kb(kb_id)['id'], None)
 
+    # ---------- 文件目录树 ----------
+
+    def _root_node(self, kb_id):
+        base = self._kb(kb_id)
+        root_id = f'root-{kb_id}'
+        return self.nodes.setdefault(root_id, {'node_id': root_id, 'node_type': 'root',
+            'knowledge_base_id': kb_id, 'display_name': base['name'],
+            'parent_node_id': None, 'tree_version': 0})
+
+    def _node(self, kb_id, node_id):
+        self._root_node(kb_id)
+        node = self.nodes.get(node_id)
+        if node is None or node['knowledge_base_id'] != kb_id:
+            raise ContextDBError('node not found', status_code=404)
+        return node
+
+    def _node_view(self, node):
+        view = {**node, 'has_children': any(item['parent_node_id'] == node['node_id'] for item in self.nodes.values())}
+        if node.get('document_id'):
+            doc = self.documents[node['document_id']]
+            view.update(metadata=dict(doc['metadata']), ingest_status=doc['ingest_status'])
+        return view
+
+    def _node_result(self, node):
+        kb_id = node['knowledge_base_id']
+        return {'node': self._node_view(node), 'tree_revision': self.tree_revisions.get(kb_id, 0),
+                'sync_status': 'SUCCEEDED'}
+
+    def list_nodes(self, knowledge_base_id, *, parent_node_id=None, page=1, page_size=100):
+        root = self._root_node(knowledge_base_id)
+        parent = self._node(knowledge_base_id, parent_node_id or root['node_id'])
+        items = [self._node_view(node) for node in self.nodes.values() if node['parent_node_id'] == parent['node_id']]
+        breadcrumbs, ancestor = [], parent
+        while ancestor:
+            breadcrumbs.insert(0, self._node_view(ancestor))
+            ancestor = self.nodes.get(ancestor['parent_node_id'])
+        start = (page - 1) * page_size
+        return {'items': items[start:start + page_size], 'total': len(items), 'page': page,
+                'page_size': page_size, 'parent_node': self._node_view(parent), 'breadcrumbs': breadcrumbs,
+                'tree_revision': self.tree_revisions.get(knowledge_base_id, 0)}
+
+    def create_directory(self, knowledge_base_id, display_name, *, parent_node_id=None):
+        root = self._root_node(knowledge_base_id)
+        parent = self._node(knowledge_base_id, parent_node_id or root['node_id'])
+        if not isinstance(display_name, str) or not 1 <= len(display_name) <= 512:
+            raise ContextDBError('invalid display_name', status_code=400)
+        node_id = self._new_id('node')
+        node = {'node_id': node_id, 'knowledge_base_id': knowledge_base_id,
+                'node_type': 'folder', 'display_name': display_name,
+                'parent_node_id': parent['node_id'], 'tree_version': 0}
+        self.nodes[node_id] = node
+        self.tree_revisions[knowledge_base_id] = self.tree_revisions.get(knowledge_base_id, 0) + 1
+        return self._node_result(node)
+
+    def ensure_document_node(self, document_id):
+        doc = self.documents.get(document_id)
+        if doc is None:
+            raise ContextDBError('document not found', status_code=404)
+        existing = next((node for node in self.nodes.values() if node.get('document_id') == document_id), None)
+        if existing:
+            return self._node_result(existing)
+        root = self._root_node(doc['knowledge_base_id'])
+        node_id = self._new_id('node')
+        node = {'node_id': node_id, 'knowledge_base_id': doc['knowledge_base_id'],
+                'document_id': document_id, 'node_type': 'file', 'display_name': doc['name'],
+                'parent_node_id': root['node_id'], 'tree_version': 0}
+        self.nodes[node_id] = node
+        doc['node_id'] = node_id
+        kb_id = doc['knowledge_base_id']
+        self.tree_revisions[kb_id] = self.tree_revisions.get(kb_id, 0) + 1
+        return self._node_result(node)
+
+    def move_node(self, knowledge_base_id, node_id, parent_node_id, expected_tree_version):
+        node = self._node(knowledge_base_id, node_id)
+        parent = self._node(knowledge_base_id, parent_node_id)
+        if node['node_type'] == 'root':
+            raise ContextDBError('cannot move root', status_code=400)
+        if node['tree_version'] != expected_tree_version:
+            raise ContextDBConflictError('node version changed', status_code=409)
+        ancestor = parent
+        while ancestor:
+            if ancestor['node_id'] == node_id:
+                raise ContextDBError('cannot move into own subtree', status_code=400)
+            ancestor = self.nodes.get(ancestor['parent_node_id'])
+        node.update(parent_node_id=parent_node_id, tree_version=node['tree_version'] + 1)
+        self.tree_revisions[knowledge_base_id] = self.tree_revisions.get(knowledge_base_id, 0) + 1
+        return self._node_result(node)
+
+    def rename_node(self, knowledge_base_id, node_id, display_name, expected_tree_version):
+        node = self._node(knowledge_base_id, node_id)
+        if node['tree_version'] != expected_tree_version:
+            raise ContextDBConflictError('node version changed', status_code=409)
+        node.update(display_name=display_name, tree_version=node['tree_version'] + 1)
+        self.tree_revisions[knowledge_base_id] = self.tree_revisions.get(knowledge_base_id, 0) + 1
+        return self._node_result(node)
+
     # ---------- 文档 ----------
 
     def _doc_identity(self, kb_id, name, file_path):
@@ -94,11 +192,14 @@ class FakeContextDBClient:
                              mime_type=None, source_type=None, review_enabled=None, parent_node_id=None,
                              wait=False, wait_timeout=300.0):
         self._kb(knowledge_base_id)
+        if parent_node_id is not None:
+            self._node(knowledge_base_id, parent_node_id)
         for doc in self.documents.values():
-            if self._doc_identity(doc['knowledge_base_id'], doc['name'], doc['file_path']) == \
+            if parent_node_id is None and self._doc_identity(doc['knowledge_base_id'], doc['name'], doc['file_path']) == \
                     self._doc_identity(knowledge_base_id, name, file_path):
                 raise ContextDBConflictError(
-                    "document with same name already exists; use the corresponding PUT update API (errorCode=1003)")
+                    "document with same name already exists; use the corresponding PUT update API (errorCode=1003)",
+                    status_code=409, error_code=1003)
         doc_id = self._new_id('doc')
         doc = {
             'id': doc_id, 'knowledge_base_id': knowledge_base_id, 'name': name,
@@ -107,17 +208,23 @@ class FakeContextDBClient:
             'download_url': f"https://fake.local/{doc_id}",
         }
         self.documents[doc_id] = doc
+        node = self.ensure_document_node(doc_id)['node']
+        if parent_node_id is not None:
+            self.nodes[node['node_id']]['parent_node_id'] = parent_node_id
         return dict(doc)
 
     def upload_file(self, knowledge_base_id, name, local_path, *, file_path=None, metadata=None,
                     mime_type=None, review_enabled=None, parent_node_id=None, review_template_id=None):
         with open(local_path, 'r', encoding='utf-8') as handle:
             text = handle.read()
-        return self.create_text_document(knowledge_base_id, name, text, file_path=file_path, metadata=metadata)
+        return self.create_text_document(knowledge_base_id, name, text, file_path=file_path,
+                                        metadata=metadata, parent_node_id=parent_node_id)
 
     def update_file(self, document_id, name, local_path, *, metadata=None, mime_type=None,
                     review_enabled=None, review_template_id=None):
-        return self.update_text_document(Path(local_path).read_text(), document_id=document_id, metadata=metadata)
+        doc = self.update_text_document(Path(local_path).read_text(), document_id=document_id, metadata=metadata)
+        self.documents[document_id]['name'] = name
+        return {**doc, 'name': name}
 
     def update_text_document(self, text, *, document_id=None, knowledge_base_id=None, name=None,
                              file_path=None, metadata=None, wait=False, wait_timeout=300.0):
@@ -195,6 +302,8 @@ class FakeContextDBClient:
                 results.append({'id': document_id, 'success': False, 'error': 'not found'})
                 continue
             self.documents.pop(document_id, None)
+            for node_id in [key for key, node in self.nodes.items() if node.get('document_id') == document_id]:
+                self.nodes.pop(node_id)
             results.append({'id': document_id, 'success': True})
         return {'errorCode': 0, 'errorMessage': None, 'requestId': 'fake', 'data': {'total': len(results), 'succeeded': len(results), 'failed': 0, 'results': results}}
 
@@ -211,6 +320,25 @@ class FakeContextDBClient:
 
     def _request(self, method, path, *, json_body=None, params=None):
         params, body = params or {}, json_body or {}
+        if path == '/v1/knowledge/nodes':
+            if method == 'GET':
+                return self.list_nodes(params['knowledge_base_id'], parent_node_id=params.get('parent_node_id'),
+                    page=int(params.get('page', 1)), page_size=int(params.get('page_size', 100)))
+            if method == 'POST':
+                return self.create_directory(body['knowledge_base_id'], body['display_name'],
+                    parent_node_id=body.get('parent_node_id'))
+            if method == 'PATCH':
+                node = self.nodes[body['node_id']]
+                kb_id = params.get('knowledge_base_id') or node['knowledge_base_id']
+                if 'parent_node_id' in body:
+                    result = self.move_node(kb_id, body['node_id'], body['parent_node_id'], body['expected_tree_version'])
+                else:
+                    return self.rename_node(kb_id, body['node_id'], body['display_name'], body['expected_tree_version'])
+                if 'display_name' in body:
+                    node['display_name'] = body['display_name']
+                return self._node_result(node)
+        if method == 'POST' and path == '/v1/knowledge/nodes/ensure':
+            return self.ensure_document_node(body['document_id'])
         if path == '/v1/knowledge/wiki/pages':
             if method == 'GET':
                 return self.list_wiki_pages(params['knowledge_base_id'],

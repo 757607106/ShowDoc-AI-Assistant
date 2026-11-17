@@ -115,7 +115,10 @@ def test_html_review_export_preserves_content_without_chunker(pipeline, tmp_path
     html = ('<h1>操作步骤</h1><table><tr><th>配置</th><th>值</th></tr>'
             '<tr><td>重试次数</td><td>3</td></tr></table>'
             '<pre><code>key = "____________"\nprint(key)</code></pre>'
-            '<p><img src="images/step.png" alt="步骤截图"></p>')
+            '<p>请先<a href="next.html?q=1&amp;k=2">查看详情</a>，再'
+            '<a href="https://example.org/download?a=1&amp;b=2">下载附件</a>。</p>'
+            '<p><img src="images/step.png" alt="步骤截图"></p>'
+            '<table><tr><th>链接</th></tr><tr><td><a href="table.html">表格详情</a></td></tr></table>')
     path = tmp_path / 'source.html'
     path.write_text(html)
     with patch.object(pipeline, '_initialize_chunker', side_effect=AssertionError('review must not chunk')):
@@ -127,6 +130,9 @@ def test_html_review_export_preserves_content_without_chunker(pipeline, tmp_path
     assert re.search(r'\|\s*重试次数\s*\|\s*3\s*\|', markdown)
     assert 'key = "____________"\nprint(key)' in markdown
     assert 'https://docs.example.test/manual/images/step.png' in markdown
+    assert '[查看详情](https://docs.example.test/manual/next.html?q=1&k=2)' in markdown
+    assert '[下载附件](https://example.org/download?a=1&b=2)' in markdown
+    assert '[表格详情](https://docs.example.test/manual/table.html)' in markdown
     assert len(fingerprint) == 64
     assert pipeline._chunker is None
 

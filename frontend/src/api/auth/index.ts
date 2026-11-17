@@ -5,7 +5,7 @@ const t = (key: string) => i18n.global.t(key)
 
 // 用户登录接口
 export interface LoginRequest {
-  email: string
+  account: string
   password: string
 }
 
@@ -15,6 +15,7 @@ export interface LoginResponse {
   user?: {
     id: string
     username: string
+    account?: string
     email: string
     avatar?: string
     tenant_id: number
@@ -114,6 +115,7 @@ export interface UserPreferences {
 export interface UserInfo {
   id: string
   username: string
+  account?: string
   email: string
   avatar?: string
   tenant_id: string
@@ -154,6 +156,7 @@ export function userInfoFromApi(
   return {
     id: u?.id || '',
     username: u?.username || '',
+    account: u?.account || u?.email || '',
     email: u?.email || '',
     avatar: u?.avatar,
     tenant_id: String(tid) || '',

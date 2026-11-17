@@ -6,12 +6,13 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from flask import Blueprint, Response, g, jsonify, request, send_file
+from flask import Blueprint, jsonify, request, send_file
 
 from common.converter import clean_filename
 from governance.store import StoreError
-from governance.knowledge_names import KnowledgeNames
+from governance.knowledge_names import KnowledgeNames, download_name
 from webapi.auth import client_for_user, user_id
+from webapi.contextdb_preview import asset_response, attachment_response, document_response
 
 contextdb_bp = Blueprint('contextdb', __name__)
 MAX_BATCH_DOWNLOAD_BYTES = 512 * 1024 * 1024
@@ -101,6 +102,10 @@ def forward(version, resource):
         raise StoreError('官方章节修订列表必须指定 page_id，不是全库候选审批列表', 400)
     client = client_for_user()
     path = f'/{version}/{resource}'
+    if resource == 'knowledge/assets':
+        if request.method != 'GET':
+            raise StoreError('资产接口只支持读取', 405)
+        return asset_response(client, request.args.get('asset_id'))
     if resource == 'knowledge/knowledge_bases' and request.method not in ('GET', 'HEAD'):
         from app import get_store
         from governance.knowledge_bases import create_base, update_base, delete_base
@@ -186,15 +191,32 @@ def capabilities():
 
 @contextdb_bp.route('/api/contextdb/documents/<document_id>/download')
 def download(document_id):
-    client = client_for_user()
-    detail = client._request('GET', '/v1/knowledge/documents/detail',
-                             params={'document_id': document_id, 'with_download_url': 'true'})
-    if not detail.get('download_url'):
-        raise StoreError('官方未返回源文件下载地址', 409)
-    # Only a URL obtained from the authenticated official detail may be fetched.
-    upstream = client._session.get(detail['download_url'], timeout=client.timeout)
-    upstream.raise_for_status()
-    return Response(upstream.content, content_type=upstream.headers.get('Content-Type', 'application/octet-stream'))
+    return document_response(client_for_user(), document_id, request.args.get('knowledge_base_id'))
+
+
+@contextdb_bp.get('/api/contextdb/assets/<asset_id>')
+def asset(asset_id):
+    return asset_response(client_for_user(), asset_id)
+
+
+@contextdb_bp.get('/api/contextdb/documents/<document_id>/attachments/<int:chunk_index>/<int:attachment_index>')
+def attachment(document_id, chunk_index, attachment_index):
+    return attachment_response(client_for_user(), document_id, chunk_index, attachment_index,
+                               request.args.get('knowledge_base_id'))
+
+
+@contextdb_bp.get('/api/contextdb/documents/<document_id>/source-images')
+def source_images(document_id):
+    from webapi.contextdb_source_images import source_images
+    images = source_images(client_for_user(), document_id, request.args.get('knowledge_base_id'))
+    return jsonify(success=True, data={'document_id': document_id, 'images': [
+        {'image_key': key, 'description': image['description']} for key, image in images.items()]})
+
+
+@contextdb_bp.get('/api/contextdb/documents/<document_id>/source-images/<image_key>')
+def source_image(document_id, image_key):
+    from webapi.contextdb_source_images import source_image_response
+    return source_image_response(client_for_user(), document_id, image_key, request.args.get('knowledge_base_id'))
 
 
 @contextdb_bp.route('/api/v1/knowledge-bases/<kb_id>/knowledge/batch-download', methods=['POST'])
@@ -222,7 +244,7 @@ def batch_download(kb_id):
         names = set()
         with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as output:
             for detail in details:
-                name = names_view.document(detail, kb_id=kb_id)['display_name'] or 'document'
+                name = download_name(names_view.document(detail, kb_id=kb_id)) or 'document'
                 name = clean_filename(name)
                 original, number = Path(name), 1
                 while name.casefold() in names:
