@@ -102,6 +102,23 @@ def _mutation(session_id, owner_id):
         yield row
 
 
+@contextmanager
+def _background_mutation(session_id, owner_id):
+    """Serialize child controls and cleanup without holding the parent's execution lock."""
+    get_session(session_id, owner_id)
+    from agent.checkpointer import database_url
+    with psycopg.connect(database_url(), autocommit=True) as lock:
+        lock.execute("SET lock_timeout='15s'")
+        try:
+            lock.execute('SELECT pg_advisory_lock(hashtextextended(%s,0))', ('async-control:' + session_id,))
+        except psycopg.errors.LockNotAvailable as exc:
+            raise StoreError('后台任务正在处理另一操作，请稍后重试', 409) from exc
+        row = get_session(session_id, owner_id)
+        if row['agent_config'].get('runtime') != 'deepagents':
+            raise StoreError('旧会话已归档为只读，历史数据与资源保留', 410)
+        yield row
+
+
 def _clear_checkpoint(session_id, owner_id):
     from agent.checkpointer import make_checkpointer
     with make_checkpointer() as saver:
@@ -113,19 +130,27 @@ def _clear_checkpoint(session_id, owner_id):
 
 def delete_session(session_id, owner_id=None):
     with _mutation(session_id, owner_id) as row:
-        from agent.sandbox import destroy_for_session
-        destroy_for_session(row['owner_id'], session_id)
-        _clear_checkpoint(session_id, row['owner_id'])
-        with connection() as conn:
-            conn.execute('DELETE FROM agent_sessions WHERE id=%s AND owner_id=%s', (session_id, row['owner_id']))
+        with _background_mutation(session_id, row['owner_id']):
+            import asyncio
+            from agent.async_work import cleanup
+            asyncio.run(cleanup(row['owner_id'], session_id))
+            from agent.sandbox import destroy_for_session
+            destroy_for_session(row['owner_id'], session_id)
+            _clear_checkpoint(session_id, row['owner_id'])
+            with connection() as conn:
+                conn.execute('DELETE FROM agent_sessions WHERE id=%s AND owner_id=%s', (session_id, row['owner_id']))
     return True
 
 
 def clear_session(session_id, owner_id=None):
     with _mutation(session_id, owner_id) as row:
-        from agent.sandbox import destroy_for_session
-        destroy_for_session(row['owner_id'], session_id)
-        _clear_checkpoint(session_id, row['owner_id'])
+        with _background_mutation(session_id, row['owner_id']):
+            import asyncio
+            from agent.async_work import cleanup
+            asyncio.run(cleanup(row['owner_id'], session_id))
+            from agent.sandbox import destroy_for_session
+            destroy_for_session(row['owner_id'], session_id)
+            _clear_checkpoint(session_id, row['owner_id'])
     return True
 
 

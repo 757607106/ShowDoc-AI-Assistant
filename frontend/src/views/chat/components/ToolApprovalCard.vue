@@ -33,7 +33,7 @@
           {{ $t('agentStream.toolApproval.argsModified') }}
         </span>
       </button>
-      <t-textarea v-if="argsExpanded" v-model="argsText" class="prompt-args-input"
+      <t-textarea v-if="argsExpanded" v-model="argsText" class="prompt-args-input" :readonly="!canDecide('edit')"
         :autosize="{ minRows: 2, maxRows: 10 }" placeholder="{}" />
     </div>
 
@@ -43,16 +43,24 @@
       <span class="prompt-grant-scope">{{ grantScope }}</span>
     </t-checkbox>
 
+    <t-textarea v-if="canDecide('respond')" v-model="responseMessage"
+      :placeholder="$t('nativeAgent.toolResponse')" :aria-label="$t('nativeAgent.toolResponse')" />
     <div class="prompt-footer">
       <div class="prompt-footer-meta">
         <span v-if="parked" class="action-timer">{{ parkedText }}</span>
         <span v-else-if="secondsLeft >= 0" class="action-timer" :class="timerClass">{{ countdownText }}</span>
       </div>
       <div class="prompt-footer-actions">
-        <button type="button" class="prompt-btn" :disabled="submitting" @click="submit('reject')">
+        <button v-if="canDecide('reject')" type="button" class="prompt-btn" :disabled="submitting" @click="submit('reject')">
           {{ $t('agentStream.toolApproval.reject') }}
         </button>
-        <button type="button" class="prompt-btn is-primary" :disabled="submitting || !isJsonValid"
+        <button v-if="canDecide('edit')" type="button" class="prompt-btn" :disabled="submitting || !isJsonValid" @click="submit('edit')">
+          {{ $t('nativeAgent.editAndRun') }}
+        </button>
+        <button v-if="canDecide('respond')" type="button" class="prompt-btn" :disabled="submitting" @click="submit('respond')">
+          {{ $t('nativeAgent.respondWithoutRun') }}
+        </button>
+        <button v-if="canDecide('approve')" type="button" class="prompt-btn is-primary" :disabled="submitting"
           @click="submit('approve')">
           {{ $t('agentStream.toolApproval.approve') }}<span class="prompt-btn-key" aria-hidden="true">↵</span>
         </button>
@@ -99,9 +107,9 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { resolveToolApproval } from '@/api/mcp-service'
 import { resolveEmbedToolApproval } from '@/api/embed'
-import { resumeSuspendedRunKey } from '@/utils/suspendedRun'
+import { resumeSuspendedRunKey, promptSubmissionTransportKey } from '@/utils/suspendedRun'
 import { usePromptCountdown } from '@/composables/usePromptCountdown'
-import { markPromptSubmitted, promptSubmission, usePromptDock } from '@/composables/usePromptDock'
+import { markPromptSubmitted as markDefaultPromptSubmitted, promptSubmission as defaultPromptSubmission, usePromptDock } from '@/composables/usePromptDock'
 import { isSubmitKey } from '@/utils/promptKeys'
 
 const props = defineProps<{
@@ -113,6 +121,7 @@ const props = defineProps<{
   mcpToolName: string
   description?: string
   argsJson?: string
+  allowedDecisions?: string[]
   // grantScope, when set, offers to approve calls like this one for the
   // rest of the session and says which calls that covers.
   grantScope?: string
@@ -150,6 +159,10 @@ const useEmbedApproval = () =>
 const { t } = useI18n()
 const resumeSuspendedRun = inject(resumeSuspendedRunKey, undefined)
 const dock = usePromptDock()
+const { markPromptSubmitted, promptSubmission } = dock ?? {
+  markPromptSubmitted: markDefaultPromptSubmitted, promptSubmission: defaultPromptSubmission,
+}
+const submitToThread = inject(promptSubmissionTransportKey, undefined)
 
 function formatJson(raw: string): string {
   try {
@@ -163,6 +176,10 @@ const initialArgs = formatJson(props.argsJson || '{}')
 const argsText = ref(initialArgs)
 const argsExpanded = ref(false)
 const allowInSession = ref(false)
+const responseMessage = ref('')
+type Decision = 'approve' | 'edit' | 'reject' | 'respond'
+const canDecide = (decision: Decision) => (props.allowedDecisions
+  ?? (useEmbedApproval() ? ['approve', 'reject'] : ['approve', 'edit', 'reject'])).includes(decision)
 const GRANT_LAPSE_REASONS = ['changed', 'expired', 'idle']
 const grantLapsedText = computed(() => (
   props.grantLapsed && GRANT_LAPSE_REASONS.includes(props.grantLapsed)
@@ -371,25 +388,34 @@ function toggleArgs() {
   argsExpanded.value = !argsExpanded.value
 }
 
-const allowForSession = (decision: 'approve' | 'reject') => (
+const allowForSession = (decision: Decision) => (
   decision === 'approve' && Boolean(props.grantScope) && allowInSession.value ? true : undefined
 )
 
-const submit = async (decision: 'approve' | 'reject') => {
-  if (!open.value || submitting.value) return
+const submit = async (decision: Decision) => {
+  if (!open.value || submitting.value || !canDecide(decision)) return
   submitting.value = true
   try {
     let modified: Record<string, unknown> | undefined
-    if (decision === 'approve') {
+    if (decision === 'edit') {
       try {
         modified = JSON.parse(argsText.value || '{}') as Record<string, unknown>
+        if (!modified || Array.isArray(modified) || typeof modified !== 'object') throw new Error('object required')
       } catch {
         argsExpanded.value = true
         MessagePlugin.error(t('agentStream.toolApproval.invalidJson'))
         return
       }
     }
-    const { resumed } = await (useEmbedApproval()
+    const response = {
+      decision,
+      modified_args: decision === 'edit' ? modified : undefined,
+      message: decision === 'respond' ? responseMessage.value : undefined,
+      reason: decision === 'reject' ? t('agentStream.toolApproval.userRejected') : undefined,
+      allow_in_session: allowForSession(decision),
+    }
+    const result = await (submitToThread ? submitToThread(props.pendingId, 'tool_approval', response)
+      : useEmbedApproval() && (decision === 'approve' || decision === 'reject')
       ? resolveEmbedToolApproval(
         props.embedChannelId!,
         props.embedToken!,
@@ -399,18 +425,14 @@ const submit = async (decision: 'approve' | 'reject') => {
         props.pendingId,
         {
           decision,
-          modified_args: decision === 'approve' ? modified : undefined,
           reason: decision === 'reject' ? t('agentStream.toolApproval.userRejected') : undefined,
           allow_in_session: allowForSession(decision),
         },
       )
-      : resolveToolApproval(props.pendingId, {
-        decision,
-        modified_args: decision === 'approve' ? modified : undefined,
-        reason: decision === 'reject' ? t('agentStream.toolApproval.userRejected') : undefined,
-        allow_in_session: allowForSession(decision),
-      }))
-    markPromptSubmitted(props.pendingId, { approved: decision === 'approve' })
+      : resolveToolApproval(props.pendingId, response))
+    if ('stale' in result && result.stale) return
+    const { resumed } = result
+    markPromptSubmitted(props.pendingId, { approved: decision === 'approve' || decision === 'edit', decision })
     MessagePlugin.success(t('agentStream.toolApproval.submitted'))
     if (resumed) resumeSuspendedRun?.(props.pendingId)
   } catch (e: any) {
@@ -426,7 +448,7 @@ const handleKey = (e: KeyboardEvent): boolean => {
   if (!interactive.value || !isSubmitKey(e)) return false
   const inArgs = (e.target as HTMLElement | null)?.tagName === 'TEXTAREA'
   if (inArgs && !e.metaKey && !e.ctrlKey) return false
-  if (!isJsonValid.value) return false
+  if (!canDecide('approve')) return false
   void submit('approve')
   return true
 }

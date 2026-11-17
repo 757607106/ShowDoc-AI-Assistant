@@ -309,20 +309,24 @@ def stop(session_id):
     identifier = body.get('message_id')
     if not isinstance(identifier, str) or not identifier:
         raise StoreError('message_id 必须是非空字符串', 400)
-    from webapi.harness import _active_requests, read_weknora_history
+    from webapi.harness import _active_requests, _active_backends, read_weknora_history
+    result = {}
     active = _active_requests.get(session_id)
     if active:
         loop, task, active_id = active
         if active_id != identifier:
             raise StoreError('消息已变化，请重新加载会话', 409)
-        loop.call_soon_threadsafe(task.cancel)
+        loop.call_soon_threadsafe(lambda: task.cancel() if not task.cancelling() else None)
+        backend = _active_backends.get(session_id)
+        if backend is not None:
+            result = backend.cancel()
     else:
         # shortcut: stop uses a local request handle; add cross-worker cancellation before deploying multiple API workers.
         with agent_sessions._mutation(session_id, g.user['id']):
             rows = asyncio.run(read_weknora_history(g.user, selected))
             if not any(row['role'] == 'assistant' and row['id'] == identifier for row in rows):
                 raise StoreError('消息不存在', 404)
-    return jsonify(success=True)
+    return jsonify(success=True, **result)
 
 
 @agent_bp.route('/api/v1/agent/tool-approvals/<pending_id>', methods=['POST'])
@@ -334,7 +338,11 @@ def approve_tool(pending_id):
 @agent_bp.route('/api/v1/agent/prompts/<pending_id>', methods=['POST'])
 def answer_prompt(pending_id):
     from webapi.weknora_prompts import stage
-    return jsonify(resumed=stage(g.user, pending_id, _json_body(), 'ask_user'))
+    body = _json_body()
+    kind = body.get('kind')
+    if kind not in ('ask_user', 'native_interrupt'):
+        raise StoreError('交互类型无效', 400)
+    return jsonify(resumed=stage(g.user, pending_id, body, kind))
 
 
 @agent_bp.route('/api/v1/agent/mcp-oauth-resolutions/<pending_id>', methods=['POST'])

@@ -15,6 +15,10 @@ _initialize_lock = threading.Lock()
 _initialized_targets = set()
 
 
+def database_url():
+    return os.getenv('PLATFORM_DATABASE_URL') or os.getenv('DATABASE_URL', '')
+
+
 def close_pool():
     global _pool, _pool_key
     with _pool_lock:
@@ -30,7 +34,7 @@ atexit.register(close_pool)
 @contextmanager
 def connection():
     global _pool, _pool_key
-    url = os.getenv('DATABASE_URL', '')
+    url = database_url()
     if not url:
         raise RuntimeError('DATABASE_URL 未配置，请先启动 compose.postgres.yml')
     with _pool_lock:
@@ -48,7 +52,7 @@ def connection():
 
 def initialize():
     with _initialize_lock:
-        target = (os.getpid(), os.getenv('DATABASE_URL', ''))
+        target = (os.getpid(), database_url())
         if target in _initialized_targets:
             return
         _initialize_schema()

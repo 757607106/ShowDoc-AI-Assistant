@@ -50,6 +50,7 @@ def resolve_model_catalog():
             extra[key] = body[key]
     kind = {'chat': 'KnowledgeQA', 'vllm': 'VLLM', 'embedding': 'Embedding', 'rerank': 'Rerank', 'asr': 'ASR'}.get(body.get('model_type'), 'KnowledgeQA')
     value = {'name': name, 'type': kind, 'parameters': {'provider': body.get('provider', 'generic'), 'base_url': body.get('base_url', ''),
+        'context_window': body.get('context_window'), 'max_output_tokens': body.get('max_output_tokens'),
         'spec': body.get('spec') or {}, 'extra_config': extra}}
     validate_model_runtime(value)
     capabilities = model_capabilities(value)
@@ -513,9 +514,13 @@ def memory_settings():
         body = _body()
         if set(body) != {'enabled'} or not isinstance(body['enabled'], bool):
             raise StoreError('个人记忆开关必须为 enabled 布尔值', 400)
-        saved = next((item for item in registry.records('settings', g.user['id']) if item['id'] == 'memory-preference'), None)
-        registry.save_record('settings', {**(saved or {}), 'id': 'memory-preference',
-            'value': {**(saved or {}).get('value', {}), **body}}, g.user['id'])
+        # Adopt both owner-scoped legacy gates without changing their state on reads.
+        with connection() as conn:
+            saved = {item['id']: item for item in registry.records('settings', g.user['id'], _connection=conn)}
+            for key in ('memory-config', 'memory-preference'):
+                previous = saved.get(key, {})
+                registry.save_record('settings', {**previous, 'id': key,
+                    'value': {**previous.get('value', {}), **body}}, g.user['id'], _connection=conn)
     return jsonify(success=True, data=policy(g.user['id']))
 
 

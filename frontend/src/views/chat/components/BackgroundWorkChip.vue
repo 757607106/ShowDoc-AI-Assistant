@@ -1,6 +1,6 @@
 <template>
   <t-popup
-    v-if="running.length"
+    v-if="items.length"
     v-model:visible="open"
     trigger="click"
     placement="top-left"
@@ -10,25 +10,28 @@
       type="button"
       class="chip-count"
       :aria-expanded="open"
-      :aria-label="$t('chat.backgroundWork.running', { count: running.length }, running.length)"
+      :aria-label="$t('chat.backgroundWork.count', { count: items.length }, items.length)"
     >
       <span class="chip-badge" aria-hidden="true" />
-      <span>{{ $t('chat.backgroundWork.running', { count: running.length }, running.length) }}</span>
+      <span>{{ $t('chat.backgroundWork.count', { count: items.length }, items.length) }}</span>
     </button>
     <template #content>
       <div class="work-card" role="list">
-        <div v-for="item in running" :key="item.work_id" class="work-row" role="listitem">
+        <div v-for="item in items" :key="item.work_id" class="work-row" role="listitem">
           <button type="button" class="work-main" @click="openOutput(item.work_id)">
             <span class="work-title">{{ item.title || item.work_id }}</span>
+            <span class="work-state">{{ $t(`chat.backgroundWork.states.${item.state}`) }}</span>
             <span v-if="elapsed(item)" class="work-duration">{{ elapsed(item) }}</span>
           </button>
           <button
+            v-if="canCancel(item)"
             type="button"
             class="work-stop"
             :disabled="cancelling.has(item.work_id)"
             @click="onCancel(item.work_id)"
           >{{ $t('chat.backgroundWork.stop') }}</button>
         </div>
+        <p v-if="cancelError" role="alert">{{ cancelError }}</p>
       </div>
     </template>
   </t-popup>
@@ -36,22 +39,28 @@
 
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { BackgroundWorkItem } from '@/api/chat/background-work'
+import { isBackgroundWorkActive } from '@/utils/backgroundWork'
 
 const props = defineProps<{
   items: BackgroundWorkItem[]
   cancelWork: (workId: string) => Promise<void>
+  scopeKey?: string
 }>()
+const { t } = useI18n()
 const emit = defineEmits<{ view: [workId: string] }>()
 const cancelling = ref(new Set<string>())
 const open = ref(false)
+const cancelError = ref('')
 const now = ref(Date.now())
 let clock: ReturnType<typeof setInterval> | undefined
+let generation = 0
 
-const running = computed(() => props.items.filter((item) => item.state === 'running'))
+const active = computed(() => props.items.filter((item) => isBackgroundWorkActive(item.state)))
 
 function syncClock() {
-  const live = running.value.some((item) => item.started_at)
+  const live = active.value.some((item) => item.started_at)
   if (live && !clock) {
     clock = setInterval(() => { now.value = Date.now() }, 1000)
   } else if (!live && clock) {
@@ -60,7 +69,7 @@ function syncClock() {
   }
 }
 
-watch(running, (items) => {
+watch(() => props.items, (items) => {
   syncClock()
   if (!items.length) open.value = false
   const ids = new Set(items.map((item) => item.work_id))
@@ -68,9 +77,22 @@ watch(running, (items) => {
   if (next.size !== cancelling.value.size) cancelling.value = next
 }, { deep: true, immediate: true })
 
+watch(() => props.scopeKey, () => {
+  generation++
+  cancelling.value = new Set()
+  cancelError.value = ''
+  open.value = false
+}, { flush: 'sync' })
+
 onUnmounted(() => {
+  generation++
   if (clock) clearInterval(clock)
 })
+
+function canCancel(item: BackgroundWorkItem): boolean {
+  return item.kind === 'async_subagent' && item.read_only === false && item.can_cancel === true
+    && isBackgroundWorkActive(item.state)
+}
 
 function openOutput(workId: string) {
   open.value = false
@@ -78,13 +100,19 @@ function openOutput(workId: string) {
 }
 
 async function onCancel(workId: string) {
-  if (cancelling.value.has(workId)) return
+  const item = props.items.find(item => item.work_id === workId)
+  if (!item || !canCancel(item) || cancelling.value.has(workId)) return
+  const current = generation
+  cancelError.value = ''
   const next = new Set(cancelling.value)
   next.add(workId)
   cancelling.value = next
   try {
     await props.cancelWork(workId)
+  } catch (failure: any) {
+    if (current === generation) cancelError.value = failure?.message || t('chat.backgroundWork.cancelFailed')
   } finally {
+    if (current !== generation) return
     // The request may fail while the job remains running. Always permit retry
     // after it settles; only an in-flight request should disable the button.
     const remaining = new Set(cancelling.value)
@@ -105,7 +133,8 @@ function formatDuration(ms: number): string {
 function elapsed(item: BackgroundWorkItem): string {
   const start = Date.parse(item.started_at ?? '')
   if (!Number.isFinite(start)) return ''
-  return formatDuration(now.value - start)
+  const finish = isBackgroundWorkActive(item.state) ? now.value : Date.parse(item.finished_at ?? '')
+  return Number.isFinite(finish) ? formatDuration(finish - start) : ''
 }
 </script>
 
@@ -192,6 +221,9 @@ function elapsed(item: BackgroundWorkItem): string {
   color: var(--td-text-color-placeholder);
   font-variant-numeric: tabular-nums;
 }
+
+.work-state { flex-shrink: 0; color: var(--td-text-color-secondary); font-size: var(--app-text-xs); }
+[role='alert'] { margin: 4px 8px; color: var(--td-error-color); font-size: var(--app-text-sm); }
 
 .work-stop {
   flex-shrink: 0;

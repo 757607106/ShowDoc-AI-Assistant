@@ -35,7 +35,7 @@ import { useStream } from '@/api/chat/streame'
 import { isAwaitingInput, useChatStreamHandler, type ChatMessage } from '@/composables/useChatStreamHandler'
 import { isCollaborationTaskActive, type CollaborationTaskView } from '@/utils/collaborationDisplay'
 const AgentStreamDisplay = defineAsyncComponent(() => import('./AgentStreamDisplay.vue'))
-const props = defineProps<{ task: CollaborationTaskView; active?: boolean }>()
+const props = defineProps<{ task: CollaborationTaskView; active?: boolean; refreshKey?: number }>()
 const { t } = useI18n()
 const messages = reactive<ChatMessage[]>([])
 const latestAssignment = computed(() => [...messages].reverse().find(message => message.role === 'user'))
@@ -108,7 +108,7 @@ async function refresh() {
     refreshRequested = false
   }
 }
-watch(() => props.task.status, () => {
+watch(() => [props.task.status, props.refreshKey], () => {
   if (refreshing) refreshRequested = true
   else if (!stream.isStreaming.value) void refresh()
 })

@@ -6,6 +6,7 @@ import test from 'node:test'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import ts from 'typescript'
 import * as vue from 'vue'
+import { validateNativeAgentConfig } from '../views/agent/nativeAgentConfig'
 
 const require = createRequire(import.meta.url)
 const renderer = vue.createRenderer<any, any>({
@@ -38,6 +39,7 @@ function fixture() {
   }
   const skills = { listSkills: async (): Promise<{ data: any[] }> => ({ data: [] }) }
   const modules: Record<string, any> = {
+    './nativeAgentConfig': { validateNativeAgentConfig },
     '@/config/contextdb': { IS_CONTEXTDB: false },
     vue,
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key, locale: vue.ref('en') }) },

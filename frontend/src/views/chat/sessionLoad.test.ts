@@ -26,7 +26,6 @@ function fixture(
   options: {
     session?: (id: string) => Promise<any>
     messages?: (query: any) => Promise<any>
-    queue?: (id: string) => Promise<any>
     embedded?: boolean
     stream?: () => Promise<void>
   } = {},
@@ -50,14 +49,12 @@ function fixture(
     props: { embeddedMode: options.embedded ?? false },
     firstQuery: ref(''),
     messagesList: rows,
-    steerQueue: ref([]),
     getSession:
       options.session ?? (async (id: string) => ({ data: { id, last_request_state: id } })),
     fetchMessageList: async (query: any) => {
       calls.push({ ...query })
       return options.messages ? options.messages(query) : { data: [] }
     },
-    listSteerSession: options.queue ?? (async () => ({ items: [] })),
     useSettingsStoreInstance: {
       hydrateSessionInputState: (...args: any[]) => hydrated.push(args),
       restoreDefaultsIfSnapshotted() {},
@@ -92,7 +89,6 @@ function fixture(
     loadFollowUpSuggestions() {},
     findLastMessage: (predicate: (row: any) => boolean) => [...rows].reverse().find(predicate),
     persistedAssistantId: (row: any) => row.id,
-    previewSteerMessage: (_rows: any[], item: any) => rows.push({ id: item.steer_id }),
     startStream: async (request: any) => {
       streams.push(request)
       await options.stream?.()
@@ -127,7 +123,6 @@ function fixture(
   const code =
     block('const currentSession = ref(null);', 'const isAutomationSession = ') +
     block('const loadSessionAndHydrate = ', 'const inputFieldRef = ref();') +
-    block('const hydrateSteerQueue = ', 'const {\n    findLastMessage,') +
     block('watch([() => route.params]', 'const scrollFollow = ') +
     block('const getmsgList = ', '// 发送消息') +
     after +
@@ -135,7 +130,7 @@ function fixture(
     block('const sendMsg = ', '    const reasoningEffort = ') +
     'recordSend(value); };\n' +
     block('const clearData = ', '</script>') +
-    '\nreturn { currentSession, loadSessionAndHydrate, getmsgList, afterHistory, hydrateSteerQueue, handleSessionMutation, sendMsg, clearData };'
+    '\nreturn { currentSession, loadSessionAndHydrate, getmsgList, afterHistory, handleSessionMutation, sendMsg, clearData };'
   const page = new Function(...Object.keys(context), code)(...Object.values(context))
   afterHistory = page.afterHistory
   return {
@@ -278,26 +273,6 @@ test('leaving or disposing the page invalidates pending detail and history write
   }
 })
 
-test('a stale queue restore cannot inject messages or resume a stream in another visit', async () => {
-  const queue = deferred()
-  const f = fixture({ queue: () => queue.promise })
-  const old = f.page.getmsgList({ session_id: 'A' })
-  // Trigger the real post-history callback with an incomplete assistant.
-  f.rows.push({ id: 'A-assistant', role: 'assistant', is_completed: false })
-  const after = f.page.afterHistory()
-  await f.change('B')
-  f.rows.push({ id: 'B-assistant', role: 'assistant', is_completed: false })
-  queue.resolve({ items: [{ steer_id: 'old-steer', delivery: 'inject', content: 'old' }] })
-  await Promise.all([old, after])
-  await flush()
-  assert.equal(
-    f.rows.some((row) => row.id === 'old-steer'),
-    false,
-  )
-  assert.deepEqual(f.streams, [])
-  assert.deepEqual(f.context.steerQueue.value, [])
-})
-
 test('current failures preserve the history cursor and a later retry can succeed', async () => {
   let failing = true
   const f = fixture({
@@ -403,19 +378,15 @@ test('embedded disposal prevents its pending history from resuming a stream', as
   assert.deepEqual(f.streams, [])
 })
 
-test('current history still restores the queue and resumes its incomplete reply', async () => {
+test('current history resumes its incomplete reply', async () => {
   const f = fixture({
     messages: async () => ({
       data: [
         { id: 'reply-A', role: 'assistant', is_completed: false, channel: 'im', created_at: 'now' },
       ],
     }),
-    queue: async () => ({
-      items: [{ steer_id: 'queued-A', content: 'current', delivery: 'inject' }],
-    }),
   })
   await f.page.getmsgList({ session_id: 'A' })
-  assert.equal(f.context.steerQueue.value[0].steer_id, 'queued-A')
   assert.deepEqual(f.streams, [
     { session_id: 'A', query: 'reply-A', method: 'GET', url: '/api/v1/sessions/continue-stream' },
   ])

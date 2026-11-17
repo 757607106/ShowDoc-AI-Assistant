@@ -33,7 +33,9 @@
             variant="dock" v-bind="{ ...timing(prompt), ...authProps }" :service-name="prompt.service_name || ''"
             :mcp-tool-name="prompt.mcp_tool_name || ''" :description="prompt.description"
             :delegated-task="prompt.delegated_task" :args-json="prompt.args_json" :grant-scope="prompt.grant_scope"
-            :grant-lapsed="prompt.grant_lapsed" />
+            :grant-lapsed="prompt.grant_lapsed" :allowed-decisions="prompt.allowed_decisions" />
+          <NativeInterruptCard v-else-if="prompt.type === 'agent_prompt_required' && prompt.kind === 'native_interrupt'"
+            :pending-id="prompt.pending_id" :request="prompt.request" variant="dock" />
           <SecureFormCard v-else-if="prompt.type === 'agent_prompt_required' && prompt.kind === 'secure_form'"
             :ref="(el) => setCard(prompt, el)" variant="dock" v-bind="timing(prompt)" :request="prompt.request" />
           <AskUserCard v-else-if="prompt.type === 'agent_prompt_required'" :ref="(el) => setCard(prompt, el)"
@@ -57,6 +59,7 @@ import AskUserCard from './AskUserCard.vue'
 import McpOAuthCard from './McpOAuthCard.vue'
 import SecureFormCard from './SecureFormCard.vue'
 import ToolApprovalCard from './ToolApprovalCard.vue'
+import NativeInterruptCard from './NativeInterruptCard.vue'
 
 const props = defineProps<{
   embeddedMode?: boolean
@@ -108,6 +111,7 @@ const title = computed(() => {
     case 'tool_approval_required': return t('agentStream.promptDock.approvalTitle')
     case 'mcp_oauth_required': return t('agentStream.promptDock.oauthTitle')
     case 'agent_prompt_required':
+      if (active.value?.kind === 'native_interrupt') return t('nativeAgent.interruptTitle')
       return active.value?.kind === 'secure_form'
         ? t('agentStream.promptDock.secureFormTitle')
         : t('agentStream.askUser.title')

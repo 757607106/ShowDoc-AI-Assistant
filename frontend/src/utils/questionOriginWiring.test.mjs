@@ -4,7 +4,7 @@ import test from 'node:test'
 
 // A picked suggestion's origin must travel with that one send. Shared
 // "pending" state was lost when a send returned early (agent not ready,
-// upload in progress, steering a running turn) and was overwritten when a
+// upload in progress, a running turn) and was overwritten when a
 // second suggestion was picked before the first send went out.
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const inputField = read('../components/Input-field.vue')
@@ -13,7 +13,7 @@ const chatPage = read('../views/chat/index.vue')
 
 test('the composer forwards send options from triggerSend to send-msg', () => {
   assert.match(inputField, /triggerSend\(text: string, options: SendMessageOptions = \{\}\)/)
-  assert.match(inputField, /nextTick\(\(\) => createSession\(text, 'after', options\)\)/)
+  assert.match(inputField, /nextTick\(\(\) => createSession\(text, options\)\)/)
   const emits = inputField.match(/emit\('send-msg',[^\n]*\)/g) || []
   assert.ok(emits.length >= 2)
   for (const call of emits) {

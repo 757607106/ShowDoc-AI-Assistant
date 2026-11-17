@@ -16,7 +16,7 @@ async function setup(t: TestContext, options: { query?: any; profile?: any; rows
   const f = fixtures.get(t) || fixture(t), calls: Call[] = []
   fixtures.set(t, f)
   Object.assign(f.window, { confirm: () => true })
-  const profile = options.profile || { member: { member_id: 'member-a', member_name: '测试成员', role: 'owner', status: 'active' } }
+  const profile = options.profile || { member: { role: 'owner', status: 'active' } }
   const { vm } = f.component(new URL('./KnowledgeView.vue', import.meta.url), {
     'vue-router': { useRoute: () => ({ query: options.query || {} }), onBeforeRouteLeave: () => {} },
     '@/stores/auth': { useAuthStore: () => ({ hasRole: () => true }) },
@@ -52,7 +52,6 @@ async function setup(t: TestContext, options: { query?: any; profile?: any; rows
 test('personal reviews omit a library while library mode uses its exact writable ID and native sorting', async t => {
   const personal = await setup(t)
   assert.equal(personal.calls.find(call => call.path === 'knowledge/reviews')!.data.knowledge_base_id, undefined)
-  assert.equal(personal.vm.memberOptions[0].label, '测试成员 (member-a)')
   const f = await setup(t, { query: { kb_id: 'kb-a' } })
   assert.equal(f.calls.find(call => call.path === 'knowledge/reviews')!.data.knowledge_base_id, 'kb-a')
   f.vm.sortBy = 'confidence_score'; f.vm.sortOrder = 'asc'; f.vm.reviewState = ''; await flush()
@@ -232,43 +231,29 @@ test('select-all skips records without write permission and single operations wa
   f.vm.reviewBatchActing = true; await f.vm.actReview('confirm')
   assert.equal(f.calls.some(call => call.method === 'POST'), false)
 })
-test('an in-flight single decision blocks pagination and member refresh without locking its completion', async t => {
+test('an in-flight single decision blocks pagination without locking its completion', async t => {
   let complete!: (value: any) => void
   const f = await setup(t, { write: async () => await new Promise(resolve => { complete = resolve }) })
   const initialReads = f.calls.filter(call => call.path === 'knowledge/reviews').length
-  const profile = f.vm.permissionProfile, pending = f.vm.actReview('confirm')
+  const pending = f.vm.actReview('confirm')
   assert.equal(f.vm.reviewActing, true)
-  f.vm.changePage(2); await f.vm.loadContext()
+  f.vm.changePage(2)
   assert.equal(f.vm.reviewPage, 1); assert.equal(f.vm.reviewRow.review_id, 'review-a')
-  assert.equal(f.vm.permissionProfile, profile); assert.equal(f.vm.contextLoading, false)
   assert.equal(f.calls.filter(call => call.path === 'knowledge/reviews').length, initialReads)
   complete(review('review-a', 'approved')); await pending
   assert.equal(f.vm.reviewActing, false); assert.equal(f.vm.reviewDetail.lifecycle_state, 'approved')
   f.vm.changePage(2); await flush(); assert.equal(f.vm.reviewPage, 2)
 })
-test('an in-flight batch decision blocks pagination and member refresh until every result is handled', async t => {
+test('an in-flight batch decision blocks pagination until every result is handled', async t => {
   let complete!: (value: any) => void
   const f = await setup(t, { rows: [review('a'), review('b')], write: async () => await new Promise(resolve => { complete = resolve }) })
   f.vm.selectedReviewIds = ['a', 'b']; const initialReads = f.calls.filter(call => call.path === 'knowledge/reviews').length
-  const profile = f.vm.permissionProfile, pending = f.vm.actReviews('confirm')
+  const pending = f.vm.actReviews('confirm')
   assert.equal(f.vm.reviewBatchActing, true)
-  f.vm.changePage(2); await f.vm.loadContext()
+  f.vm.changePage(2)
   assert.equal(f.vm.reviewPage, 1); assert.deepEqual(plain(f.vm.selectedReviewIds), ['a', 'b'])
-  assert.equal(f.vm.permissionProfile, profile); assert.equal(f.vm.contextLoading, false)
   assert.equal(f.calls.filter(call => call.path === 'knowledge/reviews').length, initialReads)
   complete({ results: [{ id: 'a', success: true }, { id: 'b', success: true }] }); await pending
   assert.equal(f.vm.reviewBatchActing, false); assert.equal(f.vm.reviewBatchResults.length, 2)
   f.vm.changePage(2); await flush(); assert.equal(f.vm.reviewPage, 2)
-})
-test('member refresh cannot discard an edited rewrite even when the next permission read would fail', async t => {
-  let permissionFails = false, permissionReads = 0
-  const f = await setup(t, { query: { kb_id: 'kb-a' }, get permissionFailure() { permissionReads++; return permissionFails } })
-  await f.vm.startEditing(); f.vm.editedContent = '人工整理的完整重写稿\n保留必要条件🙂'
-  const reads = permissionReads, profile = f.vm.permissionProfile
-  permissionFails = true; await f.vm.loadContext()
-  assert.equal(permissionReads, reads); assert.equal(f.vm.editing, true)
-  assert.equal(f.vm.editedContent, '人工整理的完整重写稿\n保留必要条件🙂')
-  assert.equal(f.vm.activeBaseId, 'kb-a'); assert.equal(f.vm.reviewDetail.review_id, 'review-a'); assert.equal(f.vm.permissionProfile, profile)
-  f.vm.editing = false; await f.vm.loadContext(); await flush()
-  assert.equal(permissionReads, reads + 1); assert.equal(f.vm.contextError, 'permissions unavailable'); assert.equal(f.vm.permissionProfile, null)
 })

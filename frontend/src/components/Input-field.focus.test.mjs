@@ -27,7 +27,7 @@ test('host page navigation preserves the assistant draft and uploads but clears 
   }
 })
 
-for (const mode of ['normal', 'embedded', 'after', 'inject']) {
+for (const mode of ['normal', 'embedded']) {
   test(`${mode} send clears the draft and restores focus after the DOM update`, async () => {
     const effects = [], ticks = []
     let sentModel
@@ -37,7 +37,7 @@ for (const mode of ['normal', 'embedded', 'after', 'inject']) {
       blur: () => { throw new Error('sending must not blur the textarea') },
     }
     const context = {
-      props: { isReplying: ['after', 'inject'].includes(mode), canSteer: true, embeddedMode: mode === 'embedded' },
+      props: { isReplying: false, embeddedMode: mode === 'embedded' },
       uploadedAttachments: { value: [] }, uploadedImages: { value: [] },
       allSelectedItems: { value: [] }, selectedModelId: { value: 'model' },
       composerModelId: { value: 'host-model' },
@@ -54,8 +54,8 @@ for (const mode of ['normal', 'embedded', 'after', 'inject']) {
       nextTick: () => new Promise(resolve => ticks.push(resolve)),
     }
     const send = vm.runInNewContext(ts.transpile(`${focusCode}\n${sendCode}\ncreateSession`), context)
-    await send('hello', mode === 'inject' ? 'inject' : 'after')
-    assert.deepEqual(effects, [[context.props.isReplying ? 'steer-msg' : 'send-msg'], ['clear']])
+    await send('hello')
+    assert.deepEqual(effects, [['send-msg'], ['clear']])
     // Embedded, the host's model goes out, never the main chat's pick.
     if (mode === 'embedded') assert.equal(sentModel, 'host-model')
     if (mode === 'normal') assert.equal(sentModel, 'model')
@@ -79,32 +79,35 @@ test('a queued focus does not focus a textarea removed during navigation', async
 })
 
 for (const embeddedMode of [false, true]) {
-  for (const delivery of ['after', 'inject']) {
-    test(`${embeddedMode ? 'embedded' : 'main'} ${delivery} steer respects the composer's resource scope`, async () => {
-      const selected = [
-        { id: 'main-kb', name: 'Main KB', type: 'kb' },
-        { id: 'main-file', name: 'Main file', type: 'file', kbId: 'main-kb' },
-        { id: 'main-tag', name: 'Main tag', type: 'tag', kbId: 'main-kb' },
-        { id: 'main-mcp', name: 'Main MCP', type: 'mcp' },
-        { id: 'main-skill', name: 'Main skill', type: 'skill', skillName: 'main-skill' },
-      ]
-      let emitted
-      const send = vm.runInNewContext(ts.transpile(`${sendCode}\ncreateSession`), {
-        props: { embeddedMode, isReplying: true, canSteer: true },
-        uploadedAttachments: { value: [] }, uploadedImages: { value: [] },
-        allSelectedItems: { value: selected },
-        emit: (...args) => { emitted = args },
-        clearvalue() {}, focusInput: async () => {},
-      })
-      await send(' continue ', delivery)
-      const [event, query, mentions, mode] = emitted
-      assert.equal(event, 'steer-msg')
-      assert.equal(query, 'continue')
-      assert.equal(mode, delivery)
-      assert.deepEqual(Array.from(mentions, item => item.id), embeddedMode ? [] : selected.map(item => item.id))
-      assert.equal(selected.length, 5, 'sending must not clear the main composer selection')
+  test(`${embeddedMode ? 'embedded' : 'main'} send respects the composer's resource scope`, async () => {
+    const selected = [
+      { id: 'main-kb', name: 'Main KB', type: 'kb' },
+      { id: 'main-file', name: 'Main file', type: 'file', kbId: 'main-kb' },
+      { id: 'main-tag', name: 'Main tag', type: 'tag', kbId: 'main-kb' },
+      { id: 'main-mcp', name: 'Main MCP', type: 'mcp' },
+      { id: 'main-skill', name: 'Main skill', type: 'skill', skillName: 'main-skill' },
+    ]
+    let emitted
+    const send = vm.runInNewContext(ts.transpile(`${sendCode}\ncreateSession`), {
+      props: { embeddedMode, isReplying: false },
+      uploadedAttachments: { value: [] }, uploadedImages: { value: [] },
+      allSelectedItems: { value: selected },
+      selectedModelId: { value: 'main-model' }, composerModelId: { value: 'host-model' },
+      selectedAgent: { value: { config: {} } },
+      settingsStore: {}, chatResources: { isLoaded: () => true },
+      collectAgentNotReadyReasons: () => ({ keys: [], labels: [] }),
+      attachmentUploadRef: { value: null },
+      emit: (...args) => { emitted = args },
+      clearvalue() {}, focusInput: async () => {},
     })
-  }
+    await send('continue')
+    const [event, query, model, mentions] = emitted
+    assert.equal(event, 'send-msg')
+    assert.equal(query, 'continue')
+    assert.equal(model, embeddedMode ? 'host-model' : 'main-model')
+    assert.deepEqual(Array.from(mentions, item => item.id), embeddedMode ? [] : selected.map(item => item.id))
+    assert.equal(selected.length, 5, 'sending must not clear the main composer selection')
+  })
 }
 
 test('teardown blurs the active textarea before it is detached', () => {

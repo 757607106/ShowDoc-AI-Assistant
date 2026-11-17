@@ -4,6 +4,27 @@
     v-model="currentSection" :nav-groups="navGroups" :loading="editorInitializing" :z-index="1000"
     nav-guide="agent-editor-sidebar" nav-item-guide-prefix="agent-editor-nav" @close="modalShell.requestClose">
     <div ref="contentWrapperRef" class="content-wrapper" :class="{ 'content-wrapper--prompts': currentSection === 'prompts' }">
+      <div v-if="IS_CONTEXTDB && !nativeDefaultsReady" class="settings-group native-runtime-notice" role="status">
+        <p>{{ $t('agent.editor.nativeRuntime.defaultsUnavailable') }}</p>
+        <t-button size="small" variant="outline" :loading="loadingRuntimeDefaults" @click="retryRuntimeDefaults">
+          {{ $t('agent.editor.nativeRuntime.retry') }}
+        </t-button>
+      </div>
+      <div v-if="IS_CONTEXTDB && (runtimeChanges.length || runtimeIssues.length || adoptedRuntimeChanges.length)"
+        class="settings-group native-runtime-notice" role="status">
+        <p>{{ $t(runtimeChanges.length || runtimeIssues.length ? 'agent.editor.nativeRuntime.incompatible' : 'agent.editor.nativeRuntime.changesPending') }}</p>
+        <ul v-if="runtimeChanges.length || adoptedRuntimeChanges.length">
+          <li v-for="change in runtimeChanges.length ? runtimeChanges : adoptedRuntimeChanges" :key="change.field">
+            <code>{{ change.field }}</code>: {{ runtimeValueText(change.before) }} → {{ runtimeValueText(change.after) }}
+          </li>
+        </ul>
+        <ul v-if="runtimeIssues.length">
+          <li v-for="issue in runtimeIssues" :key="issue.field"><code>{{ issue.field }}</code>: {{ issue.message }}</li>
+        </ul>
+        <t-button v-if="runtimeChanges.length && !readOnly" size="small" variant="outline" @click="adoptRuntimeSettings">
+          {{ $t(runtimeAdoptLabel) }}
+        </t-button>
+      </div>
       <!-- 基础设置 -->
       <div v-show="currentSection === 'basic'" class="section">
         <div class="section-header">
@@ -39,33 +60,12 @@
             </div>
           </div>
 
-          <!-- 集成渠道状态（编辑模式，配置在集成中心） -->
-          <div v-if="editorMode === 'edit' && editorAgent?.id" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('integrations.agentEditor.label') }}</label>
-              <p class="desc">{{ isPostCreateSession ? $t('agent.editor.postCreateHint.integrationDesc') : $t('integrations.agentEditor.desc') }}</p>
-            </div>
-            <div class="setting-control">
-              <div class="integration-inline">
-                <button type="button" class="integration-inline__stat integration-inline__link" @click="gotoIntegrations('im')">
-                  <span>{{ $t('integrations.tabs.im') }} · {{ agentIMChannelCount }}</span>
-                  <t-icon name="chevron-right" size="14px" />
-                </button>
-                <span class="integration-inline__sep" aria-hidden="true">|</span>
-                <button type="button" class="integration-inline__stat integration-inline__link" @click="gotoIntegrations('embed')">
-                  <span>{{ $t('integrations.tabs.embed') }} · {{ agentEmbedChannelCount }}</span>
-                  <t-icon name="chevron-right" size="14px" />
-                </button>
-              </div>
-            </div>
-          </div>
-
           <!-- 运行模式（首先选择） -->
           <div class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agent.editor.mode') }} <span class="required">*</span></label>
               <p class="desc">{{ agentMode === 'smart-reasoning' ? $t('agent.editor.agentDesc') :
-                $t('agent.editor.normalDesc') }}</p>
+                $t(IS_CONTEXTDB ? 'agent.editor.nativeRuntime.quickDesc' : 'agent.editor.normalDesc') }}</p>
             </div>
             <div class="setting-control">
               <t-radio-group v-model="agentMode" :disabled="isBuiltinAgent" data-guide="agent-create-mode">
@@ -80,7 +80,7 @@
           </div>
 
           <!-- 智能体类型（仅智能推理模式下显示） -->
-          <div v-if="isAgentMode && agentTypePresets.length > 0" class="setting-row setting-row--emphasize"
+          <div v-if="!IS_CONTEXTDB && isAgentMode && agentTypePresets.length > 0" class="setting-row setting-row--emphasize"
             data-guide="agent-create-agent-type">
             <div class="setting-info">
               <label>{{ $t('agentEditor.agentType.label') }}</label>
@@ -158,7 +158,7 @@
           <div class="prompts-panel__header">
             <div class="section-header section-header--compact">
               <h2>{{ $t('agent.editor.promptsConfig') }}</h2>
-              <p class="section-description">{{ $t('agent.editor.promptsConfigDesc') }}</p>
+              <p class="section-description">{{ $t(IS_CONTEXTDB ? 'agent.editor.nativeRuntime.promptDesc' : 'agent.editor.promptsConfigDesc') }}</p>
             </div>
 
             <nav v-if="promptNavItems.length > 1" class="prompts-outline"
@@ -244,7 +244,7 @@
           </div>
 
           <!-- 上下文模板（仅普通模式） -->
-          <div v-if="!isAgentMode" v-show="activePromptAnchor === 'context'"
+          <div v-if="usesLocalRag" v-show="activePromptAnchor === 'context'"
             class="setting-row setting-row-vertical prompts-panel__pane">
             <div class="setting-info">
               <label>{{ $t('agent.editor.contextTemplate') }} <span v-if="!isBuiltinAgent"
@@ -292,7 +292,7 @@
           </div>
 
           <!-- 意图提示词（仅普通模式） -->
-          <div v-if="!isAgentMode" v-show="activePromptAnchor === 'intent'"
+          <div v-if="usesLocalRag" v-show="activePromptAnchor === 'intent'"
             class="setting-row setting-row-vertical prompts-panel__pane">
             <div class="setting-info">
               <label>{{ $t('agentEditor.intentPrompts.title') }}</label>
@@ -368,7 +368,7 @@
 
           <!-- 改写提示词（多轮对话 + 问题改写开启时） -->
           <template
-            v-if="!isAgentMode && formData.config.multi_turn_enabled && formData.config.enable_rewrite">
+            v-if="usesLocalRag && formData.config.multi_turn_enabled && formData.config.enable_rewrite">
             <div v-show="activePromptAnchor === 'rewrite-system'"
               class="setting-row setting-row-vertical prompts-panel__pane">
               <div class="setting-info">
@@ -461,7 +461,7 @@
           </template>
 
           <!-- 检索兜底（普通模式 + 启用知识库） -->
-          <div v-if="!isAgentMode && hasKnowledgeBase" v-show="activePromptAnchor === 'fallback'"
+          <div v-if="usesLocalRag && hasKnowledgeBase" v-show="activePromptAnchor === 'fallback'"
             class="prompts-panel__pane prompts-panel__pane--stack">
             <div class="setting-row">
               <div class="setting-info">
@@ -679,7 +679,7 @@
 
           <!-- 问题理解模型（多轮改写时，留空则复用主对话模型） -->
           <div
-            v-if="!isAgentMode && formData.config.multi_turn_enabled && formData.config.enable_rewrite"
+            v-if="usesLocalRag && formData.config.multi_turn_enabled && formData.config.enable_rewrite"
             class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agent.editor.queryUnderstandModel') }}</label>
@@ -696,7 +696,7 @@
           </div>
 
           <!-- 最大迭代次数（Agent 模式）：正数为上限，-1 为不限制 -->
-          <div v-if="isAgentMode" class="setting-row">
+          <div v-if="IS_CONTEXTDB || isAgentMode" class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agent.editor.maxIterations') }}</label>
               <p class="desc">{{ $t('agentEditor.desc.maxIterations') }}</p>
@@ -707,12 +707,12 @@
                 <t-radio-button value="unlimited">{{ $t('agent.editor.maxIterationsUnlimited') }}</t-radio-button>
               </t-radio-group>
               <t-input-number v-if="maxIterationsMode === 'limit'" v-model="formData.config.max_iterations"
-                :min="2" :max="50" theme="column" />
+                :min="IS_CONTEXTDB ? 1 : 2" :max="50" theme="column" />
             </div>
           </div>
 
           <!-- LLM 调用超时（Agent 模式） -->
-          <div v-if="isAgentMode" class="setting-row">
+          <div v-if="IS_CONTEXTDB || isAgentMode" class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agentEditor.llmCallTimeout.label') }}</label>
               <p class="desc">{{ $t('agentEditor.llmCallTimeout.desc') }}</p>
@@ -749,12 +749,12 @@
           <!-- VLM 模型（图片上传启用时） -->
           <div v-if="formData.config.image_upload_enabled" class="setting-row">
             <div class="setting-info">
-              <label>{{ $t('agentEditor.imageUpload.vlmModel') }} <span class="required">*</span></label>
-              <p class="desc">{{ $t('agentEditor.imageUpload.vlmModelDesc') }}</p>
+              <label>{{ $t('agentEditor.imageUpload.vlmModel') }} <span v-if="!IS_CONTEXTDB" class="required">*</span></label>
+              <p class="desc">{{ IS_CONTEXTDB ? $t('nativeAgent.imageModelHelp', 'Inherit the main model when it supports images, or select a compatible image model.') : $t('agentEditor.imageUpload.vlmModelDesc') }}</p>
             </div>
             <div class="setting-control">
               <ModelSelector model-type="VLLM" :selected-model-id="formData.config.vlm_model_id"
-                :all-models="allModels"
+                :all-models="allModels" :clearable="IS_CONTEXTDB"
                 @update:selected-model-id="(val: string) => formData.config.vlm_model_id = val"
                 @add-model="handleAddModel('vllm')"
                 :placeholder="$t('agentEditor.imageUpload.vlmModelPlaceholder')" />
@@ -762,7 +762,7 @@
           </div>
 
           <!-- 附件图片理解 / 扫描件 OCR（图片上传启用时） -->
-          <div v-if="formData.config.image_upload_enabled" class="setting-row">
+          <div v-if="!IS_CONTEXTDB && formData.config.image_upload_enabled" class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agentEditor.imageUpload.imageUnderstandingLabel') }}</label>
               <p class="desc">{{ $t('agentEditor.imageUpload.imageUnderstandingDesc') }}</p>
@@ -773,7 +773,7 @@
           </div>
 
           <!-- 扫描件 OCR 最大页数（开启附件图片理解时） -->
-          <div v-if="formData.config.image_upload_enabled && formData.config.attachment_image_understanding"
+          <div v-if="!IS_CONTEXTDB && formData.config.image_upload_enabled && formData.config.attachment_image_understanding"
             class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agentEditor.imageUpload.ocrMaxPagesLabel') }}</label>
@@ -787,7 +787,7 @@
           </div>
 
           <!-- 图片存储 Provider（图片上传启用时） -->
-          <div v-if="formData.config.image_upload_enabled" class="setting-row">
+          <div v-if="!IS_CONTEXTDB && formData.config.image_upload_enabled" class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agentEditor.imageUpload.storageProvider') }}</label>
               <p class="desc">{{ $t('agentEditor.imageUpload.storageProviderDesc') }}</p>
@@ -813,7 +813,7 @@
           </div>
 
           <!-- 音频上传开关 -->
-          <div class="setting-row">
+          <div v-if="!IS_CONTEXTDB" class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agentEditor.audioUpload.label') }}</label>
               <p class="desc">{{ $t('agentEditor.audioUpload.desc') }}</p>
@@ -824,7 +824,7 @@
           </div>
 
           <!-- ASR 模型（音频上传启用时） -->
-          <div v-if="formData.config.audio_upload_enabled" class="setting-row">
+          <div v-if="!IS_CONTEXTDB && formData.config.audio_upload_enabled" class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agentEditor.audioUpload.asrModel') }}</label>
               <p class="desc">{{ $t('agentEditor.audioUpload.asrModelDesc') }}</p>
@@ -840,7 +840,7 @@
           </div>
 
           <!-- 单轮等待附件解析超时（秒） -->
-          <div class="setting-row">
+          <div v-if="!IS_CONTEXTDB" class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agentEditor.chatParser.waitTimeoutLabel') }}</label>
               <p class="desc">{{ $t('agentEditor.chatParser.waitTimeoutDesc') }}</p>
@@ -853,7 +853,7 @@
           </div>
 
           <!-- 聊天附件解析策略 -->
-          <div class="parser-policy-block">
+          <div v-if="!IS_CONTEXTDB" class="parser-policy-block">
             <div class="parser-policy-block__header">
               <label>{{ $t('agentEditor.chatParser.label') }}</label>
               <p class="desc">{{ $t('agentEditor.chatParser.desc') }}</p>
@@ -872,7 +872,7 @@
       <!-- 多轮对话。两种模式都保留本组：Agent 模式在这里说明历史按上下文窗口
            自动管理，并承载跨轮保留检索结果；开关由 EnsureDefaults 强制开启，
            故只在普通模式展示。 -->
-      <div v-show="currentSection === 'conversation'" class="section">
+      <div v-if="!IS_CONTEXTDB" v-show="currentSection === 'conversation'" class="section">
         <div class="section-header">
           <h2>{{ $t('agent.editor.conversationSettings') }}</h2>
           <p class="section-description">{{ conversationSectionDesc }}</p>
@@ -881,7 +881,7 @@
         <div class="settings-group">
           <!-- 多轮对话开关（仅普通模式：Agent 模式由 EnsureDefaults 强制开启，
                展示可关闭的开关只会被服务端改回去） -->
-          <div v-if="!isAgentMode" class="setting-row">
+          <div v-if="usesLocalRag" class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agent.editor.multiTurn') }}</label>
               <p class="desc">{{ $t('agentEditor.desc.multiTurn') }}</p>
@@ -893,7 +893,7 @@
 
           <!-- 保留轮数（仅普通模式：Agent 模式按上下文窗口加载历史、超出时压缩成
                摘要，见 session_agent_qa.go -> LoadAgentHistory，不读 history_turns） -->
-          <div v-if="!isAgentMode && formData.config.multi_turn_enabled" class="setting-row">
+          <div v-if="usesLocalRag && formData.config.multi_turn_enabled" class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agent.editor.historyTurns') }}</label>
               <p class="desc">{{ $t('agentEditor.desc.historyRounds') }}</p>
@@ -905,7 +905,14 @@
 
           <!-- 跨轮保留检索结果。只有 agent 链路读取该值（internal/agent/observe.go），
                且改写的只是 KB/Wiki 这八个工具的历史结果，所以没有知识库时不展示。 -->
-          <div v-if="isAgentMode && hasKnowledgeBase" class="setting-row">
+          <div v-if="IS_CONTEXTDB" class="setting-row">
+            <div class="setting-info">
+              <label>{{ $t('agent.editor.retainRetrievalHistory') }}</label>
+              <p class="desc">{{ $t('agent.editor.nativeRuntime.historyPolicy') }}</p>
+            </div>
+            <div class="setting-control"><code>{{ formData.config.retain_retrieval_history }}</code></div>
+          </div>
+          <div v-else-if="isAgentMode && hasKnowledgeBase" class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agent.editor.retainRetrievalHistory') }}</label>
               <p class="desc">{{ $t('agentEditor.desc.retainRetrievalHistory') }}</p>
@@ -916,7 +923,7 @@
           </div>
 
           <!-- 问题改写（仅多轮对话开启且普通模式时显示） -->
-          <div v-if="formData.config.multi_turn_enabled && !isAgentMode" class="setting-row">
+          <div v-if="formData.config.multi_turn_enabled && usesLocalRag" class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agent.editor.enableRewrite') }}</label>
               <p class="desc">{{ $t('agentEditor.desc.rewrite') }}</p>
@@ -929,7 +936,7 @@
       </div>
 
       <!-- 对话问题推荐 -->
-      <div v-show="currentSection === 'suggestions'" class="section">
+      <div v-if="!IS_CONTEXTDB" v-show="currentSection === 'suggestions'" class="section">
         <div class="section-header">
           <h2>{{ $t('agentEditor.questionSuggestions.title') }}</h2>
           <p class="section-description">{{ $t('agentEditor.questionSuggestions.description') }}</p>
@@ -1112,7 +1119,7 @@
       </div>
 
       <!-- 工具配置（仅 Agent 模式） -->
-      <div v-show="currentSection === 'tools' && isAgentMode" class="section">
+      <div v-show="currentSection === 'tools' && (IS_CONTEXTDB || isAgentMode)" class="section">
         <div class="section-header">
           <h2>{{ $t('agent.editor.toolsConfig') }}</h2>
           <p class="section-description">{{ $t('agent.editor.toolsConfigDesc') }}</p>
@@ -1155,7 +1162,7 @@
               <p class="desc">{{ $t('agentEditor.desc.selectTools') }}</p>
             </div>
             <div class="setting-control setting-control-full">
-              <t-checkbox-group v-model="formData.config.allowed_tools" class="tool-groups">
+              <t-checkbox-group v-model="formData.config.allowed_tools" class="tool-groups" @change="keepAllowedToolsUnset = false">
                 <section v-for="group in groupedAvailableTools" :key="group.key"
                   :class="['tool-group', `tool-group--${group.key}`]">
                   <header class="tool-group-header">
@@ -1241,7 +1248,7 @@
       </div>
 
       <!-- MCP 服务配置（仅 Agent 模式） -->
-      <div v-show="currentSection === 'mcp' && isAgentMode" class="section">
+      <div v-show="currentSection === 'mcp' && (IS_CONTEXTDB || isAgentMode)" class="section">
         <div class="section-header">
           <h2>{{ $t('agentEditor.mcp.label') }}</h2>
           <p class="section-description">{{ $t('agentEditor.mcp.desc') }}</p>
@@ -1279,7 +1286,7 @@
           </div>
 
           <!-- 授权等待超时：对话中触发 OAuth 授权时的等待秒数 -->
-          <div v-if="mcpSelectionMode !== 'none'" class="setting-row">
+          <div v-if="!IS_CONTEXTDB && mcpSelectionMode !== 'none'" class="setting-row">
             <div class="setting-info">
               <label>{{ $t('agentEditor.mcp.authWaitTimeout') }}</label>
               <p class="desc">{{ $t('agentEditor.mcp.authWaitTimeoutDesc') }}</p>
@@ -1306,201 +1313,54 @@
         </div>
       </div>
 
-      <!-- 技能：脚本跑在所选沙箱里，可用列表也来自这份配置 -->
-      <div v-show="currentSection === 'skills' && isAgentMode" class="section">
+      <!-- Native skills are directory packages; they do not depend on sandbox installations. -->
+      <div v-show="currentSection === 'skills' && (IS_CONTEXTDB || isAgentMode)" class="section">
         <div class="section-header">
           <h2>{{ $t('agent.editor.skillsConfig') }}</h2>
-          <p class="section-description">{{ hostOnly ? $t('agent.editor.hostSkillsConfigDesc') : $t('agent.editor.skillsConfigDesc') }}</p>
+          <p class="section-description">{{ $t('nativeAgent.skillsHelp', 'Choose directory skills for the agent. Skill names remain selected independently of sandbox installation status.') }}</p>
         </div>
-
         <div class="settings-group">
-          <div v-if="!hostOnly" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.sandboxBackend') }}</label>
-              <p class="desc">{{ $t('agent.editor.sandboxBackendHint') }}</p>
-            </div>
-            <div class="setting-control sandbox-select-control">
-              <t-select
-                v-model="formData.config.sandbox_config_id"
-                :placeholder="$t('agent.editor.sandboxBackendDefault')"
-                class="sandbox-config-select"
-                filterable
-                :popup-props="{ overlayClassName: 'sandbox-config-select-popup' }"
-              >
-                <t-option value="" :label="$t('agent.editor.sandboxBackendDefault')" />
-                <t-option
-                  v-for="cfg in sandboxConfigOptions"
-                  :key="cfg.id"
-                  :value="cfg.id"
-                  :label="cfg.name"
-                >
-                  <div class="sandbox-option">
-                    <div class="sandbox-option__row">
-                      <span class="sandbox-option__name">{{ cfg.name }}</span>
-                      <span v-if="cfg.sandbox_type" class="sandbox-option__type">{{ backendLabel(cfg.sandbox_type) }}</span>
-                    </div>
-                    <div v-if="sandboxTargetLine(cfg)" class="sandbox-option__target">{{ sandboxTargetLine(cfg) }}</div>
-                  </div>
-                </t-option>
-              </t-select>
-              <p v-if="selectedSandboxSummary" class="sandbox-selected-meta">{{ selectedSandboxSummary }}</p>
-              <div class="sandbox-select-links">
-                <a href="javascript:void(0)" class="go-settings-link"
-                  @click.prevent="uiStore.openSettings('sandbox')">
-                  {{ $t('agent.editor.goSandboxSettings') }}
-                </a>
-                <template v-if="hasSandboxSelected && canInstallSkills">
-                  <span class="sandbox-select-links__sep" aria-hidden="true">·</span>
-                  <a
-                    href="javascript:void(0)"
-                    class="go-settings-link"
-                    @click.prevent="openSkillSettings"
-                  >
-                    {{ $t('agent.editor.goSkillSettings') }}
-                  </a>
-                </template>
-              </div>
-              <p v-if="sandboxConfigOptions.length === 0" class="desc empty-hint">
-                {{ $t('agent.editor.sandboxNoConfigs') }}
-              </p>
-            </div>
-          </div>
-
           <div class="setting-row">
             <div class="setting-info">
-              <label>{{ $t('agent.editor.skillsSelection') }}</label>
-              <p class="desc">{{ skillsSelectionHint }}</p>
+              <label>{{ $t('agent.editor.sandboxBackend') }}</label>
+              <p class="desc">{{ $t('nativeAgent.runtimeHelp', 'Select an available runtime to enable Shell. Without Shell, the agent retains its state files. Saved unavailable runtimes remain visible.') }}</p>
             </div>
-            <div class="setting-control sandbox-select-control">
-              <t-radio-group v-model="skillsSelectionMode">
-                <t-radio-button value="all" :disabled="!canEnableSkills">{{ $t('agent.editor.skillsAll') }}</t-radio-button>
-                <t-radio-button value="selected" :disabled="!canEnableSkills">{{ $t('agent.editor.skillsSelected') }}</t-radio-button>
-                <t-radio-button value="none">{{ $t('agent.editor.skillsNone') }}</t-radio-button>
-              </t-radio-group>
-              <p v-if="!hasSandboxSelected && sandboxConfigOptions.length > 1" class="desc empty-hint">
-                {{ $t('agent.editor.skillsNeedSandbox') }}
-              </p>
-              <p v-else-if="hasSandboxSelected && skillCatalog.length === 0" class="desc empty-hint">
-                <span>{{ $t('agent.editor.noSkillsAvailable') }}</span>
-                <a
-                  v-if="canInstallSkills"
-                  href="javascript:void(0)"
-                  class="go-settings-link"
-                  @click.prevent="openSkillSettings"
-                >
-                  {{ $t('agent.editor.goSkillSettings') }}
-                </a>
-              </p>
+            <div class="setting-control">
+              <t-select v-model="runtimeSelection" :disabled="readOnly" :options="runtimeOptions" />
+              <t-button variant="text" @click="uiStore.openSettings('sandbox')">{{ $t('agent.editor.goSandboxSettings') }}</t-button>
             </div>
           </div>
-
-          <div v-if="showCatalogSkillList" class="setting-row setting-row-vertical">
+          <div class="setting-row">
+            <div class="setting-info"><label>{{ $t('agent.editor.skillsSelection') }}</label></div>
+            <div class="setting-control">
+              <t-radio-group v-model="skillsSelectionMode">
+                <t-radio-button value="all">{{ $t('agent.editor.skillsAll') }}</t-radio-button>
+                <t-radio-button value="selected">{{ $t('agent.editor.skillsSelected') }}</t-radio-button>
+                <t-radio-button value="none">{{ $t('agent.editor.skillsNone') }}</t-radio-button>
+              </t-radio-group>
+            </div>
+          </div>
+          <div v-if="skillsSelectionMode === 'selected'" class="setting-row setting-row-vertical">
             <div class="setting-control setting-control-full">
-              <t-checkbox-group
-                v-model="formData.config.selected_skills"
-                class="skill-pick-list"
-              >
-                <section
-                  v-for="group in catalogSkillGroups"
-                  :key="group.key"
-                  class="skill-pick-group"
-                  :class="`skill-pick-group--${group.key}`"
-                >
-                  <header class="skill-pick-group__header">
-                    <span class="skill-pick-group__bar" />
-                    <span class="skill-pick-group__title">{{ group.label }}</span>
-                    <span class="skill-pick-group__count">{{ group.skills.length }}</span>
-                  </header>
-                  <article
-                    v-for="skill in group.skills"
-                    :key="skill.name"
-                    class="skill-pick"
-                    :class="{
-                      'skill-pick--ready': skill.selectable,
-                      'skill-pick--pending': !skill.selectable,
-                      'skill-pick--busy': isSkillBusy(skill),
-                    }"
-                  >
-                    <t-checkbox
-                      v-if="skillsSelectionMode === 'selected'"
-                      :value="skill.name"
-                      :disabled="!skill.selectable"
-                      class="skill-pick__check"
-                    />
-                    <div class="skill-pick__badge" aria-hidden="true">
-                      <t-icon :name="SKILL_ICON" size="16px" />
-                    </div>
-                    <div class="skill-pick__body">
-                      <div class="skill-pick__title-row">
-                        <span class="skill-name" :title="skill.name">{{ skill.name }}</span>
-                        <span
-                          v-if="!skill.selectable"
-                          class="skill-pick__hint"
-                          :class="{ 'skill-pick__hint--busy': isSkillBusy(skill) }"
-                        >
-                          <t-icon :name="skillStatusIcon(skill)" size="14px" />
-                          {{ skillStatusHint(skill) }}
-                        </span>
-                        <span
-                          v-if="skill.selectable && skill.servedNote"
-                          class="skill-pick__hint"
-                          :class="{ 'skill-pick__hint--busy': isSkillBusy(skill) }"
-                        >
-                          <t-icon :name="isSkillBusy(skill) ? 'refresh' : 'error-circle'" size="14px" />
-                          {{ skill.servedNote }}
-                        </span>
-                        <span
-                          v-if="canUpgradeSkillRow(skill)"
-                          class="skill-pick__hint skill-pick__hint--upgrade"
-                        >
-                          <t-icon name="arrow-up" size="14px" />
-                          {{ skillUpgradeHint(skill) }}
-                        </span>
-                      </div>
-                      <p
-                        v-if="skill.description"
-                        class="skill-desc"
-                        :title="skill.description"
-                      >{{ skill.description }}</p>
-                    </div>
-                    <t-button
-                      v-if="canInstallSkillRow(skill)"
-                      size="small"
-                      variant="text"
-                      theme="primary"
-                      :loading="installingCatalogId === skill.id"
-                      :title="installsAnUpgrade(skill) ? (hostOnly ? $t('agent.editor.hostUpgradeOnThisComputer') : $t('agent.editor.upgradeOnThisSandbox')) : (hostOnly ? $t('agent.editor.hostInstallToThisComputer') : $t('agent.editor.installToThisSandbox'))"
-                      @click.stop="installCatalogToCurrent(skill)"
-                    >
-                      {{ installsAnUpgrade(skill) ? $t('settings.skills.upgrade') : $t('agent.editor.installShort') }}
-                    </t-button>
-                    <t-button
-                      v-else-if="canUpgradeSkillRow(skill)"
-                      size="small"
-                      variant="text"
-                      theme="primary"
-                      :loading="installingCatalogId === skill.id"
-                      :title="hostOnly ? $t('agent.editor.hostUpgradeOnThisComputer') : $t('agent.editor.upgradeOnThisSandbox')"
-                      @click.stop="installCatalogToCurrent(skill)"
-                    >
-                      {{ $t('settings.skills.upgrade') }}
-                    </t-button>
-                    <t-button
-                      v-else-if="canInstallSkills && isSkillBusy(skill)"
-                      size="small"
-                      variant="text"
-                      theme="primary"
-                      :title="$t('agent.editor.viewInstallProgress')"
-                      @click.stop="openSkillInstallProgress(skill)"
-                    >
-                      {{ $t('agent.editor.viewInstallProgress') }}
-                    </t-button>
-                  </article>
-                </section>
+              <t-checkbox-group v-model="formData.config.selected_skills" class="skill-pick-list">
+                <t-checkbox v-for="skill in selectableSkills" :key="skill.name" :value="skill.name">
+                  <span :title="skill.description">{{ skill.name }}</span>
+                  <span v-if="skill.unavailable" class="desc"> · {{ $t('agent.editor.skillsGroupUnavailable') }}</span>
+                </t-checkbox>
               </t-checkbox-group>
+              <p v-if="!selectableSkills.length" class="desc">{{ $t('agent.editor.noSkillsAvailable') }}</p>
             </div>
           </div>
         </div>
+      </div>
+
+      <div v-if="IS_CONTEXTDB" v-show="currentSection === 'native'" class="section">
+        <div class="section-header">
+          <h2>{{ $t('nativeAgent.configTitle', 'Subagents and policies') }}</h2>
+        </div>
+        <NativeAgentConfig :config="formData.config" :models="allModels" :read-only="readOnly"
+          :async-supported="deploymentCapabilities.isSupported('agents.async')"
+          @update:fields="updateNativeFields" @validation="nativeConfigError = $event" @draft="nativeConfigDraft = $event" />
       </div>
 
       <!-- 知识库配置 -->
@@ -1603,7 +1463,7 @@
       </div>
 
       <!-- 网络搜索配置 -->
-      <div v-show="currentSection === 'websearch'" class="section">
+      <div v-if="!IS_CONTEXTDB" v-show="currentSection === 'websearch'" class="section">
         <div class="section-header">
           <h2>{{ $t('agent.editor.webSearchConfig') }}</h2>
           <p class="section-description">{{ $t('agent.editor.webSearchConfigDesc') }}</p>
@@ -1684,7 +1544,7 @@
 
       <!-- 检索策略（仅普通模式且有知识库能力时显示；Agent 模式的 search_knowledge
            使用全局检索配置，这里的设置对它不生效） -->
-      <div v-show="currentSection === 'retrieval' && hasKnowledgeBase && !isAgentMode" class="section">
+      <div v-show="currentSection === 'retrieval' && hasKnowledgeBase && usesLocalRag" class="section">
         <div class="section-header">
           <h2>{{ $t('agent.editor.retrievalStrategy') }}</h2>
           <p class="section-description">{{ $t('agentEditor.desc.retrievalSection') }}</p>
@@ -1818,11 +1678,6 @@
         </div>
       </div>
 
-      <!-- 共享管理（仅编辑模式且非内置智能体） -->
-      <div v-if="editorMode === 'edit' && editorAgent?.id && !editorAgent?.is_builtin"
-        v-show="currentSection === 'share'" class="section">
-        <AgentShareSettings :agent-id="editorAgent.id" :agent="editorAgent" />
-      </div>
     </div>
 
     <template #footer-note>
@@ -1845,28 +1700,6 @@
     </template>
   </SettingsModalShell>
 
-  <SettingDrawer
-    v-model:visible="showSkillProgress"
-    :title="skillProgressTitle"
-    :description="skillProgressDesc"
-    :icon="SKILL_ICON"
-    width="680px"
-    :min-width="560"
-    :max-width="920"
-    storage-key="setting-drawer:width:skill-catalog-manage"
-    :hide-footer="true"
-  >
-    <SandboxSkillsPanel
-      v-if="showSkillProgress && skillProgressRecord && skillProgressId"
-      :record="skillProgressRecord"
-      mode="list"
-      hide-add
-      :focus-skill-id="skillProgressId"
-      @updated="onSkillProgressUpdated"
-      @skills-changed="onSkillProgressChanged"
-    />
-  </SettingDrawer>
-
   <AgentCreateContextualGuide :when="visible && editorMode === 'create'" :is-agent-mode="isAgentMode" />
 </template>
 
@@ -1880,18 +1713,21 @@ import {
   markContextualGuideDone,
 } from '@/config/contextualGuides';
 import { useI18n } from 'vue-i18n';
-import { selectInitialModelId } from '@/utils/modelDefaults';
+import { modelSupportsType, selectInitialModelId } from '@/utils/modelDefaults';
+import { IS_CONTEXTDB } from '@/config/contextdb';
+import { agentRuntimeChanges, applyAgentRuntimeChanges, type AgentRuntimeChange } from '@/utils/agentRuntimeConfig';
 import { hydrateAgentPromptRefs, serializeAgentPrompts } from '@/utils/agentPromptTemplates';
 import { copyWithToast } from '@/utils/clipboard';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useModalShell } from '@/composables/useModalShell'
 import { useAssistantPageContext } from '@/composables/useAssistantPageContext'
 import SettingsModalShell from '@/components/SettingsModalShell.vue'
+import NativeAgentConfig from './NativeAgentConfig.vue';
+import { validateNativeAgentConfig, type NativeConfigIssue } from './nativeAgentConfig';
 import AssistantActionButton from '@/components/assistant/AssistantActionButton.vue'
 import {
   createAgent,
   updateAgent,
-  listIMChannels,
   type CustomAgent,
   type PlaceholderDefinition,
   type AgentTypePreset,
@@ -1904,12 +1740,9 @@ import {
 import { type ModelConfig } from '@/api/model';
 import { type AgentNotReadyReasonKey, agentRequiresRerankModel } from '@/utils/agent-readiness';
 import { normalizeLegacyToolNames } from '@/utils/legacy-tool-names';
-import { installSkillCatalog, type SkillCatalogItem } from '@/api/skill';
-import { installUpgradable, servedPreviousText, upgradeVersions } from '@/utils/skillUpgrade';
+import { type SkillCatalogItem } from '@/api/skill';
 import { type WebSearchProviderEntity } from '@/api/web-search-provider';
 import {
-  isNamedSandboxBackend,
-  type SandboxConfigRecord,
   type StorageEngineStatusItem,
   type PromptTemplate,
   type PromptTemplatesConfig,
@@ -1919,21 +1752,15 @@ import { useAuthStore } from '@/stores/auth';
 import { useOrganizationStore } from '@/stores/organization';
 import { useChatResourcesStore } from '@/stores/chatResources';
 import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities';
-import { HOST_SKILL_TARGET_ID, hostSkillTargetRecord, hostSkillsOnly } from '@/utils/skillTarget';
+import { hostSkillsOnly } from '@/utils/skillTarget';
 import { useEditorResourcesStore } from '@/stores/editorResources';
 import AgentAvatar from '@/components/AgentAvatar.vue';
 import PromptTemplateSelector from '@/components/PromptTemplateSelector.vue';
 import ModelSelector from '@/components/ModelSelector.vue';
-import SandboxSkillsPanel from '@/components/SandboxSkillsPanel.vue';
-import SettingDrawer from '@/components/settings/SettingDrawer.vue';
 import KBParserSettings, { type ParserEngineRule } from '@/views/knowledge/settings/KBParserSettings.vue';
-import AgentShareSettings from '@/components/AgentShareSettings.vue';
 import { SKILL_ICON } from '@/types/mention';
-import { listEmbedChannels } from '@/api/embed';
 import { ASSISTANT_ACCESS_LEVELS, type AssistantAccessLevel } from '@/api/assistant';
 import { getRootZoom, rectToCssPx } from '@/utils/zoom';
-import { integrationSectionKey } from '@/config/settingsRoute';
-import { toolboxLocation } from '@/config/toolbox';
 import {
   deriveKbFilterFromTools,
   type RequirementMissKind,
@@ -2028,6 +1855,7 @@ const AGENT_EDITOR_SECTION_ALIASES: Record<string, string> = {
 
 function resolveEditorSection(section?: string | null): string {
   const key = section || 'basic';
+  if (IS_CONTEXTDB && ['conversation', 'suggestions', 'retrieval', 'websearch', 'advanced', 'share', 'im', 'embed', 'integrations', 'integration-im', 'integration-embed'].includes(key)) return 'basic';
   return AGENT_EDITOR_SECTION_ALIASES[key] || key;
 }
 
@@ -2165,298 +1993,42 @@ const showMcpServiceSelect = computed(() =>
 );
 const webSearchProviderList = ref<WebSearchProviderEntity[]>([]);
 const skillCatalog = ref<SkillCatalogItem[]>([]);
-const catalogReady = ref(false);
-const installingCatalogId = ref('');
 const skillsSelectionMode = ref<'all' | 'selected' | 'none'>('none');
 const hostOnly = computed(() => hostSkillsOnly(
   deploymentCapabilities.isSupported('settings.sandbox.remote'),
   deploymentCapabilities.isSupported('settings.sandbox.host'),
 ));
-// Where this agent's skills install and run.
-const skillTargetId = computed(() =>
-  hostOnly.value ? HOST_SKILL_TARGET_ID : (formData.value.config.sandbox_config_id || ''),
-);
-const hasSandboxSelected = computed(() => !!skillTargetId.value);
-const canEnableSkills = computed(() =>
-  hostOnly.value || hasSandboxSelected.value || namedSandboxConfigs().length === 1,
-);
-const canInstallSkills = computed(() => authStore.hasRole('admin'));
-
-type CatalogSkillRow = SkillCatalogItem & {
-  installed: boolean
-  selectable: boolean
-  installStatus: string
-  installEnabled: boolean
-  // The install on this sandbox is still on an archive the catalog has moved past.
-  upgradable: boolean
-  installVersion: string
-  // Set while a newer install runs or after it failed: the sandbox still runs
-  // the previous version, so the skill stays usable.
-  servedNote: string
-}
-
-const catalogSkillRows = computed<CatalogSkillRow[]>(() => {
-  const sandboxId = skillTargetId.value
-  return skillCatalog.value.map((item) => {
-    const inst = sandboxId
-      ? (item.installations || []).find((row) => row.sandbox_config_id === sandboxId)
-      : undefined
-    const installStatus = inst?.status || ''
-    const installEnabled = Boolean(inst?.enabled)
-    const installed = Boolean(inst) && installStatus !== 'removed'
-    const servedNote = inst ? servedPreviousText(t, inst) : ''
-    const selectable = installEnabled && (installStatus === 'ready' || Boolean(servedNote))
-    const upgradable = Boolean(inst && installUpgradable(item, inst))
-    return {
-      ...item, installed, selectable, installStatus, installEnabled,
-      upgradable, installVersion: inst?.version || '', servedNote,
-    }
-  })
-})
-
-const showCatalogSkillList = computed(() =>
-  skillsSelectionMode.value !== 'none'
-  && hasSandboxSelected.value
-  && catalogSkillRows.value.length > 0,
-)
-
-const skillsSelectionHint = computed(() => {
-  if (hostOnly.value) {
-    if (skillsSelectionMode.value === 'all') return t('agent.editor.hostSkillsAllListHint')
-    if (skillsSelectionMode.value === 'selected') return t('agent.editor.hostSelectSkillsDesc')
-    return t('agent.editor.hostSkillsSelectionDesc')
+const selectableSkills = computed(() => {
+  const selected: string[] = formData.value.config.selected_skills || [];
+  const skills = skillCatalog.value.filter(skill => skill.enabled !== false || selected.includes(skill.name))
+    .map(skill => ({ ...skill, unavailable: skill.enabled === false }));
+  for (const name of selected) {
+    if (!skills.some(skill => skill.name === name)) skills.push({ name, description: name, unavailable: true } as SkillCatalogItem & { unavailable: boolean });
   }
-  if (skillsSelectionMode.value === 'all') return t('agent.editor.skillsAllListHint')
-  if (skillsSelectionMode.value === 'selected') return t('agent.editor.selectSkillsDesc')
-  return t('agent.editor.skillsSelectionDesc')
-})
-
-const catalogSkillGroups = computed(() => {
-  const ready = catalogSkillRows.value.filter((skill) => skill.selectable)
-  const pending = catalogSkillRows.value.filter((skill) => !skill.selectable)
-  const groups: { key: 'ready' | 'pending'; label: string; skills: CatalogSkillRow[] }[] = []
-  if (ready.length) {
-    groups.push({
-      key: 'ready',
-      label: t('agent.editor.skillsGroupAvailable'),
-      skills: ready,
-    })
-  }
-  if (pending.length) {
-    groups.push({
-      key: 'pending',
-      label: t('agent.editor.skillsGroupUnavailable'),
-      skills: pending,
-    })
-  }
-  return groups
-})
-
-function skillStatusHint(skill: CatalogSkillRow): string {
-  if (!skill.installed) return t('agent.editor.skillNotInstalled')
-  if (skill.installStatus === 'installing') return t('settings.sandbox.skillStatusInstalling')
-  if (skill.installStatus === 'failed') return t('settings.sandbox.skillStatusFailed')
-  if (skill.installStatus === 'removing') return t('settings.sandbox.skillStatusRemoving')
-  if (skill.installStatus === 'ready' && !skill.installEnabled) {
-    return hostOnly.value ? t('agent.editor.hostSkillDisabled') : t('agent.editor.skillDisabledOnSandbox')
-  }
-  return t('agent.editor.skillNotReady')
-}
-
-function skillStatusIcon(skill: CatalogSkillRow): string {
-  if (!skill.installed || skill.installStatus === 'failed') return 'download'
-  if (skill.installStatus === 'installing' || skill.installStatus === 'removing') return 'refresh'
-  if (skill.installStatus === 'ready' && !skill.installEnabled) return 'close-circle'
-  return 'time'
-}
-
-function isSkillBusy(skill: CatalogSkillRow): boolean {
-  return skill.installStatus === 'installing' || skill.installStatus === 'removing'
-}
-
-function canInstallSkillRow(skill: CatalogSkillRow): boolean {
-  if (!canInstallSkills.value || !hasSandboxSelected.value) return false
-  return !skill.installed || skill.installStatus === 'failed'
-}
-
-// Upgrading writes the sandbox image through the same admin-only catalog
-// install, so it is offered, and even mentioned, only to those who can run it.
-function canUpgradeSkillRow(skill: CatalogSkillRow): boolean {
-  return canInstallSkills.value && hasSandboxSelected.value && skill.upgradable
-}
-
-// Installing the catalog version over what this sandbox has is an upgrade:
-// over an outdated install, or over a failed upgrade whose previous version
-// still runs. Only a skill the sandbox has never carried is a plain install.
-function installsAnUpgrade(skill: CatalogSkillRow): boolean {
-  return skill.upgradable || Boolean(skill.servedNote)
-}
-
-function skillUpgradeHint(skill: CatalogSkillRow): string {
-  const versions = upgradeVersions(skill, { version: skill.installVersion })
-  return versions
-    ? t('settings.skills.upgradeFromTo', versions)
-    : t('settings.skills.upgradeAvailable')
-}
-
-function namedSandboxConfigs(): SandboxConfigRecord[] {
-  return chatResources.sandboxConfigs.filter((cfg) => isNamedSandboxBackend(cfg.sandbox_type))
-}
-
-function autoBindSoleSandbox() {
-  if (hostOnly.value) return
-  if (skillsSelectionMode.value === 'none') return
-  if (formData.value.config.sandbox_config_id) return
-  const configs = namedSandboxConfigs()
-  if (configs.length === 1) {
-    formData.value.config.sandbox_config_id = configs[0].id
-  }
-}
-
-function openSkillSettings() {
-  const configId = skillTargetId.value
-  modalShell.requestClose(() => {
-    void router.push(toolboxLocation('skills', configId || undefined))
-  })
-}
-
-const showSkillProgress = ref(false)
-const skillProgressRecord = ref<SandboxConfigRecord | null>(null)
-const skillProgressId = ref('')
-const skillProgressTitle = ref('')
-const skillProgressDesc = computed(() => {
-  const record = skillProgressRecord.value
-  if (!record) return ''
-  return t('settings.skills.manageDrawerDesc', { name: record.name })
-})
-
-function sandboxRecordById(configId: string): SandboxConfigRecord | undefined {
-  if (hostOnly.value && configId === HOST_SKILL_TARGET_ID) return hostSkillTargetRecord(t('settings.skills.hostTarget'))
-  return chatResources.sandboxConfigs.find((cfg) => cfg.id === configId)
-}
-
-function installOnCurrentSandbox(skill: CatalogSkillRow, configId: string) {
-  return (skill.installations || []).find((row) => row.sandbox_config_id === configId)
-}
-
-async function openSkillInstallProgress(skill: CatalogSkillRow) {
-  const configId = skillTargetId.value
-  const record = sandboxRecordById(configId)
-  if (!record) {
-    openSkillSettings()
-    return
-  }
-  let inst = installOnCurrentSandbox(skill, configId)
-  if (!inst?.skill_id) {
-    await syncInstalledSkills(true)
-    const latest = catalogSkillRows.value.find((row) => row.id === skill.id)
-    inst = latest ? installOnCurrentSandbox(latest, configId) : undefined
-  }
-  if (!inst?.skill_id) {
-    openSkillSettings()
-    return
-  }
-  skillProgressRecord.value = record
-  skillProgressId.value = inst.skill_id
-  skillProgressTitle.value = skill.name
-  showSkillProgress.value = true
-}
-
-function onSkillProgressUpdated() {
-  void syncInstalledSkills(true)
-}
-
-function onSkillProgressChanged() {
-  void syncInstalledSkills(true)
-}
-
-function pruneSelectedSkills() {
-  if (!catalogReady.value) return
-  // A skill being upgraded is briefly not ready, and dropping it here would
-  // silently unselect it for good once the agent is saved.
-  const names = new Set(catalogSkillRows.value
-    .filter((skill) => skill.selectable || (skill.installed && isSkillBusy(skill)))
-    .map((skill) => skill.name))
-  const selected: string[] = formData.value.config.selected_skills || []
-  const kept = selected.filter((name: string) => names.has(name))
-  if (kept.length !== selected.length) {
-    formData.value.config.selected_skills = kept
-  }
-}
-
-async function syncInstalledSkills(force = false) {
-  autoBindSoleSandbox()
-  const configId = skillTargetId.value
-  // The editor only edits this workspace's agents, so the sandbox config is
-  // local and needs no source-workspace scope.
-  await editorResources.ensureSkills(configId, undefined, force)
-  try {
-    await editorResources.ensureSkillCatalog(force)
-    skillCatalog.value = [...editorResources.skillCatalog]
-    catalogReady.value = true
-  } catch {
-    catalogReady.value = false
-  }
-  pruneSelectedSkills()
-}
-
-async function installCatalogToCurrent(skill: CatalogSkillRow) {
-  const configId = skillTargetId.value
-  if (!configId || installingCatalogId.value) return
-  installingCatalogId.value = skill.id
-  const upgrading = installsAnUpgrade(skill)
-  try {
-    const res = await installSkillCatalog(skill.id, [configId])
-    const failed = Object.keys(res?.data?.errors || {}).length
-    if (failed > 0) {
-      MessagePlugin.warning(t('settings.skills.installPartial', { failed }))
-    } else {
-      MessagePlugin.success(t(upgrading ? 'settings.skills.upgradeAccepted' : 'settings.skills.installAccepted'))
-    }
-    await syncInstalledSkills(true)
-  } catch (e: any) {
-    MessagePlugin.error(e?.message || t('settings.sandbox.skillUploadFailed'))
-  } finally {
-    installingCatalogId.value = ''
-  }
-}
-// 空间内的具名沙箱后端配置。始终包含当前已选中的那份，即使它已被删除——
-// 否则下拉会静默显示为“不启用沙箱”，看不出该智能体其实指着一份不存在的配置。
-const sandboxConfigOptions = computed(() => {
-  const configs = chatResources.sandboxConfigs.filter((cfg) => isNamedSandboxBackend(cfg.sandbox_type));
-  const selected = formData.value.config.sandbox_config_id;
-  if (!selected || configs.some((cfg) => cfg.id === selected)) return configs;
-  return [
-    ...configs,
-    { id: selected, name: t('agent.editor.sandboxBackendMissing'), sandbox_type: '' } as SandboxConfigRecord,
-  ];
+  return skills;
 });
-const backendLabel = (type: string) =>
-  type ? t(`settings.sandbox.backends.${type}`) : t('common.error');
-
-function sandboxTargetLine(cfg: SandboxConfigRecord): string {
-  if (cfg.sandbox_type === 'docker') {
-    return cfg.config?.docker?.image?.trim() || ''
-  }
-  const remote = cfg.config?.e2b || cfg.config?.cube
-  const raw = remote?.api_url?.trim() || ''
-  if (!raw) return ''
+const runtimeSelection = computed({
+  get: () => formData.value.config.sandbox_config_id === 'state-backend' ? '' : formData.value.config.sandbox_config_id || '',
+  set: (value: string) => { formData.value.config.sandbox_config_id = value; },
+});
+const runtimeOptions = computed(() => {
+  const selected = formData.value.config.sandbox_config_id || '';
+  const configs = chatResources.sandboxConfigs.filter(config => config.id !== 'state-backend');
+  const options = [
+    { value: '', label: t('nativeAgent.noShell', 'Without Shell'), disabled: false },
+    ...configs.map(config => ({ value: config.id, label: config.name, disabled: config.enabled !== true })),
+  ];
+  if (selected && selected !== 'state-backend' && !options.some(option => option.value === selected)) options.push({ value: selected, label: selected, disabled: true });
+  return options;
+});
+async function syncSkillCatalog(force = false) {
   try {
-    return new URL(raw).host
-  } catch {
-    return raw
+    await editorResources.ensureSkillCatalog(force);
+    skillCatalog.value = [...editorResources.skillCatalog];
+  } catch (error) {
+    console.warn('Failed to load skills catalog', error);
   }
 }
-
-const selectedSandboxSummary = computed(() => {
-  const id = formData.value.config.sandbox_config_id
-  const cfg = sandboxConfigOptions.value.find((item) => item.id === id)
-  if (!cfg?.sandbox_type) return ''
-  const parts = [backendLabel(cfg.sandbox_type), sandboxTargetLine(cfg)]
-  const desc = cfg.description?.trim()
-  if (desc) parts.push(desc)
-  return parts.filter(Boolean).join(' · ')
-})
 // 存储引擎可用状态（用于图片存储 provider 选择）
 const storageEngineStatus = ref<StorageEngineStatusItem[]>([]);
 const imageStorageOptions = computed(() => {
@@ -2573,6 +2145,7 @@ const hasKnowledgeBase = computed(() => {
 });
 
 const showRerankModelField = computed(() => {
+  if (IS_CONTEXTDB) return false;
   if (!isAgentMode.value) return hasKnowledgeBase.value;
   return hasKnowledgeBase.value || agentRequiresRerankModel(formData.value.config);
 });
@@ -2723,7 +2296,7 @@ const effectiveTools = computed(() => {
       items.push({ value: tool.value, label: tool.label, active: false, reason: tool.disabledReason });
     }
   }
-  if (formData.value.config.web_search_enabled) {
+  if (!IS_CONTEXTDB && formData.value.config.web_search_enabled) {
     items.push({ value: 'web_search', label: t('agentEditor.tools.webSearch'), active: true });
     items.push({ value: 'web_fetch', label: t('agentEditor.tools.webFetch'), active: true });
   }
@@ -2833,29 +2406,26 @@ const navItems = computed(() => {
     { key: 'basic', icon: 'info-circle', label: t('agent.editor.basicInfo') },
     { key: 'prompts', icon: 'file-paste', label: t('agent.editor.promptsConfig'), badge: promptNavItems.value.length > 1 ? promptNavItems.value.length : undefined },
     { key: 'model', icon: 'control-platform', label: t('agent.editor.modelConfig') },
-    { key: 'suggestions', icon: 'help-circle', label: t('agentEditor.questionSuggestions.navLabel') },
   ];
+  if (!IS_CONTEXTDB) items.push({ key: 'suggestions', icon: 'help-circle', label: t('agentEditor.questionSuggestions.navLabel') });
   // 多轮对话（两种模式都需要：Agent 模式在这里说明历史自动管理、保留检索结果）
-  items.push({ key: 'conversation', icon: 'chat', label: t('agent.editor.conversationSettings') });
+  if (!IS_CONTEXTDB) items.push({ key: 'conversation', icon: 'chat', label: t('agent.editor.conversationSettings') });
   // 知识库与检索
   items.push({ key: 'knowledge', icon: 'folder', label: t('agent.editor.knowledgeConfig') });
   // 检索策略只作用于普通模式的问答流程；Agent 模式的检索工具不读这些设置，
   // 显示出来只会让用户调了参数却没有任何效果。
-  if (hasKnowledgeBase.value && !isAgentMode.value) {
+  if (hasKnowledgeBase.value && usesLocalRag.value) {
     items.push({ key: 'retrieval', icon: 'search', label: t('agent.editor.retrievalStrategy') });
   }
-  items.push({ key: 'websearch', icon: 'internet', label: t('agent.editor.webSearchConfig') });
+  if (!IS_CONTEXTDB) items.push({ key: 'websearch', icon: 'internet', label: t('agent.editor.webSearchConfig') });
   items.push({ key: 'multimodal', icon: 'attach', label: t('agentEditor.imageUpload.navLabel') });
   // Agent 模式能力
-  if (isAgentMode.value) {
+  if (IS_CONTEXTDB || isAgentMode.value) {
     items.push({ key: 'tools', icon: 'tools', label: t('agent.editor.toolsConfig') });
     items.push({ key: 'mcp', icon: 'server', label: t('agentEditor.mcp.label') });
     items.push({ key: 'skills', icon: SKILL_ICON, label: t('agent.editor.skillsConfig') });
   }
-  // 发布（仅编辑模式）
-  if (editorMode.value === 'edit' && editorAgent.value?.id && !editorAgent.value?.is_builtin && !authStore.isLiteMode) {
-    items.push({ key: 'share', icon: 'share', label: t('knowledgeEditor.sidebar.share') });
-  }
+  if (IS_CONTEXTDB) items.push({ key: 'native', icon: 'code', label: t('nativeAgent.configTitle', 'Subagents and policies') });
   return items;
 });
 
@@ -2878,12 +2448,7 @@ const navGroups = computed(() => {
     {
       key: 'capability',
       label: t('agentEditor.navGroups.capability'),
-      items: pickItems(['multimodal', 'tools', 'mcp', 'skills']),
-    },
-    {
-      key: 'integration',
-      label: t('agentEditor.navGroups.integration'),
-      items: pickItems(['share']),
+      items: pickItems(['multimodal', 'tools', 'mcp', 'skills', 'native']),
     },
   ].filter((group) => group.items.length > 0);
 });
@@ -3004,6 +2569,9 @@ const defaultFormData = {
 };
 
 const formData = ref(JSON.parse(JSON.stringify(defaultFormData)));
+const nativeConfigError = ref<NativeConfigIssue | null>(null);
+const nativeConfigDraft = ref('');
+const updateNativeFields = (fields: CustomAgent['config']) => Object.assign(formData.value.config, fields);
 
 const starterSuggestionModeOptions = computed(() => [
   { value: 'curated', label: t('agentEditor.questionSuggestions.modeCurated') },
@@ -3039,7 +2607,7 @@ const applyDefaultModelsIfEmpty = () => {
   if (!formData.value.config.model_id && chatModelId) {
     formData.value.config.model_id = chatModelId
   }
-  if (!formData.value.config.rerank_model_id && rerankModelId) {
+  if (!IS_CONTEXTDB && !formData.value.config.rerank_model_id && rerankModelId) {
     formData.value.config.rerank_model_id = rerankModelId
   }
   if (!formData.value.config.vlm_model_id && vlmModelId) {
@@ -3056,6 +2624,94 @@ const agentMode = computed({
 });
 
 const isAgentMode = computed(() => agentMode.value === 'smart-reasoning');
+const usesLocalRag = computed(() => !IS_CONTEXTDB && !isAgentMode.value);
+const loadingRuntimeDefaults = ref(false);
+const nativeModeNeedsDefaults = ref(false);
+const nativeDraftBeforeDefaults = ref<Record<string, unknown> | null>(null);
+const adoptedRuntimeChanges = ref<AgentRuntimeChange[]>([]);
+const nativeDefaultsReady = computed(() => {
+  const defaults = editorResources.agentRuntimeDefaults;
+  return !!defaults?.['quick-answer'] && !!defaults['smart-reasoning']
+    && defaults['quick-answer'].multi_turn_enabled === true
+    && defaults['quick-answer'].history_turns === 0
+    && defaults['quick-answer'].retain_retrieval_history === true
+    && typeof defaults['quick-answer'].max_iterations === 'number'
+    && Array.isArray(editorResources.unsupportedQuickFields);
+});
+const runtimeChanges = computed(() => IS_CONTEXTDB ? agentRuntimeChanges(
+  formData.value.config,
+  nativeDefaultsReady.value ? editorResources.agentRuntimeDefaults : null,
+  editorResources.unsupportedQuickFields,
+) : []);
+const runtimeAdoptLabel = computed(() => runtimeChanges.value.every(change => change.field === 'retain_retrieval_history')
+  ? 'agent.editor.nativeRuntime.adoptHistory'
+  : isAgentMode.value ? 'agent.editor.nativeRuntime.adoptRuntime' : 'agent.editor.nativeRuntime.adoptQuick');
+const runtimeIssues = computed(() => {
+  if (!IS_CONTEXTDB) return [];
+  const adjustable = new Set(runtimeChanges.value.map(change => change.field));
+  return (editorAgent.value?.config_issues || []).filter(issue => !adjustable.has(issue.field)
+    && JSON.stringify(formData.value.config[issue.field]) === JSON.stringify(editorAgent.value?.config?.[issue.field as keyof CustomAgent['config']]));
+});
+const runtimeValueText = (value: unknown) => value === undefined
+  ? t('agent.editor.nativeRuntime.removed') : JSON.stringify(value);
+const adoptRuntimeSettings = () => {
+  adoptedRuntimeChanges.value = runtimeChanges.value.map(change => ({ ...change }));
+  applyAgentRuntimeChanges(formData.value.config, adoptedRuntimeChanges.value);
+};
+const applyNativeModeDefaults = () => {
+  nativeModeNeedsDefaults.value = !nativeDefaultsReady.value;
+  if (!nativeDefaultsReady.value) {
+    nativeDraftBeforeDefaults.value ??= {
+      max_iterations: formData.value.config.max_iterations,
+      multi_turn_enabled: formData.value.config.multi_turn_enabled,
+      history_turns: formData.value.config.history_turns,
+    };
+    return;
+  }
+  const changes: AgentRuntimeChange[] = [];
+  const mode = agentMode.value as 'quick-answer' | 'smart-reasoning';
+  const defaults = editorResources.agentRuntimeDefaults![mode];
+  for (const field of ['max_iterations', 'multi_turn_enabled', 'history_turns'] as const) {
+    if (formData.value.config[field] !== defaults[field]) {
+      changes.push({ field, before: formData.value.config[field], after: defaults[field] });
+    }
+  }
+  applyAgentRuntimeChanges(formData.value.config, changes);
+  adoptedRuntimeChanges.value = changes;
+  // Mode switches preserve user choices and legacy values that require explicit adoption.
+};
+const retryRuntimeDefaults = async () => {
+  loadingRuntimeDefaults.value = true;
+  try {
+    await editorResources.ensureAgentTypePresets(true);
+    if (nativeDefaultsReady.value && nativeDraftBeforeDefaults.value) {
+      const mode = agentMode.value as 'quick-answer' | 'smart-reasoning';
+      const initial = nativeDraftBeforeDefaults.value;
+      const config = formData.value.config;
+      // Retry initializes only untouched draft fields; inputs made while loading survive.
+      for (const field of editorResources.unsupportedQuickFields || []) {
+        if (editorMode.value === 'create' && Object.hasOwn(initial, field)
+          && JSON.stringify(config[field]) === JSON.stringify(initial[field])) delete config[field];
+      }
+      for (const [field, value] of Object.entries(editorResources.agentRuntimeDefaults![mode])) {
+        const missing = !Object.hasOwn(initial, field);
+        const pendingModeField = nativeModeNeedsDefaults.value && ['max_iterations', 'multi_turn_enabled', 'history_turns'].includes(field);
+        if (editorMode.value !== 'create' && !missing && !pendingModeField) continue;
+        if (field === 'allowed_tools') {
+          if (keepAllowedToolsUnset.value) config.allowed_tools = [];
+        } else if (JSON.stringify(config[field]) === JSON.stringify(initial[field])) {
+          config[field] = value;
+        }
+      }
+      nativeDraftBeforeDefaults.value = null;
+    }
+    nativeModeNeedsDefaults.value = !nativeDefaultsReady.value;
+  } catch {
+    MessagePlugin.error(t('agent.editor.nativeRuntime.defaultsUnavailable'));
+  } finally {
+    loadingRuntimeDefaults.value = false;
+  }
+};
 
 const effectiveDefaultMaxCompletionTokens = computed(() =>
   defaultMaxCompletionTokensFor(agentMode.value, formData.value.config.sandbox_config_id),
@@ -3079,7 +2735,7 @@ const maxIterationsMode = computed({
   get: () => (formData.value.config.max_iterations < 0 ? 'unlimited' : 'limit'),
   set: (mode: 'limit' | 'unlimited') => {
     if (mode === 'unlimited') {
-      if (formData.value.config.max_iterations > 1) {
+      if (formData.value.config.max_iterations > (IS_CONTEXTDB ? 0 : 1)) {
         lastFiniteMaxIterations.value = formData.value.config.max_iterations;
       }
       formData.value.config.max_iterations = -1;
@@ -3115,13 +2771,15 @@ const hasAnyIntentCustomized = computed(() =>
 // Agent 模式下本组只剩「保留轮数」（以及有知识库时的检索保留），
 // 默认文案里的「问题改写」并不展示，故按模式分开。
 const conversationSectionDesc = computed(() =>
-  isAgentMode.value
+  IS_CONTEXTDB
+    ? t('agent.editor.nativeRuntime.historyPolicy')
+    : isAgentMode.value
     ? t('agentEditor.desc.conversationSectionAgent')
     : t('agentEditor.desc.conversationSection'),
 );
 
 const showRewritePrompts = computed(() =>
-  !isAgentMode.value
+  usesLocalRag.value
   && formData.value.config.multi_turn_enabled
   && formData.value.config.enable_rewrite,
 );
@@ -3135,7 +2793,7 @@ const promptNavItems = computed(() => {
       customized: !!formData.value.config.system_prompt?.trim(),
     },
   ];
-  if (!isAgentMode.value) {
+  if (usesLocalRag.value) {
     items.push({
       key: 'context',
       label: t('agentEditor.promptNav.context'),
@@ -3185,30 +2843,6 @@ watch(currentSection, (section) => {
     syncActivePromptAnchor();
   }
 });
-
-const agentIMChannelCount = ref(0);
-const agentEmbedChannelCount = ref(0);
-
-async function loadAgentIntegrationCounts(agentId: string) {
-  try {
-    const [imResp, embedResp] = await Promise.all([
-      listIMChannels(agentId),
-      listEmbedChannels(agentId),
-    ]);
-    agentIMChannelCount.value = imResp?.data?.length ?? 0;
-    agentEmbedChannelCount.value = embedResp?.data?.length ?? 0;
-  } catch {
-    agentIMChannelCount.value = 0;
-    agentEmbedChannelCount.value = 0;
-  }
-}
-
-function gotoIntegrations(tab: 'im' | 'embed') {
-  const agentId = editorAgent.value?.id;
-  if (!agentId) return;
-  handleClose();
-  router.push({ path: '/platform/settings', query: { section: integrationSectionKey(tab), agentId } });
-}
 
 const filteredIntentPlaceholders = computed(() => {
   if (!intentPromptPopup.value.prefix) {
@@ -3303,7 +2937,7 @@ const agentType = computed({
 
 // 当前激活的预设对象（用于 KB 过滤 / UI 徽章）
 const activeAgentTypePreset = computed<AgentTypePreset | null>(() => {
-  if (!isAgentMode.value) return null;
+  if (IS_CONTEXTDB || !isAgentMode.value) return null;
   const id = agentType.value;
   if (!id || id === 'custom') return null;
   return agentTypePresets.value.find(p => p.id === id) || null;
@@ -3435,7 +3069,7 @@ const kbSatisfiesPresetFilter = (kb: { capabilities?: KBCapabilities; ragEnabled
 // 所以预设链路恒为 null，但 wiki-only KB 在 RAG 模式下检索结果永远为空，
 // 必须在 UI 上 disable + 提示，避免用户白选。
 const kbSatisfiesQuickAnswerMode = (kb: { capabilities?: KBCapabilities; ragEnabled?: boolean }): { ok: boolean; reason: string } => {
-  if (agentMode.value !== 'quick-answer') return { ok: true, reason: '' };
+  if (IS_CONTEXTDB || agentMode.value !== 'quick-answer') return { ok: true, reason: '' };
   const hasRag = kb.capabilities
     ? (!!kb.capabilities.vector || !!kb.capabilities.keyword)
     : !!kb.ragEnabled;
@@ -3619,6 +3253,11 @@ watch(() => props.visible, async (val) => {
     editorInitializing.value = true;
     try {
     savedAgent.value = null;
+    adoptedRuntimeChanges.value = [];
+    nativeConfigError.value = null;
+    nativeConfigDraft.value = '';
+    nativeModeNeedsDefaults.value = false;
+    nativeDraftBeforeDefaults.value = null;
     currentSection.value = resolveEditorSection(props.initialSection);
     // 先加载依赖数据（包括默认配置）
     await loadDependencies();
@@ -3630,11 +3269,15 @@ watch(() => props.visible, async (val) => {
 
       // 确保 config 对象存在
       if (!agentData.config) {
-        agentData.config = JSON.parse(JSON.stringify(defaultFormData.config));
+        agentData.config = IS_CONTEXTDB ? {} : JSON.parse(JSON.stringify(defaultFormData.config));
       }
 
-      // 补全可能缺失的字段
-      agentData.config = { ...defaultFormData.config, ...agentData.config };
+      // Native records inherit runtime defaults, never the Go RAG form defaults.
+      const nativeMode = agentData.config.agent_mode || 'smart-reasoning';
+      const configDefaults = IS_CONTEXTDB
+        ? { agent_mode: nativeMode, ...(nativeDefaultsReady.value ? editorResources.agentRuntimeDefaults?.[nativeMode as 'quick-answer' | 'smart-reasoning'] : {}) }
+        : { ...defaultFormData.config };
+      agentData.config = { ...configDefaults, ...agentData.config };
       if (agentData.config.thinking == null) {
         agentData.config.thinking = false;
       }
@@ -3643,7 +3286,7 @@ watch(() => props.visible, async (val) => {
       agentData.config.reasoning_effort = levelFromLegacy(agentData.config.thinking, agentData.config.reasoning_effort);
       agentData.config.thinking = levelEnablesThinking(agentData.config.reasoning_effort);
 
-      agentData.config.question_suggestions = {
+      if (!IS_CONTEXTDB) agentData.config.question_suggestions = {
         starters: {
           ...defaultFormData.config.question_suggestions.starters,
           ...(agentData.config.question_suggestions?.starters || {}),
@@ -3665,20 +3308,20 @@ watch(() => props.visible, async (val) => {
       agentData.config.allowed_tools = normalizeLegacyToolNames(storedAllowedTools);
       if (!agentData.config.mcp_services) agentData.config.mcp_services = [];
       // 授权等待超时：旧数据缺省时用默认 600 秒
-      if (agentData.config.mcp_auth_wait_timeout == null || agentData.config.mcp_auth_wait_timeout <= 0) {
+      if (!IS_CONTEXTDB && (agentData.config.mcp_auth_wait_timeout == null || agentData.config.mcp_auth_wait_timeout <= 0)) {
         agentData.config.mcp_auth_wait_timeout = 600;
       }
-      if (!agentData.config.access_level) agentData.config.access_level = 'auto_write';
+      if (!IS_CONTEXTDB && !agentData.config.access_level) agentData.config.access_level = 'auto_write';
       if (!agentData.config.selected_skills) agentData.config.selected_skills = [];
       if (!agentData.config.supported_file_types) agentData.config.supported_file_types = [];
       if (!agentData.config.chat_parser_engine_rules) agentData.config.chat_parser_engine_rules = [];
       // 附件解析调优字段：旧数据缺省时置 0（表示使用全局默认）
-      if (agentData.config.attachment_ocr_max_pages == null) agentData.config.attachment_ocr_max_pages = 0;
-      if (agentData.config.attachment_parse_wait_timeout_sec == null) agentData.config.attachment_parse_wait_timeout_sec = 0;
-      if (agentData.config.max_completion_tokens == null) agentData.config.max_completion_tokens = 0;
+      if (!IS_CONTEXTDB && agentData.config.attachment_ocr_max_pages == null) agentData.config.attachment_ocr_max_pages = 0;
+      if (!IS_CONTEXTDB && agentData.config.attachment_parse_wait_timeout_sec == null) agentData.config.attachment_parse_wait_timeout_sec = 0;
+      if (!IS_CONTEXTDB && agentData.config.max_completion_tokens == null) agentData.config.max_completion_tokens = 0;
       // 长期记忆：后端用 omitempty，跟随空间设置的智能体不带这个字段。
       // 不补成 true 的话开关会显示为"关"，用户随手一存就真的把记忆关了。
-      if (agentData.config.memory_enabled == null) agentData.config.memory_enabled = true;
+      if (!IS_CONTEXTDB && agentData.config.memory_enabled == null) agentData.config.memory_enabled = true;
 
       // 兼容旧数据：如果没有 agent_mode 字段，根据 allowed_tools 推断
       if (!agentData.config.agent_mode) {
@@ -3691,7 +3334,7 @@ watch(() => props.visible, async (val) => {
       const loadedTools = resolveLoadedAllowedTools(
         storedAllowedTools == null ? null : agentData.config.allowed_tools,
         agentData.config.agent_mode,
-        agentToolCatalog.value,
+        IS_CONTEXTDB ? null : agentToolCatalog.value,
       );
       agentData.config.allowed_tools = loadedTools.tools;
       keepAllowedToolsUnset.value = loadedTools.keepUnset;
@@ -3699,9 +3342,11 @@ watch(() => props.visible, async (val) => {
 
       // 设置初始化标志，防止 watch 自动添加工具
       isInitializing.value = true;
+      const hadContextTemplate = Object.hasOwn(agentData.config, 'context_template') || !!agentData.config.context_template_id;
       agentData.config = hydrateAgentPromptRefs(agentData.config, promptTemplates.value);
+      if (IS_CONTEXTDB && !hadContextTemplate) delete agentData.config.context_template;
       formData.value = agentData;
-      if (agentData.config.max_iterations > 1) {
+      if (agentData.config.max_iterations > (IS_CONTEXTDB ? 0 : 1)) {
         lastFiniteMaxIterations.value = agentData.config.max_iterations;
       }
       // 初始化知识库选择模式
@@ -3714,7 +3359,9 @@ watch(() => props.visible, async (val) => {
       });
       // Display inherited defaults for all agents without persisting a copy.
       fillBuiltinAgentDefaults();
-      void loadAgentIntegrationCounts(agentData.id);
+      if (IS_CONTEXTDB && !nativeDefaultsReady.value) {
+        nativeDraftBeforeDefaults.value = JSON.parse(JSON.stringify(agentData.config));
+      }
     } else {
       // 创建新智能体，使用系统默认值
       storedToolNames.value = [];
@@ -3729,6 +3376,18 @@ watch(() => props.visible, async (val) => {
       newFormData.config.max_completion_tokens = 0;
       newFormData.config.max_iterations = -1;
       newFormData.config.temperature = defaultTemperature.value;
+      if (IS_CONTEXTDB) {
+        isInitializing.value = true;
+        keepAllowedToolsUnset.value = true;
+        for (const field of editorResources.unsupportedQuickFields || []) delete newFormData.config[field];
+        if (nativeDefaultsReady.value) {
+          Object.assign(newFormData.config, editorResources.agentRuntimeDefaults!['smart-reasoning']);
+          newFormData.config.allowed_tools = [];
+          keepAllowedToolsUnset.value = true;
+        } else {
+          nativeModeNeedsDefaults.value = true;
+        }
+      }
       // 应用系统默认提示词（根据模式填充）
       const isAgent = newFormData.config.agent_mode === 'smart-reasoning';
       if (isAgent) {
@@ -3757,6 +3416,9 @@ watch(() => props.visible, async (val) => {
           newFormData.config.fallback_response = defaultFallbackResponse.value;
         }
       }
+      if (IS_CONTEXTDB && !nativeDefaultsReady.value) {
+        nativeDraftBeforeDefaults.value = JSON.parse(JSON.stringify(newFormData.config));
+      }
       formData.value = newFormData;
       // 新建智能体：知识库默认 "全部"，MCP / Skills 仍默认 "不使用"。
       kbSelectionMode.value = 'all';
@@ -3769,7 +3431,7 @@ watch(() => props.visible, async (val) => {
       if (newFormData.config.agent_mode === 'smart-reasoning') {
         const defaultTypeId = newFormData.config.agent_type as AgentType;
         const preset = agentTypePresets.value.find(p => p.id === defaultTypeId) || null;
-        if (defaultTypeId && defaultTypeId !== 'custom') {
+        if (!IS_CONTEXTDB && defaultTypeId && defaultTypeId !== 'custom') {
           applyAgentTypePreset(preset);
         }
         // 给新建表单补上"我的 XXX"默认名 + 预设描述，让用户可直接保存；
@@ -3784,7 +3446,7 @@ watch(() => props.visible, async (val) => {
       applyDefaultModelsIfEmpty()
     }
 
-    await syncInstalledSkills()
+    await syncSkillCatalog()
     if (generation !== editorInitializationGeneration || !props.visible) return;
 
     if (props.initialHighlightField) {
@@ -3802,16 +3464,12 @@ watch(() => props.visible, async (val) => {
         if (generation !== editorInitializationGeneration || !props.visible) return;
         modalShell.markClean();
         editorInitializing.value = false;
+        isInitializing.value = false;
       }
     }
   } else {
     editorInitializing.value = false;
     clearFieldHighlight();
-    agentIMChannelCount.value = 0;
-    agentEmbedChannelCount.value = 0;
-    showSkillProgress.value = false;
-    skillProgressRecord.value = null;
-    skillProgressId.value = '';
   }
 });
 
@@ -3855,7 +3513,6 @@ const initSkillsSelectionMode = () => {
   } else {
     skillsSelectionMode.value = 'none';
   }
-  autoBindSoleSandbox();
 };
 
 // 内置智能体：填入系统默认值
@@ -3865,18 +3522,20 @@ const fillBuiltinAgentDefaults = () => {
 
   if (isAgent) {
     // Agent 模式：使用 agent-config 的默认提示词
-    if (!config.system_prompt && defaultAgentSystemPrompt.value) {
+    if (!config.system_prompt && !(IS_CONTEXTDB && config.system_prompt_id) && defaultAgentSystemPrompt.value) {
       config.system_prompt = defaultAgentSystemPrompt.value;
     }
   } else {
     // 普通模式：默认系统提示词、上下文模板等来自 prompt-templates 的 default 项
-    if (!config.system_prompt && defaultNormalSystemPrompt.value) {
+    if (!config.system_prompt && !(IS_CONTEXTDB && config.system_prompt_id) && defaultNormalSystemPrompt.value) {
       config.system_prompt = defaultNormalSystemPrompt.value;
     }
-    if (!config.context_template && defaultContextTemplate.value) {
+    if (!IS_CONTEXTDB && !config.context_template && defaultContextTemplate.value) {
       config.context_template = defaultContextTemplate.value;
     }
   }
+
+  if (IS_CONTEXTDB) return;
 
   // 通用默认值
   if (!config.rewrite_prompt_system && defaultRewritePromptSystem.value) {
@@ -3931,40 +3590,9 @@ watch(() => formData.value.config.mcp_services, () => {
   formData.value.config.mcp_selection_mode = 'selected';
 }, { deep: true });
 
-watch(() => formData.value.config.sandbox_config_id, async () => {
-  if (!props.visible) return
-  await syncInstalledSkills()
-})
-
-let catalogPollTimer: number | null = null
-
-function stopCatalogPoll() {
-  if (catalogPollTimer != null) {
-    window.clearInterval(catalogPollTimer)
-    catalogPollTimer = null
-  }
-}
-
-watch(
-  [() => props.visible, catalogSkillRows],
-  () => {
-    const busy = catalogSkillRows.value.some((skill) =>
-      skill.installStatus === 'installing' || skill.installStatus === 'removing',
-    )
-    if (!props.visible || !busy) {
-      stopCatalogPoll()
-      return
-    }
-    if (catalogPollTimer != null) return
-    catalogPollTimer = window.setInterval(() => {
-      void syncInstalledSkills(true)
-    }, 2500)
-  },
-  { flush: 'post' },
-)
-
 // 监听 Skills 选择模式变化
 watch(skillsSelectionMode, (mode) => {
+  if (isInitializing.value || editorInitializing.value) return;
   formData.value.config.skills_selection_mode = mode;
   if (mode === 'none') {
     // 不使用 Skills，清空相关配置
@@ -3972,15 +3600,21 @@ watch(skillsSelectionMode, (mode) => {
   } else if (mode === 'all') {
     // 全部 Skills，清空指定列表
     formData.value.config.selected_skills = [];
-    autoBindSoleSandbox()
-  } else {
-    autoBindSoleSandbox()
   }
   // selected 模式保持 selected_skills 不变
 });
 
 // 监听模式变化，自动调整配置
 watch(agentMode, (val, _oldVal) => {
+  if (IS_CONTEXTDB) {
+    if (isInitializing.value || editorInitializing.value) return;
+    applyNativeModeDefaults();
+    if (!formData.value.config.system_prompt && !formData.value.config.system_prompt_id) {
+      formData.value.config.system_prompt = val === 'smart-reasoning'
+        ? defaultAgentSystemPrompt.value : defaultNormalSystemPrompt.value;
+    }
+    return;
+  }
   if (val === 'smart-reasoning') {
     // 切换到 Agent 模式，根据知识库配置启用工具。
     // 注意：默认不注入 thinking / todo_write —— 它们用于显式反思或多步计划，
@@ -4053,7 +3687,7 @@ watch(hasKnowledgeBase, (hasKB, oldHasKB) => {
   }
 
   // 初始化期间或非 Agent 模式下不自动调整工具
-  if (isInitializing.value || !isAgentMode.value) return;
+  if (IS_CONTEXTDB || isInitializing.value || !isAgentMode.value) return;
 
   // 保持未设置（使用默认工具）时不补工具，否则保存后会丢掉默认工具。
   if (hasKB && !oldHasKB && !keepAllowedToolsUnset.value) {
@@ -4070,7 +3704,7 @@ watch(isAgentMode, (isAgent) => {
   if (isAgent && (currentSection.value === 'advanced' || currentSection.value === 'retrieval')) {
     currentSection.value = 'basic';
   }
-  if (!isAgent && (currentSection.value === 'skills' || currentSection.value === 'sandbox')) {
+  if (!IS_CONTEXTDB && !isAgent && (currentSection.value === 'skills' || currentSection.value === 'sandbox')) {
     currentSection.value = 'basic';
   }
 });
@@ -4090,7 +3724,7 @@ watch(() => uiStore.showSettingsModal, async (visible, prevVisible) => {
       if (editorResources.storageStatus.length > 0) {
         storageEngineStatus.value = editorResources.storageStatus;
       }
-      await syncInstalledSkills(true);
+      await syncSkillCatalog(true);
     } catch (e) {
       console.warn('Failed to refresh data after settings closed', e);
     }
@@ -4166,9 +3800,11 @@ const loadDependencies = async () => {
     await Promise.all([
       chatResources.ensureModels(),
       chatResources.ensureKnowledgeBases(),
-      chatResources.ensureWebSearchProviders(),
+      ...(!IS_CONTEXTDB ? [chatResources.ensureWebSearchProviders()] : []),
       chatResources.ensureSandboxConfigs(),
-      editorResources.prefetchAgentEditorDeps(),
+      editorResources.prefetchAgentEditorDeps().catch((error: unknown) => {
+        console.error('Failed to load agent editor resources', error);
+      }),
     ]);
 
     if (chatResources.allModels.length > 0) {
@@ -4224,7 +3860,7 @@ const modalShell = useModalShell({
   visible: () => props.visible,
   loading: () => editorInitializing.value,
   close: handleClose,
-  snapshot: () => formData.value,
+  snapshot: () => ({ agent: formData.value, nativeDraft: nativeConfigDraft.value }),
   ignoreEscape: () =>
     showPlaceholderPopup.value ||
     showContextPlaceholderPopup.value ||
@@ -4387,6 +4023,7 @@ const checkAndShowPlaceholderPopup = () => {
 
 // 处理输入
 const handlePromptInput = () => {
+  delete formData.value.config.system_prompt_id;
   if (placeholderPopupTimer) {
     clearTimeout(placeholderPopupTimer);
   }
@@ -5035,6 +4672,24 @@ const hasPlaceholder = (text: string | undefined, placeholder: string): boolean 
 };
 
 const handleSave = async () => {
+  if (IS_CONTEXTDB) {
+    const error = nativeConfigError.value || validateNativeAgentConfig(formData.value.config, deploymentCapabilities.isSupported('agents.async'));
+    if (error) {
+      MessagePlugin.error(`${error.field}: ${t(error.key)}`);
+      currentSection.value = 'native';
+      return;
+    }
+  }
+  if (IS_CONTEXTDB && (!nativeDefaultsReady.value || nativeModeNeedsDefaults.value)) {
+    MessagePlugin.error(t('agent.editor.nativeRuntime.defaultsUnavailable'));
+    currentSection.value = 'basic';
+    return;
+  }
+  if (IS_CONTEXTDB && (runtimeChanges.value.length || runtimeIssues.value.length)) {
+    MessagePlugin.error(t('agent.editor.nativeRuntime.resolveBeforeSave'));
+    currentSection.value = 'basic';
+    return;
+  }
   // 验证必填项（内置智能体不验证名称和系统提示词）
   if (!isBuiltinAgent.value) {
     if (!formData.value.name || !formData.value.name.trim()) {
@@ -5044,14 +4699,15 @@ const handleSave = async () => {
     }
 
     // 自定义智能体必须填写系统提示词
-    if (!formData.value.config.system_prompt || !formData.value.config.system_prompt.trim()) {
+    if ((!formData.value.config.system_prompt || !formData.value.config.system_prompt.trim())
+      && !(IS_CONTEXTDB && formData.value.config.system_prompt_id)) {
       MessagePlugin.error(t('agent.editor.systemPromptRequired'));
       currentSection.value = 'prompts';
       return;
     }
 
     // 自定义智能体普通模式必须填写上下文模板
-    if (!isAgentMode.value && (!formData.value.config.context_template || !formData.value.config.context_template.trim())) {
+    if (usesLocalRag.value && (!formData.value.config.context_template || !formData.value.config.context_template.trim())) {
       MessagePlugin.error(t('agent.editor.contextTemplateRequired'));
       currentSection.value = 'prompts';
       return;
@@ -5059,7 +4715,7 @@ const handleSave = async () => {
   }
 
   // 校验占位符（普通模式 + 开启多轮对话改写）
-  if (!isAgentMode.value && formData.value.config.multi_turn_enabled && formData.value.config.enable_rewrite) {
+  if (usesLocalRag.value && formData.value.config.multi_turn_enabled && formData.value.config.enable_rewrite) {
     const rewritePrompt = formData.value.config.rewrite_prompt_user || '';
     // 只有用户自定义了改写提示词时才校验
     if (rewritePrompt.trim()) {
@@ -5072,7 +4728,7 @@ const handleSave = async () => {
   }
 
   // 校验占位符（兜底策略为模型生成时）
-  if (!isAgentMode.value && formData.value.config.fallback_strategy === 'model') {
+  if (usesLocalRag.value && formData.value.config.fallback_strategy === 'model') {
     const fallbackPrompt = formData.value.config.fallback_prompt || '';
     // 只有用户自定义了兜底提示词时才校验
     if (fallbackPrompt.trim() && !hasPlaceholder(fallbackPrompt, 'query')) {
@@ -5089,7 +4745,8 @@ const handleSave = async () => {
   }
 
   // 校验 VLM 模型（当图片上传启用时必填）
-  if (formData.value.config.image_upload_enabled && !formData.value.config.vlm_model_id) {
+  if (formData.value.config.image_upload_enabled && !formData.value.config.vlm_model_id
+    && !(IS_CONTEXTDB && allModels.value.some(model => model.id === formData.value.config.model_id && modelSupportsType(model, 'VLLM')))) {
     MessagePlugin.error(t('agentEditor.imageUpload.vlmModelRequired'));
     currentSection.value = 'multimodal';
     return;
@@ -5098,18 +4755,16 @@ const handleSave = async () => {
   // ReRank 模型按运行范围按需使用：知识库范围为 none，或未启用
   // search_knowledge 时不需要；其余情况由对话入口在使用前给出明确提示。
 
-  formData.value.config.question_suggestions.starters.items =
+  if (!IS_CONTEXTDB) formData.value.config.question_suggestions.starters.items =
     formData.value.config.question_suggestions.starters.items
       .map((p: string) => p.trim())
       .filter(Boolean);
 
-  if (!formData.value.config.intent_prompts || Object.keys(formData.value.config.intent_prompts).length === 0) {
+  if (!IS_CONTEXTDB && (!formData.value.config.intent_prompts || Object.keys(formData.value.config.intent_prompts).length === 0)) {
     delete formData.value.config.intent_prompts;
   }
 
-  pruneSelectedSkills()
-
-  if (hostOnly.value) formData.value.config.sandbox_config_id = ''
+  if (!IS_CONTEXTDB && hostOnly.value) formData.value.config.sandbox_config_id = ''
 
   const payload = { ...formData.value, config: serializeAgentPrompts({ ...formData.value.config, allowed_tools: allowedToolsToSave() }, promptTemplates.value) };
   saving.value = true;
@@ -5132,7 +4787,6 @@ const handleSave = async () => {
       modalShell.markClean();
       markContextualGuideDone('agentCreate')
       currentSection.value = 'basic';
-      void loadAgentIntegrationCounts(created.id);
       MessagePlugin.success(t('agent.messages.created'));
       notifyAllowedToolsWarnings(result?.allowed_tools_warnings);
       emit('success', created);
@@ -5152,6 +4806,17 @@ const handleSave = async () => {
 </script>
 
 <style scoped lang="less">
+.native-runtime-notice {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--td-warning-color-5);
+  border-radius: var(--app-radius-md);
+  overflow-wrap: anywhere;
+
+  ul { max-height: 240px; overflow: auto; padding-left: 20px; }
+  p, ul { margin: 0 0 12px; }
+}
+
 // 复用创建知识库的样式
 /* 左侧导航：与「头像-设置」弹窗对齐 */
 .section--prompts {
@@ -5520,62 +5185,6 @@ const handleSave = async () => {
   }
 }
 
-.integration-inline {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-
-  &__stat {
-    font-size: var(--app-text-md);
-    color: var(--td-text-color-secondary);
-
-    &.integration-inline__link {
-      display: inline-flex;
-      align-items: center;
-      gap: 2px;
-      padding: 0;
-      border: none;
-      background: transparent;
-      line-height: 1;
-      color: var(--td-brand-color);
-      cursor: pointer;
-
-      &:hover {
-        opacity: 0.85;
-      }
-    }
-  }
-
-  &__sep {
-    color: var(--td-component-stroke);
-    font-size: var(--app-text-sm);
-  }
-
-  &__link {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    margin-left: 4px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    font-size: var(--app-text-md);
-    line-height: 1;
-    color: var(--td-brand-color);
-    cursor: pointer;
-
-    &:hover {
-      opacity: 0.85;
-    }
-
-    :deep(.t-icon) {
-      display: block;
-    }
-  }
-}
-
 .select-option-with-tag {
   display: flex;
   align-items: center;
@@ -5593,76 +5202,6 @@ const handleSave = async () => {
   &:hover {
     text-decoration: underline;
   }
-}
-
-.sandbox-select-links {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.sandbox-select-links__sep {
-  color: var(--td-text-color-placeholder);
-  font-size: var(--app-text-sm);
-}
-
-.sandbox-select-control {
-  flex-direction: column;
-  align-items: flex-end;
-}
-
-.sandbox-config-select {
-  width: 280px;
-}
-
-.sandbox-option {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
-  min-width: 0;
-}
-
-.sandbox-option__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-}
-
-.sandbox-option__name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sandbox-option__type {
-  flex-shrink: 0;
-  color: var(--td-text-color-placeholder);
-  font-size: var(--app-text-sm);
-}
-
-.sandbox-option__target {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--td-text-color-placeholder);
-  font-size: var(--app-text-sm);
-  line-height: 1.35;
-}
-
-.sandbox-selected-meta {
-  margin: 6px 0 0;
-  max-width: 280px;
-  font-size: var(--app-text-sm);
-  line-height: 1.45;
-  color: var(--td-text-color-secondary);
-  word-break: break-word;
 }
 
 // 名称输入框带头像预览
@@ -6210,151 +5749,6 @@ const handleSave = async () => {
   width: 100%;
 }
 
-.skill-pick-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.skill-pick-group__header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 2px;
-}
-
-.skill-pick-group__bar {
-  display: inline-block;
-  width: 3px;
-  height: 14px;
-  border-radius: 2px;
-  background: var(--td-brand-color);
-}
-
-.skill-pick-group--pending .skill-pick-group__bar {
-  background: var(--td-text-color-placeholder);
-}
-
-.skill-pick-group__title {
-  font-size: var(--app-text-md);
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-  letter-spacing: 0.2px;
-}
-
-.skill-pick-group__count {
-  min-width: 20px;
-  padding: 0 6px;
-  font-size: var(--app-text-xs);
-  color: var(--td-text-color-secondary);
-  background: var(--td-bg-color-secondarycontainer);
-  border-radius: var(--app-radius-pill);
-  text-align: center;
-  line-height: 18px;
-}
-
-.skill-pick {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 8px 10px;
-  background: var(--td-bg-color-container);
-  border: 1px solid var(--td-component-stroke);
-  border-radius: var(--app-radius-md);
-}
-
-.skill-pick--pending {
-  background: var(--td-bg-color-secondarycontainer);
-}
-
-.skill-pick__check {
-  flex-shrink: 0;
-}
-
-.skill-pick__badge {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--td-bg-color-secondarycontainer);
-  color: var(--td-text-color-secondary);
-}
-
-.skill-pick--ready .skill-pick__badge {
-  background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
-  color: var(--td-brand-color);
-}
-
-.skill-pick--pending .skill-pick__badge {
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-placeholder);
-}
-
-.skill-pick__body {
-  flex: 1;
-  min-width: 0;
-}
-
-.skill-pick__title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.skill-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--app-text-md);
-  font-weight: 500;
-  color: var(--td-text-color-primary);
-}
-
-.skill-pick__hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  font-size: var(--app-text-sm);
-  color: var(--td-text-color-placeholder);
-
-  .t-icon {
-    flex-shrink: 0;
-  }
-}
-
-.skill-pick__hint--upgrade {
-  color: var(--td-warning-color);
-}
-
-.skill-pick__hint--busy {
-  color: var(--td-brand-color);
-
-  .t-icon {
-    animation: wk-spin 1s linear infinite;
-  }
-}
-
-.skill-desc {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  margin: 2px 0 0;
-  overflow: hidden;
-  font-size: var(--app-text-sm);
-  color: var(--td-text-color-secondary);
-  line-height: 1.45;
-  white-space: pre-line;
-  word-break: break-word;
-}
-
 .hint-trigger {
   display: inline-flex;
   align-items: center;
@@ -6825,13 +6219,6 @@ const handleSave = async () => {
     line-height: 1.4;
     padding: 8px 12px;
     white-space: normal;
-  }
-}
-
-.sandbox-config-select-popup {
-  .t-select-option {
-    height: auto;
-    padding: 6px 10px;
   }
 }
 

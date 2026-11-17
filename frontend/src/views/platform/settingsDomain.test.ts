@@ -1,51 +1,24 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { runInNewContext } from 'node:vm'
 import test from 'node:test'
-import { computed, reactive } from 'vue'
 
-const source = readFileSync(new URL('./index.vue', import.meta.url), 'utf8')
-const start = source.indexOf('const contextdbSettings = computed(')
-const end = source.indexOf('let ismask =', start)
-assert.ok(start >= 0 && end > start)
+const source=readFileSync(new URL('./index.vue',import.meta.url),'utf8')
+const settings=readFileSync(new URL('../settings/Settings.vue',import.meta.url),'utf8')
 
-function settingsChoice(name: string, section?: string, contextdb = true) {
-  const route = reactive({ name, query: { section } })
-  const uiStore = reactive({ settingsInitialSection: null as string | null })
-  const choice = runInNewContext(source.slice(start, end) + '\ncontextdbSettings', {
-    computed, route, uiStore, IS_CONTEXTDB: contextdb,
-  })
-  return { route, uiStore, choice }
-}
-
-test('knowledge governance retains its approved settings shell and existing bookmarks', () => {
-  for (const name of ['settings', 'home', 'collect', 'tasks', 'releases', 'governance',
-    'knowledgeBaseList', 'knowledgeBaseDetail', 'knowledgeSpaceDetail']) {
-    assert.equal(settingsChoice(name).choice.value, true, name)
-  }
-  for (const section of ['account', 'members', 'permissions', 'runtime']) {
-    assert.equal(settingsChoice('settings', section).choice.value, true, section)
-  }
+test('every platform route uses one settings shell, including explicit bookmarks',()=>{
+  assert.equal(source.match(/<Settings\s*\/>/g)?.length,1)
+  assert.doesNotMatch(source,/<ContextDBSettings|contextdbSettings/)
+  assert.match(settings,/<ContextDBSettings\s*\/>/)
 })
 
-test('Agent and chat use upstream Settings, including explicit requests from knowledge pages', () => {
-  for (const name of ['chat', 'globalCreatChat', 'agentList', 'toolbox', 'artifactLibrary']) {
-    assert.equal(settingsChoice(name).choice.value, false, name)
-  }
-  const f = settingsChoice('knowledgeBaseDetail')
-  f.uiStore.settingsInitialSection = 'models'
-  assert.equal(f.choice.value, false)
-  f.uiStore.settingsInitialSection = 'sandbox'
-  assert.equal(f.choice.value, false)
-  f.uiStore.settingsInitialSection = 'permissions'
-  assert.equal(f.choice.value, true)
-  assert.equal(settingsChoice('settings', 'models').choice.value, false)
-  assert.equal(settingsChoice('settings', 'sandbox').choice.value, false)
-  assert.equal(settingsChoice('knowledgeBaseDetail', undefined, false).choice.value, false)
+test('platform retains the assistant bridge while shared knowledge context is migrated',()=>{
+  assert.match(source,/import AssistantPanel from '@\/components\/assistant\/AssistantPanel\.vue'/)
+  assert.match(source,/<AssistantPanel\s*\/>/)
+  assert.doesNotMatch(source,/assistant\.takePendingRequest\(\)/)
 })
 
-test('platform mounts the official panel without redirecting assistant requests to ordinary chat', () => {
-  assert.match(source, /import AssistantPanel from '@\/components\/assistant\/AssistantPanel\.vue'/)
-  assert.match(source, /<AssistantPanel\s*\/>/)
-  assert.doesNotMatch(source, /assistant\.takePendingRequest\(\)/)
+test('ContextDB user menu cannot navigate to retired workspace settings',()=>{
+  const menu=readFileSync(new URL('../../components/UserMenu.vue',import.meta.url),'utf8')
+  assert.match(menu,/<div v-if="!IS_CONTEXTDB && !authStore\.isLiteMode"[^>]*@click="handleQuickNav\('tenant'\)"/)
+  assert.doesNotMatch(menu,/<div v-if="!authStore\.isLiteMode"[^>]*@click="handleQuickNav\('tenant'\)"/)
 })

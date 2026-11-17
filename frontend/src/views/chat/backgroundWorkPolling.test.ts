@@ -38,3 +38,34 @@ test('chat page retries its first failed background query and stops after a conf
     assert.equal(calls, 3, 'a successful empty response ends polling')
   } finally { poller.dispose() }
 })
+
+test('chat cancellation refreshes only its original owner/session generation and exposes failures for retry', async () => {
+  const source = readFileSync(new URL('./index.vue', import.meta.url), 'utf8')
+  const start = source.indexOf('async function onCancelWork(')
+  const end = source.indexOf('\nwatch([session_id, backgroundOwnerKey]', start)
+  assert.ok(start >= 0 && end > start)
+  let finish!: () => void
+  let fail!: (error: Error) => void
+  let cancellations = 0, refreshes = 0
+  const context = {
+    session_id: { value: 'same-session' }, backgroundGeneration: 1,
+    backgroundItems: { value: [{ work_id: 'task', kind: 'async_subagent', read_only: false, can_cancel: true }] },
+    cancelBackgroundWork: () => {
+      cancellations++
+      return new Promise<void>((resolve, reject) => { finish = resolve; fail = reject })
+    },
+    refreshBackgroundWork: async () => { refreshes++ },
+  }
+  const cancel = runInNewContext(`${source.slice(start, end)}\nonCancelWork`, context)
+  const oldOwner = cancel('task')
+  context.backgroundGeneration++
+  finish(); await oldOwner
+  assert.equal(refreshes, 0, 'a late request cannot refresh the same session ID under its next owner')
+  const current = cancel('task')
+  fail(new Error('cancel unavailable'))
+  await assert.rejects(current, /cancel unavailable/)
+  assert.equal(refreshes, 1, 'a failed cancellation rechecks the current server state')
+  context.backgroundItems.value[0]!.kind = 'shell'
+  await cancel('task')
+  assert.equal(cancellations, 2, 'archived shell work never reaches the native cancellation endpoint')
+})

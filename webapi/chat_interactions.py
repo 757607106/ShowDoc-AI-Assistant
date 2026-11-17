@@ -13,6 +13,21 @@ from webapi.legacy_runtime import unavailable
 chat_interactions_bp = Blueprint('chat_interactions', __name__)
 
 
+@chat_interactions_bp.post('/api/v1/sessions/<sid>/background-work/<work_id>/cancel')
+@chat_interactions_bp.post('/api/v1/sessions/<sid>/background-work/<work_id>/update')
+@chat_interactions_bp.post('/api/v1/sessions/<sid>/background-work/<work_id>/resume')
+def control_background(sid, work_id):
+    from agent.async_work import control, _tasks
+    owner = user_id()
+    if work_id not in asyncio.run(_tasks(owner, sid)):
+        unavailable(sid)
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        raise StoreError('请求必须为 JSON 对象', 400)
+    value = asyncio.run(control(owner, sid, work_id, request.path.rsplit('/', 1)[-1], body))
+    return jsonify(success=True, data=value)
+
+
 @chat_interactions_bp.route('/api/v1/agent/grants')
 def grants():
     sid = request.args.get('session_id')
@@ -33,12 +48,11 @@ def steers(sid):
     sessions.get_session(sid)
     with connection() as conn:
         rows = conn.execute("SELECT id AS steer_id,content,delivery,mentioned_items,run_id AS expected_assistant_message_id,created_at FROM agent_steers WHERE session_id=%s AND owner_id=%s AND status='queued' ORDER BY created_at,id", (sid, user_id())).fetchall()
-    return jsonify(success=True, read_only=True, data=rows)
+    return jsonify(success=True, read_only=True, items=rows, data=rows)
 
 
 @chat_interactions_bp.route('/api/v1/sessions/<sid>/steer/<steer_id>', methods=['DELETE'])
 @chat_interactions_bp.route('/api/v1/sessions/<sid>/steer/<steer_id>/inject', methods=['POST'])
-@chat_interactions_bp.route('/api/v1/sessions/<sid>/background-work/<work_id>/cancel', methods=['POST'])
 def retired_interaction(sid, steer_id=None, work_id=None):
     unavailable(sid)
 
@@ -91,7 +105,11 @@ def time_travel(sid):
     if not isinstance(body, dict):
         raise StoreError('请求必须是对象', 400)
     with sessions._mutation(sid, user_id()) as selected:
-        result = asyncio.run(_travel(selected, dict(g.user), body, fork=request.path.endswith('/fork')))
+        with sessions._background_mutation(sid, user_id()):
+            if request.path.endswith('/rewind'):
+                from agent.async_work import require_rewind_safe
+                asyncio.run(require_rewind_safe(user_id(), sid))
+            result = asyncio.run(_travel(selected, dict(g.user), body, fork=request.path.endswith('/fork')))
     return jsonify(success=True, data=result)
 
 
@@ -117,12 +135,18 @@ def _background(sid, work_id=None):
 
 @chat_interactions_bp.route('/api/v1/sessions/<sid>/background-work')
 def background(sid):
-    return jsonify(success=True, read_only=True, data=[{key: item.get(key) for key in
-        ('work_id', 'kind', 'title', 'state', 'saved_status', 'started_at', 'finished_at')} for item in _background(sid)])
+    from agent.async_work import list_work
+    native = asyncio.run(list_work(user_id(), sid))
+    legacy = [{key: item.get(key) for key in ('work_id', 'kind', 'title', 'state', 'saved_status', 'started_at', 'finished_at')}
+              for item in _background(sid)]
+    return jsonify(success=True, data=[*native, *legacy])
 
 
 @chat_interactions_bp.route('/api/v1/sessions/<sid>/background-work/<work_id>')
 def background_detail(sid, work_id):
+    from agent.async_work import task_detail, _tasks
+    if work_id in asyncio.run(_tasks(user_id(), sid)):
+        return jsonify(success=True, data=asyncio.run(task_detail(user_id(), sid, work_id)))
     rows = _background(sid, work_id)
     if not rows:
         raise StoreError('后台任务不存在', 404)

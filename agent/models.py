@@ -175,17 +175,15 @@ def model_capabilities(saved):
         'thinking_levels': [level for level in LEVELS if level in levels],
         'thinking_format': thinking_format if reasoning else 'none',
         'input': spec.get('input', ['text', 'image'] if info.get('supports_vision') else ['text']),
-        'context_window': spec.get('context_window') or params.get('context_window') or info.get('max_input_tokens'),
+        # LiteLLM input limits do not establish a total context window.
+        'context_window': spec.get('context_window') or params.get('context_window') or None,
         'max_output_tokens': spec.get('max_output_tokens') or params.get('max_output_tokens') or info.get('max_output_tokens')}
 
 
 def describe_model(saved):
-    """Supply the fields consumed by the unchanged WeKnora model cards and editor."""
+    """Expose resolved capabilities without rewriting the saved editor values."""
     caps = model_capabilities(saved)
     params = dict(saved.get('parameters', {}))
-    for field in ('context_window', 'max_output_tokens'):
-        if not params.get(field) and caps.get(field):
-            params[field] = caps[field]
     params.setdefault('supports_vision', 'image' in caps['input'])
     return {**saved, 'parameters': params, 'capabilities': caps}
 
@@ -239,10 +237,14 @@ def build_model_record(saved, config):
         temperature = None
     elif 'fixed_temperature' in compat:
         temperature = compat['fixed_temperature']
+    profile = {target: caps[source] for source, target in (
+        ('context_window', 'max_input_tokens'), ('max_output_tokens', 'max_output_tokens'))
+        if type(caps.get(source)) is int and caps[source] > 0}
     return ChatLiteLLM(model=remote_model_name(saved), custom_llm_provider=api_provider,
         api_key=params.get('api_key') or 'not-required', api_base=params.get('base_url'),
         extra_headers=model_headers(saved) or None, temperature=temperature,
-        max_tokens=budget, request_timeout=config.get('llm_call_timeout') or 180, max_retries=2,
+        max_tokens=budget, profile=profile or None,
+        request_timeout=config.get('llm_call_timeout') or 120, max_retries=2,
         stream_options={} if compat.get('supports_usage_in_streaming') is False else None,
         use_responses_api=caps['api'] == 'openai-responses', model_kwargs=kwargs)
 

@@ -126,13 +126,12 @@ def _checkpoint_query(session_id):
 
 
 def _default_model_id(owner_id):
-    settings = next((value.get('value', {}) for value in registry.records('settings', owner_id)
-                     if value['id'] == 'default-settings'), {})
-    return settings.get('utility_model_id') or settings.get('chat_model_id') or 'agent-main'
+    return registry.default_model_id(owner_id, 'utility_model_id')
 
 
 async def _save_title(session_id, owner_id, original, title):
-    async with await psycopg.AsyncConnection.connect(os.environ['DATABASE_URL']) as conn:
+    from governance.database import database_url as platform_database_url
+    async with await psycopg.AsyncConnection.connect(platform_database_url()) as conn:
         if title:
             cursor = await conn.execute("""UPDATE agent_sessions SET title=%s,updated_at=now()
                 WHERE id=%s AND owner_id=%s AND title=%s AND agent_config->>'runtime'='deepagents'

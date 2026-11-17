@@ -19,6 +19,15 @@ test('capability filtering is fail-open unless backend explicitly disables a fea
   assert.equal(isDeploymentCapabilitySupported(capabilities, 'agents'), true)
 })
 
+test('steering, browser and async execution require an explicit capability, including failed or old probes', () => {
+  for (const key of ['agents.steering', 'agents.browser', 'agents.async'] as const) {
+    assert.equal(isDeploymentCapabilitySupported({}, key), false)
+    assert.equal(isDeploymentCapabilitySupported({ [key]: { supported: false } }, key), false)
+    assert.equal(isDeploymentCapabilitySupported({ [key]: { supported: true } }, key), true)
+  }
+  assert.equal(SETTINGS_SECTION_CAPABILITY.browserconnection, 'agents.browser')
+})
+
 test('organizations stay hidden in lite even when capabilities fail open', () => {
   assert.equal(
     isDeploymentCapabilitySupported({}, 'organizations', { liteMode: true }),

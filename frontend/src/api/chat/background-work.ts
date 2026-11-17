@@ -2,7 +2,9 @@ import { get, post } from '../../utils/request'
 
 /** States the UI and the model both see. `unknown` stays on the server. */
 export type BackgroundWorkState =
+  | 'pending'
   | 'running'
+  | 'waiting'
   | 'succeeded'
   | 'failed'
   | 'cancelled'
@@ -19,6 +21,8 @@ export interface BackgroundWorkItem {
   state: BackgroundWorkState
   started_at?: string
   finished_at?: string
+  read_only?: boolean
+  can_cancel?: boolean
 }
 
 /** Byte windows on service.ShellJobPayload. */
@@ -51,11 +55,40 @@ export interface ShellJobPayload {
   note?: string
 }
 
+export interface AsyncSubagentInterrupt {
+  id: string
+  value: unknown
+  response_schema?: Record<string, unknown>
+}
+
+export interface AsyncSubagentPayload {
+  display_type: 'async_subagent'
+  output: string
+  structured_response?: unknown
+  interrupts: AsyncSubagentInterrupt[]
+  error?: string
+  view_session_id?: string
+  prompts?: AsyncSubagentPrompt[]
+}
+
+export interface AsyncSubagentPrompt {
+  pending_id: string
+  kind: 'tool_approval' | 'ask_user' | 'native_interrupt'
+  interrupt_id: string
+  action_index?: number
+  action_count?: number
+  mcp_tool_name?: string
+  [key: string]: unknown
+}
+
 export interface BackgroundWorkDetail {
   work_id: string
+  kind?: string
   state: BackgroundWorkState
   title: string
-  result: ShellJobPayload | null
+  read_only?: boolean
+  can_cancel?: boolean
+  result: ShellJobPayload | AsyncSubagentPayload | null
 }
 
 interface ApiData<T> {
@@ -87,26 +120,32 @@ export async function getBackgroundWork(
   return res.data
 }
 
-const cancelInflight = new Map<string, Promise<{ work_id: string; state: string }>>()
+export async function updateBackgroundWork(
+  sessionId: string,
+  workId: string,
+  message: string,
+): Promise<void> {
+  await post(`${sessionWorkPath(sessionId, workId)}/update`, { message })
+}
 
-export function cancelBackgroundWork(
+export async function resumeBackgroundWork(
+  sessionId: string,
+  workId: string,
+  responses: Record<string, unknown>,
+): Promise<void> {
+  await post(`${sessionWorkPath(sessionId, workId)}/resume`, { responses })
+}
+
+export async function cancelBackgroundWork(
   sessionId: string,
   workId: string,
 ): Promise<{ work_id: string; state: string }> {
-  const key = `${sessionId}\0${workId}`
-  const pending = cancelInflight.get(key)
-  if (pending) return pending
-  const request = post<ApiData<{ work_id: string; state: string }>>(
+  const res = await post<ApiData<{ work_id: string; state: string }>>(
     `${sessionWorkPath(sessionId, workId)}/cancel`,
     {},
-  ).then((res) => {
-    if (!res?.data?.work_id) {
-      throw new Error('background work not found')
-    }
-    return res.data
-  }).finally(() => {
-    if (cancelInflight.get(key) === request) cancelInflight.delete(key)
-  })
-  cancelInflight.set(key, request)
-  return request
+  )
+  if (!res?.data?.work_id) {
+    throw new Error('background work not found')
+  }
+  return res.data
 }

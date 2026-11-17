@@ -250,6 +250,13 @@ def document_picker():
 
 
 def _artifact_record(sid, message_id):
+    from webapi import async_views, weknora_traces
+    if sid.startswith(weknora_traces.PREFIX) and weknora_traces.decode(sid)[1] == async_views.NAMESPACE:
+        turns = asyncio.run(async_views.artifacts(user_id(), sid))
+        if message_id not in turns:
+            raise StoreError('消息不存在', 404)
+        return {'artifacts_json': [metadata for metadata, _ in turns[message_id]],
+                'artifacts_truncated': False, '_native_items': turns[message_id]}
     selected = sessions.get_session(sid)
     if selected['agent_config'].get('runtime') == 'deepagents':
         from webapi.weknora_artifacts import read
@@ -307,8 +314,18 @@ def download_artifact(sid, message_id, index):
 
 
 @chat_resources_bp.route('/api/v1/sessions/<sid>/messages/<message_id>/artifacts/<int:index>', methods=['DELETE'])
-def delete_artifact(sid, message_id, index, all_versions=False):
-    unavailable(sid)
+def delete_artifact(sid, message_id, index):
+    return _delete_artifact_versions(sid, message_id, index, request.args.get('all_versions') == 'true')
+
+
+def _delete_artifact_versions(sid, message_id, index, all_versions=False):
+    owner = user_id()
+    with sessions._mutation(sid, owner) as selected:
+        if not message_id or index is None or index < 0:
+            raise StoreError('产物标识无效', 400)
+        from webapi.weknora_artifacts import delete
+        result = asyncio.run(delete(g.user, selected, message_id, index, all_versions=all_versions))
+    return jsonify(success=True, data=result)
 
 
 def _recorded_artifacts(sid=None):
@@ -333,7 +350,11 @@ def _recorded_artifacts(sid=None):
 @chat_resources_bp.route('/api/v1/artifacts', methods=['GET', 'DELETE'])
 def artifact_library():
     if request.method == 'DELETE':
-        unavailable(request.args.get('session_id'))
+        sid = request.args.get('session_id')
+        if not sid:
+            raise StoreError('session_id 不能为空', 400)
+        return _delete_artifact_versions(sid, request.args.get('message_id'), request.args.get('index', type=int),
+                                         all_versions=True)
     latest = {}
     for item in _recorded_artifacts():
         if item.get('deleted_at'):

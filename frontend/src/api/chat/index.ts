@@ -196,12 +196,12 @@ export async function downloadArtifact(
   );
 }
 
-// deleteMessageArtifact removes a generated file from the session. The stored
-// bytes are reclaimed, so this is not reversible; callers confirm first.
+// Deletes the selected version and its current StateBackend file if it still
+// matches. Historical checkpoints remain; callers confirm first.
 //
 // The in-chat panel lists every regeneration of a file as its own row, so it
 // deletes exactly the row the user clicked. The artifact library folds them
-// into one entry and passes all_versions.
+// into one entry and deletes every version.
 export async function deleteMessageArtifact(
   session_id: string,
   message_id: string,

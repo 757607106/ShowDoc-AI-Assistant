@@ -93,7 +93,8 @@ def test_page_assistant_is_available_without_entering_the_agent_picker(settings_
     assert response.status_code == 200
     value = response.json['data']
     assert value['is_builtin'] is True and value['config']['model_id'] == registry.default_model_id(configured_owner)
-    assert 'wiki_read_page' in value['config']['allowed_tools']
+    assert 'wiki_search' in value['config']['allowed_tools']
+    assert 'wiki_read_page' not in value['config']['allowed_tools']
     assert settings_client.put('/api/v1/agents/' + identifier, json={'config': {}}).status_code == 403
 
 
@@ -127,7 +128,16 @@ def test_unconnected_agent_options_reject_save_and_execution_but_keep_old_record
     legacy = registry.save_record('agent', {'id': 'legacy-config', 'name': '旧配置', 'is_builtin': False,
         'config': unsupported}, configured_owner)
     read = settings_client.get('/api/v1/agents/legacy-config')
-    assert read.status_code == 200 and read.json['data']['config']['retain_retrieval_history'] is True
+    assert read.status_code == 200
+    viewed = read.json['data']
+    assert viewed['config']['retain_retrieval_history'] is unsupported.get('retain_retrieval_history', True)
+    assert {issue['field'] for issue in viewed['config_issues']} == set(unsupported) - {'agent_mode'}
+    assert all(issue['message'] for issue in viewed['config_issues'])
+    for field, value in unsupported.items():
+        assert viewed['config'][field] == value
+    listed = next(item for item in settings_client.get('/api/v1/agents').json['data'] if item['id'] == legacy['id'])
+    assert listed['config_issues'] == viewed['config_issues']
+    assert all(listed['config'][field] == value for field, value in unsupported.items())
     assert registry.record('agent', legacy['id'], configured_owner) == legacy
     with pytest.raises(StoreError) as error:
         config.resolve_request({'agent_id': legacy['id']}, client=KnowledgeClient(), owner_id=configured_owner)
@@ -135,12 +145,162 @@ def test_unconnected_agent_options_reject_save_and_execution_but_keep_old_record
     assert settings_client.post('/api/v1/agents/legacy-config/copy').status_code == 501
     repaired = settings_client.put('/api/v1/agents/legacy-config', json={'config': {}})
     assert repaired.status_code == 200 and repaired.json['data']['config']['sandbox_config_id'] == ''
+    assert repaired.json['data']['config_issues'] == []
 
 
 def test_builtin_quick_answer_uses_native_history_without_a_fabricated_turn_limit(settings_client):
     value = settings_client.get('/api/v1/agents/builtin-quick-answer').json['data']['config']
     assert value['history_turns'] == 0 and value['multi_turn_enabled'] is True
     assert config.validate_config(value)['history_turns'] == 0
+
+
+def test_runtime_defaults_are_canonical_and_do_not_use_saved_builtin_overrides(settings_client, configured_owner):
+    config.save_agent({'config': {'agent_mode': 'quick-answer', 'max_iterations': 3, 'temperature': 1.2,
+        'allowed_tools': []}}, configured_owner, 'builtin-quick-answer')
+    response = settings_client.get('/api/v1/agents/type-presets').json
+    assert isinstance(response['data'], list)
+    assert {item['id'] for item in response['data']} == {'rag-qa', 'wiki-qa', 'hybrid-rag-wiki', 'custom'}
+    defaults = response['runtime_defaults']
+    quick, smart = defaults['quick-answer'], defaults['smart-reasoning']
+    assert (quick['max_iterations'], quick['temperature'], quick['history_turns']) == (8, 0.3, 0)
+    assert quick['allowed_tools'] is None and quick['multi_turn_enabled'] is True
+    assert quick['retain_retrieval_history'] is True and quick['llm_call_timeout'] == 120
+    assert smart['max_iterations'] == 50 and smart['history_turns'] == 5
+    assert all('model_id' not in value for value in defaults.values())
+    assert response['unsupported_quick_fields'] == list(config.UNSUPPORTED_QUICK_FIELDS)
+    assert settings_client.get('/api/v1/agents/builtin-quick-answer').json['data']['config']['max_iterations'] == 3
+    quick['knowledge_bases'].append('changed-response')
+    assert config.runtime_defaults()['quick-answer']['knowledge_bases'] == []
+
+
+def test_timeout_default_changes_without_rewriting_explicit_values():
+    assert config.validate_config({})['llm_call_timeout'] == 120
+    assert config.validate_config({'llm_call_timeout': 180})['llm_call_timeout'] == 180
+    assert config.validate_config({'llm_call_timeout': 0})['llm_call_timeout'] == 0
+    with pytest.raises(StoreError) as error:
+        config.validate_config({'llm_call_timeout': None})
+    assert error.value.status == 400
+
+
+@pytest.mark.parametrize(('field', 'value', 'unsupported'), [
+    ('enable_rewrite', False, False), ('enable_rewrite', True, True),
+    ('embedding_top_k', None, False), ('embedding_top_k', '', False), ('embedding_top_k', 0, True),
+    ('context_template', '', False), ('context_template', 'custom', True),
+    ('fallback_strategy', 'model', False), ('fallback_strategy', 'fixed', True),
+])
+def test_quick_configuration_issues_describe_values_not_just_field_presence(field, value, unsupported):
+    validated = config.validate_config({'agent_mode': 'quick-answer', field: value}, check_runtime=False)
+    issues = config.runtime_config_issues(validated)
+    assert {item['field'] for item in issues} == ({field} if unsupported else set())
+    smart = config.validate_config({**validated, 'agent_mode': 'smart-reasoning'})
+    assert config.runtime_config_issues(smart) == []
+
+
+def test_legacy_configuration_reports_all_issues_and_explicit_repair_preserves_supported_values(settings_client, configured_owner):
+    original = registry.save_record('agent', {'id': 'legacy-many', 'name': 'old', 'is_builtin': False,
+        'config': {'agent_mode': 'quick-answer', 'history_turns': 1, 'multi_turn_enabled': False,
+            'retain_retrieval_history': False, 'enable_rewrite': True, 'rerank_top_k': 0,
+            'fallback_strategy': 'model', 'temperature': 0.6, 'allowed_tools': ['read_document'],
+            'kb_selection_mode': 'selected', 'knowledge_bases': ['a'], 'system_prompt': 'Keep my instructions'}}, configured_owner)
+    value = settings_client.get('/api/v1/agents/legacy-many').json['data']
+    assert {issue['field'] for issue in value['config_issues']} == {
+        'history_turns', 'multi_turn_enabled', 'retain_retrieval_history', 'enable_rewrite', 'rerank_top_k'}
+    assert registry.record('agent', original['id'], configured_owner) == original
+    repaired = {key: item for key, item in value['config'].items() if key not in config.UNSUPPORTED_QUICK_FIELDS}
+    repaired.update(history_turns=0, multi_turn_enabled=True, retain_retrieval_history=True)
+    response = settings_client.put('/api/v1/agents/legacy-many', json={'config': repaired})
+    assert response.status_code == 200 and response.json['data']['config_issues'] == []
+    resolved = config.resolve_request({'agent_id': original['id']}, client=KnowledgeClient(), owner_id=configured_owner)
+    assert resolved['knowledge_base_ids'] == ['a']
+    assert resolved['agent_config']['allowed_tools'] == ['read_document']
+    assert resolved['agent_config']['temperature'] == 0.6
+    assert resolved['agent_config']['system_prompt'] == 'Keep my instructions'
+
+
+@pytest.mark.parametrize(('mode', 'category', 'content'), [
+    ('smart-reasoning', 'agent_system_prompt', 'Smart instructions'),
+    ('quick-answer', 'system_prompt', 'Quick instructions'),
+])
+def test_system_prompt_reference_is_saved_as_id_resolved_each_turn_and_frozen_in_snapshot(settings_client, configured_owner, mode, category, content):
+    templates = {'agent_system_prompt': [{'id': 'shared', 'content': 'Smart instructions'}],
+        'system_prompt': [{'id': 'shared', 'content': 'Quick instructions'}]}
+    assert settings_client.put('/api/v1/tenants/kv/prompt-templates', json=templates).status_code == 200
+    created = settings_client.post('/api/v1/agents', json={'name': 'Referenced prompt',
+        'config': {'agent_mode': mode, 'system_prompt': '', 'system_prompt_id': 'shared'}})
+    assert created.status_code == 201
+    identifier = created.json['data']['id']
+    saved = registry.record('agent', identifier, configured_owner)['config']
+    assert saved['system_prompt'] == '' and saved['system_prompt_id'] == 'shared'
+    copied = settings_client.post('/api/v1/agents/' + identifier + '/copy')
+    assert copied.status_code == 201
+    assert copied.json['data']['config']['system_prompt'] == ''
+    assert copied.json['data']['config']['system_prompt_id'] == 'shared'
+    first = config.resolve_request({'agent_id': identifier}, client=KnowledgeClient(), owner_id=configured_owner)
+    assert first['agent_config']['system_prompt'] == content
+    templates[category][0]['content'] = 'Updated instructions'
+    settings_client.put('/api/v1/tenants/kv/prompt-templates', json=templates)
+    next_round = config.resolve_request({'agent_id': identifier}, client=KnowledgeClient(), owner_id=configured_owner)
+    assert next_round['agent_config']['system_prompt'] == 'Updated instructions'
+    assert first['agent_config']['system_prompt'] == content
+    registry.delete_record('settings', 'prompt-templates', configured_owner)
+    assert config.validate_config(first['agent_config'])['system_prompt'] == content
+    assert settings_client.get('/api/v1/agents/' + identifier).status_code == 200
+    with pytest.raises(StoreError) as error:
+        config.resolve_request({'agent_id': identifier}, client=KnowledgeClient(), owner_id=configured_owner)
+    assert error.value.status == 404
+    assert settings_client.put('/api/v1/agents/' + identifier, json={'config': saved}).status_code == 404
+
+
+def test_explicit_system_prompt_body_takes_precedence_over_a_stale_reference(configured_owner):
+    value = config.save_agent({'name': 'Custom text', 'config': {
+        'system_prompt': ' Exact custom text\n', 'system_prompt_id': 'missing'}}, configured_owner)
+    resolved = config.resolve_request({'agent_id': value['id']}, client=KnowledgeClient(), owner_id=configured_owner)
+    assert resolved['agent_config']['system_prompt'] == ' Exact custom text\n'
+    assert registry.record('agent', value['id'], configured_owner)['config']['system_prompt_id'] == 'missing'
+
+
+@pytest.mark.parametrize('invalid_id', [None, 0, False, [], {}])
+def test_system_prompt_reference_rejects_invalid_id_types(settings_client, invalid_id):
+    response = settings_client.post('/api/v1/agents', json={'name': 'Invalid prompt ID',
+        'config': {'system_prompt_id': invalid_id}})
+    assert response.status_code == 400 and 'system_prompt_id' in response.json['message']
+
+
+def test_system_prompt_reference_is_owner_and_category_scoped(settings_client, configured_owner):
+    from webapi.auth import create_user
+    foreign = create_user('foreign-prompt@example.com', 'Other', 'test-password-123', 'admin')
+    registry.save_record('settings', {'id': 'prompt-templates', 'value': {
+        'agent_system_prompt': [{'id': 'foreign-only', 'content': 'Private instructions'}]}}, foreign)
+    request_body = {'name': 'Prompt', 'config': {'system_prompt_id': 'foreign-only'}}
+    forbidden = settings_client.post('/api/v1/agents', json=request_body)
+    request_body['config']['system_prompt_id'] = 'missing'
+    missing = settings_client.post('/api/v1/agents', json=request_body)
+    assert forbidden.status_code == missing.status_code == 404
+    assert forbidden.json['message'] == missing.json['message']
+    registry.save_record('settings', {'id': 'prompt-templates', 'value': {
+        'system_prompt': [{'id': 'quick-only', 'content': 'Quick prompt'}]}}, configured_owner)
+    wrong_category = settings_client.post('/api/v1/agents', json={'name': 'Wrong category',
+        'config': {'agent_mode': 'smart-reasoning', 'system_prompt_id': 'quick-only'}})
+    assert wrong_category.status_code == 404
+    for owner, text in ((configured_owner, 'My prompt'), (foreign, 'Private prompt')):
+        registry.save_record('settings', {'id': 'prompt-templates', 'value': {
+            'agent_system_prompt': [{'id': 'same-id', 'content': text}]}}, owner)
+        value = config.save_agent({'name': 'Same ID', 'config': {'system_prompt_id': 'same-id'}}, owner)
+        result = config.resolve_request({'agent_id': value['id']}, client=KnowledgeClient(), owner_id=owner)
+        assert result['agent_config']['system_prompt'] == text
+
+
+@pytest.mark.parametrize('templates', [
+    {'agent_system_prompt': [{'id': 'prompt', 'content': 'One'}, {'id': 'prompt', 'content': 'Two'}]},
+    {'agent_system_prompt': [{'id': 'prompt', 'content': 123}]},
+    {'agent_system_prompt': {}}, {'agent_system_prompt': [None]}, [],
+])
+def test_invalid_or_ambiguous_system_prompt_templates_fail_explicitly(configured_owner, templates):
+    registry.save_record('settings', {'id': 'prompt-templates', 'value': templates}, configured_owner)
+    with pytest.raises(StoreError) as error:
+        config.save_agent({'name': 'Invalid template', 'config': {'system_prompt_id': 'prompt'}}, configured_owner)
+    assert error.value.status == 400
+    assert registry.records('agent', configured_owner) == []
 
 
 def test_scope_default_all_selected_none_and_explicit_mentions(configured_owner):
@@ -305,9 +465,64 @@ def test_selected_skill_catalog_is_prepared_without_installation(configured_owne
 
 def test_native_tool_selection_keeps_names_without_enabling_unselected_tools():
     assert config.allowed_knowledge_tools({'allowed_tools': ['search_knowledge', 'knowledge.wiki_search']}) == {'knowledge.search', 'knowledge.wiki_search'}
+    assert config.allowed_knowledge_tools({'allowed_tools': ['read_document', 'wiki_read_page']}) == {
+        'knowledge.get_document', 'knowledge.get_wiki_page'}
     assert config.allowed_knowledge_tools({'allowed_tools': []}) == set()
+    assert config.runtime_config_issues(config.validate_config({
+        'agent_mode': 'quick-answer', 'max_iterations': 1, 'allowed_tools': []})) == []
     with pytest.raises(StoreError):
         config.validate_config({'allowed_tools': 'search_knowledge'})
+
+
+def test_native_async_configuration_round_trip_and_service_gate(monkeypatch):
+    from agent import async_runtime
+    child = {'name': 'research', 'description': 'Research', 'execution_mode': 'async',
+        'update_strategy': 'enqueue', 'mode': 'fork', 'model_id': 'specialist', 'system_prompt': '',
+        'allowed_tools': [], 'selected_skills': None, 'access_level': 'read_only',
+        'permissions': [{'operations': ['write'], 'paths': ['/state/private/**'], 'mode': 'deny'}],
+        'interrupt_on': {'execute': True}, 'response_format': {'type': 'object'}}
+    monkeypatch.setattr(async_runtime, 'enabled', lambda: False)
+    historical = config.validate_config({'subagents': [child]}, check_runtime=False)
+    assert historical['subagents'] == [child]
+    assert config.runtime_config_issues(historical)[0]['field'] == 'subagents[0].execution_mode'
+    with pytest.raises(StoreError, match='异步子代理服务') as error:
+        config.validate_config(historical)
+    assert error.value.status == 501
+    saved = []
+    monkeypatch.setattr(registry, 'save_record', lambda *args: saved.append(args))
+    with pytest.raises(StoreError, match='异步子代理服务'):
+        config.save_agent({'name': 'Background', 'config': {'model_id': 'agent-main', 'subagents': [child]}}, 'owner')
+    assert saved == []
+    monkeypatch.setattr(async_runtime, 'enabled', lambda: True)
+    assert config.validate_config(historical) == historical
+
+
+@pytest.mark.parametrize('execution', [{}, {'execution_mode': 'sync'}])
+def test_native_sync_configuration_does_not_require_an_async_service(monkeypatch, execution):
+    from agent import async_runtime
+    def unused_service():
+        raise AssertionError('Synchronous agents must not probe the async service')
+    monkeypatch.setattr(async_runtime, 'enabled', unused_service)
+    child = {'name': 'review', 'description': 'Review', **execution}
+    validated = config.validate_config({'subagents': [child]})
+    assert validated['subagents'] == [{**child, 'response_format': None}]
+    assert config.validate_config(validated) == validated
+
+
+@pytest.mark.parametrize('options', [
+    {'execution_mode': None}, {'execution_mode': 'background'},
+    {'execution_mode': 'async', 'update_strategy': 'parallel'},
+    {'execution_mode': 'async', 'mode': 'shared'},
+    {'execution_mode': 'async', 'mode': None},
+    {'update_strategy': 'interrupt'}, {'execution_mode': 'sync', 'mode': 'fork'},
+    *({'execution_mode': 'async', field: 'https://untrusted.invalid'}
+      for field in ('url', 'headers', 'graph_id', 'runnable', 'webhook', 'notify_parent')),
+])
+def test_native_async_configuration_still_validates_shape_and_trusted_transport_when_reading(options):
+    with pytest.raises(StoreError) as error:
+        config.validate_config({'subagents': [{'name': 'research', 'description': 'Research', **options}]},
+            check_runtime=False)
+    assert error.value.status == 400
 
 
 def test_native_document_scope_cannot_expand_to_other_documents(monkeypatch):

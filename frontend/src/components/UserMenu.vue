@@ -25,27 +25,7 @@
           </template>
         </div>
     </div>
-    <GlobalInvitationBell v-if="!IS_CONTEXTDB && !uiStore.sidebarCollapsed" v-slot="{ count, open }">
-      <t-tooltip :content="t('notifications.title')" placement="top">
-        <button type="button" class="user-notify" :class="{ 'is-open': open }"
-          :aria-label="t('notifications.title')" @click.stop>
-          <t-badge :count="count" :max-count="99" size="small" :offset="[2, -2]">
-            <t-icon name="notification" size="16px" />
-          </t-badge>
-        </button>
-      </t-tooltip>
-    </GlobalInvitationBell>
     </div>
-    <GlobalInvitationBell v-if="!IS_CONTEXTDB && uiStore.sidebarCollapsed" v-slot="{ count, open }">
-      <t-tooltip :content="t('notifications.title')" placement="right">
-        <button type="button" class="user-notify" :class="{ 'is-open': open }"
-          :aria-label="t('notifications.title')" @click.stop>
-          <t-icon name="notification" size="16px" />
-          <i v-if="count > 0" class="user-notify__dot" aria-hidden="true" />
-        </button>
-      </t-tooltip>
-    </GlobalInvitationBell>
-
     <!-- 下拉菜单 -->
     <Transition name="dropdown">
       <div v-if="menuVisible" class="user-dropdown" @click.stop>
@@ -96,7 +76,7 @@
           <t-icon name="user" class="menu-icon" />
           <span>{{ $t('general.personalSettings') }}</span>
         </div>
-        <div v-if="!authStore.isLiteMode" class="menu-item" @click="handleQuickNav('tenant')">
+        <div v-if="!IS_CONTEXTDB && !authStore.isLiteMode" class="menu-item" @click="handleQuickNav('tenant')">
           <t-icon name="user-circle" class="menu-icon" />
           <span>{{ $t('settings.workspaceSettings') }}</span>
         </div>
@@ -202,7 +182,6 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { logout as logoutApi } from '@/api/auth'
 import { useI18n } from 'vue-i18n'
 import CreateTenantDialog from '@/components/CreateTenantDialog.vue'
-import GlobalInvitationBell from '@/components/GlobalInvitationBell.vue'
 import {
   navigateAfterTenantSwitch,
   persistLastActiveTenantPreference,
@@ -705,42 +684,6 @@ onUnmounted(() => {
       flex-shrink: 0;
     }
   }
-}
-
-.user-notify {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--app-radius-sm);
-  background: transparent;
-  color: var(--td-text-color-placeholder);
-  cursor: pointer;
-
-  &:hover,
-  &.is-open {
-    background: var(--td-bg-color-container-hover);
-    color: var(--td-text-color-primary);
-  }
-}
-
-.user-notify__dot {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--td-error-color);
-  box-shadow: 0 0 0 1.5px var(--td-bg-color-sidebar);
-}
-
-.user-menu--collapsed .user-notify {
-  position: relative;
 }
 
 .user-dropdown {

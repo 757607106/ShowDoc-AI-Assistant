@@ -44,9 +44,13 @@ test('知识库仅在模型确实可选时允许恢复为空', () => {
   assertClearable(modelSelectorTag(kbModelConfig, 'config.wikiSynthesisModelId'))
 })
 
-test('必填模型继续保持不可清空', () => {
+test('智能体主模型必填，ContextDB 图片模型可清空以继承支持图片的主模型', () => {
   assertNotClearable(modelSelectorTag(agentEditor, 'formData.config.model_id'))
-  assertNotClearable(modelSelectorTag(agentEditor, 'formData.config.vlm_model_id'))
+  assert.match(modelSelectorTag(agentEditor, 'formData.config.vlm_model_id'), /:clearable="IS_CONTEXTDB"/)
+  assert.match(agentEditor, /modelSupportsType\(model, 'VLLM'\)/)
+})
+
+test('知识库必填模型继续保持不可清空', () => {
   assertNotClearable(modelSelectorTag(kbModelConfig, 'config.llmModelId'))
   assertNotClearable(modelSelectorTag(kbEditor, 'formData.multimodalConfig.vllmModelId'))
   assertNotClearable(modelSelectorTag(kbEditor, 'formData.asrConfig.modelId'))

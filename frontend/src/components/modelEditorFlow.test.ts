@@ -38,10 +38,14 @@ async function fixture(options: {
   providersByType?: Record<string, any[]>
   loadProviders?: (type?: string) => Promise<void>
   resolve?: (params: any) => Promise<any>
+  contextdb?: boolean
+  modelData?: Record<string, unknown>
 } = {}) {
   const requests: any[] = []
   const saves: any[] = []
   const resolves: any[] = []
+  const managementRequests: string[] = []
+  const settingsNavigations: string[] = []
   const providers: any[] = options.providers || []
   const catalogEvents: string[] = []
   const catalogRequests: Array<{ type?: string; force?: boolean }> = []
@@ -71,6 +75,7 @@ async function fixture(options: {
     modelData: options.edit ? {
       id: 'saved-model', modelName: 'old-model', name: '', source: 'remote',
       baseUrl: 'https://example.com/v1', provider: 'generic', isDefault: false,
+      ...options.modelData,
     } : null,
   })
   const check = async (payload: any) => {
@@ -85,20 +90,26 @@ async function fixture(options: {
     require(name: string) {
       if (name === 'vue') return require('vue')
       if (name === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key, te: () => false, locale: { value: 'en-US' } }) }
-      if (name === '@/stores/ui') return { useUIStore: () => ({}) }
+      if (name === '@/stores/ui') return { useUIStore: () => ({openSettings: (section: string) => settingsNavigations.push(section)}) }
+      if (name === '@/config/contextdb') return {IS_CONTEXTDB: options.contextdb ?? false}
       if (name === 'tdesign-vue-next') return {
         MessagePlugin: Object.fromEntries(['success', 'error', 'warning', 'info'].map(key => [key, (text: string) => toasts.push(text)])),
       }
       if (name === '@/api/initialization') return {
         checkRemoteModel: check, testEmbeddingModel: check, checkRerankModel: check, checkASRModel: check,
-        listModelProviders: async () => [], checkOllamaStatus: async () => ({ available: false }),
+        listModelProviders: async () => [],
+        checkOllamaStatus: async () => {managementRequests.push('ollama-status'); return {available: false}},
+        listOllamaModels: async () => {managementRequests.push('ollama-models'); return []},
+        checkOllamaModels: async () => {managementRequests.push('ollama-check'); return {models: {}}},
+        downloadOllamaModel: async () => {managementRequests.push('ollama-download'); return {taskId: 'task'}},
+        getDownloadProgress: async () => {managementRequests.push('ollama-progress'); return {status: 'completed', progress: 100}},
         resolveModelCatalog: async (params: any) => { resolves.push(params); return options.resolve ? options.resolve(params) : {
           provider: params.provider, api: 'openai-completions', base_url: params.base_url, remote_model: params.model,
           cataloged: false, model: {}, capabilities: { provider: params.provider, api: 'openai-completions', cataloged: false, reasoning: false, thinking_levels: [], thinking_format: 'none' },
         } },
       }
       if (name === '@/stores/modelProviders') return { useModelProvidersStore: () => providersStore }
-      if (name === '@/api/model') return { getWeKnoraCloudStatus: async () => ({ has_models: true, needs_reinit: false }) }
+      if (name === '@/api/model') return { getWeKnoraCloudStatus: async () => {managementRequests.push('weknoracloud-status'); return {has_models: true, needs_reinit: false}} }
       if (name === '@/utils/weknoraCloudModels') return require('../utils/weknoraCloudModels.ts')
       if (name === '@/utils/docsUrl') return require('../utils/docsUrl.ts')
       if (name === '@/stores/modelProvidersState') return require('../stores/modelProvidersState.ts')
@@ -133,8 +144,45 @@ async function fixture(options: {
   }
   vm.formRef = { validate: async () => true }
   await nextTick()
-  return { vm, props, requests, saves, toasts, visibility, resolves, catalogEvents, catalogRequests, close: () => app.unmount() }
+  return { vm, props, requests, saves, toasts, visibility, resolves, catalogEvents, catalogRequests, managementRequests, settingsNavigations, close: () => app.unmount() }
 }
+
+test('ContextDB opening and browsing a saved local model never calls retired service management', async () => {
+  const f = await fixture({contextdb: true, edit: true, initiallyVisible: true, draft: {}, type: 'embedding', modelData: {source: 'local', modelName: 'saved-ollama'}})
+  try {
+    assert.equal(f.vm.formData.source, 'local')
+    assert.equal(f.vm.formData.modelName, 'saved-ollama')
+    assert.equal(f.vm.ollamaManagementEnabled, false)
+    assert.equal(f.vm.retiredLocalModel, true)
+    await f.vm.checkOllamaServiceStatus(); await f.vm.loadOllamaModels(); await f.vm.refreshOllamaModels()
+    await f.vm.checkModelStatus(); await f.vm.checkOllamaDimension(); await f.vm.startDownload('example')
+    await f.vm.goToOllamaSettings(); await f.vm.checkWkcCredentialStatus(); await f.vm.goToWeKnoraCloudSettings()
+    f.vm.searchKeyword = 'new-model'
+    assert.equal(f.vm.showDownloadOption, false)
+    await f.vm.handleConfirm()
+    assert.deepEqual(f.managementRequests, [])
+    assert.deepEqual(f.settingsNavigations, [])
+    assert.deepEqual(f.saves, [])
+    assert.equal(f.props.visible, true)
+    assert.match(descriptor.template!.content, /v-if="ollamaManagementEnabled && activeModelType !== 'rerank'"/)
+    assert.match(descriptor.template!.content, /v-if="retiredLocalModel"[\s\S]*?:model-value="formData\.modelName" readonly/)
+    assert.match(descriptor.template!.content, /v-if="ollamaManagementEnabled && shouldShowOllamaUnavailableTip/)
+  } finally {f.close()}
+})
+
+test('ContextDB keeps localhost OpenAI-compatible connections on the supported API path', async () => {
+  const f = await fixture({contextdb: true, draft: {source: 'remote', provider: 'generic', modelName: 'local-api', baseUrl: 'http://127.0.0.1:11434/v1'}})
+  try {
+    assert.equal(f.vm.retiredLocalModel, false)
+    await f.vm.checkRemoteAPI(); await f.vm.handleConfirm()
+    assert.equal(f.requests.length, 1)
+    assert.equal(f.requests[0].baseUrl, 'http://127.0.0.1:11434/v1')
+    assert.equal(f.saves.length, 1)
+    assert.equal(f.saves[0].source, 'remote')
+    assert.equal(f.saves[0].baseUrl, 'http://127.0.0.1:11434/v1')
+    assert.deepEqual(f.managementRequests, [])
+  } finally {f.close()}
+})
 
 for (const initiallyVisible of [true, false]) {
   for (const type of ['chat', 'embedding']) {
@@ -887,6 +935,33 @@ test('parent save serializes extra_config, spec.compat and max_output_tokens fro
   await assert.rejects(save({
     modelName: 'gpt-5', source: 'remote', baseUrl: 'https://api.openai.com/v1', specCompat: '[1]',
   }), /compat\.invalid/)
+})
+
+test('resolve preview sends current raw limits and retains spec overrides without rewriting inputs', async () => {
+  const f = await fixture({ edit: true, resolve: async (params) => ({
+    capabilities: { context_window: params.spec?.context_window || params.context_window,
+      max_output_tokens: params.spec?.max_output_tokens || params.max_output_tokens },
+  }) })
+  try {
+    f.vm.formData.contextWindow = 32768
+    f.vm.formData.maxOutputTokens = 4096
+    f.vm.formData.spec = { context_window: 65536, max_output_tokens: 8192 }
+    await f.vm.runResolve()
+    assert.equal(f.resolves.at(-1).context_window, 32768)
+    assert.equal(f.resolves.at(-1).max_output_tokens, 4096)
+    assert.equal(f.vm.resolved.capabilities.context_window, 65536)
+    assert.equal(f.vm.resolved.capabilities.max_output_tokens, 8192)
+    assert.equal(f.vm.formData.contextWindow, 32768)
+    assert.equal(f.vm.formData.maxOutputTokens, 4096)
+    const before = f.resolves.length
+    f.vm.formData.contextWindow = 49152
+    f.vm.formData.maxOutputTokens = 6144
+    await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 450))
+    assert.ok(f.resolves.length > before, 'editing a limit refreshes the debounced preview')
+    assert.equal(f.resolves.at(-1).context_window, 49152)
+    assert.equal(f.resolves.at(-1).max_output_tokens, 6144)
+  } finally { f.close() }
 })
 
 // PUT /models/:id restores the stored extra_config when the field is absent

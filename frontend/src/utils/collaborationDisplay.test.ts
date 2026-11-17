@@ -125,3 +125,21 @@ test('a continued child stays at its followup position in the new parent turn', 
     assert.ok(collaborationTimeline(events, snapshot).some(row => row.tool_name === 'followup_task'), 'failed continuation remains visible')
   }
 })
+
+test('native task calls correlate by parent call ID, including concurrent calls of one type', () => {
+  const snapshot = { tasks: [
+    { id: 'child-b', name: 'analyst', parent_tool_call_id: 'call-b' },
+    { id: 'child-a', name: 'analyst', parent_tool_call_id: 'call-a' },
+  ] }
+  const events = [
+    { type: 'tool_call', tool_name: 'task', tool_call_id: 'call-a', arguments: { subagent_type: 'analyst' } },
+    { type: 'thinking', content: 'Continue' },
+    { type: 'tool_call', tool_name: 'task', tool_call_id: 'call-b', arguments: { subagent_type: 'analyst' } },
+    { type: 'answer', content: 'Done' },
+  ]
+  const rows = collaborationTimeline(events, snapshot, true)
+  assert.deepEqual(rows.map(row => row.type), ['child_task', 'thinking', 'child_task', 'answer'])
+  assert.equal(rows[0].task.id, 'child-a')
+  assert.equal(rows[2].task.id, 'child-b')
+  assert.equal(events[0].tool_name, 'task', 'the native tool name is retained')
+})

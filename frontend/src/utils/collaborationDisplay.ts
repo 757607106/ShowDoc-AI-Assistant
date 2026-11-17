@@ -4,6 +4,7 @@ export interface CollaborationTaskView {
   name: string
   sessionId: string
   runId: string
+  parentToolCallId?: string
   displayName: string
   status: string
   progress?: { phase?: string; tool_name?: string; iteration?: number }
@@ -21,6 +22,7 @@ export function collaborationTasks(snapshot: unknown): CollaborationTaskView[] {
       name: String(task.name || task.task_name || ''),
       sessionId: String(task.session_id || ''),
       runId: String(task.run_id || ''),
+      parentToolCallId: typeof task.parent_tool_call_id === 'string' ? task.parent_tool_call_id : undefined,
       displayName: String(task.display_name || task.name || task.task_name || ''),
       status: task.cancel_requested && ['queued', 'running', 'waiting'].includes(task.status)
         ? 'cancelling' : statuses.has(task.status) ? task.status : 'unknown',
@@ -69,10 +71,12 @@ export function collaborationTimeline(events: any[], snapshot: unknown, settled 
   const waitState = collaborationWaitState(events, settled)
   const lastWait = events.filter(event => event?.type === 'tool_call' && event.tool_name === 'wait_agent').at(-1)
   for (const event of events) {
-    if (event.type === 'tool_call' && (event.tool_name === 'spawn_agent'
+    if (event.type === 'tool_call' && (event.tool_name === 'task' || event.tool_name === 'spawn_agent'
       || (event.tool_name === 'followup_task' && event.success !== false && !event.canceled))) {
       const target = event.arguments?.target
-      const task = tasks.find(t => event.tool_name === 'followup_task'
+      const task = tasks.find(t => event.tool_name === 'task'
+        ? Boolean(event.tool_call_id) && t.parentToolCallId === event.tool_call_id
+        : event.tool_name === 'followup_task'
         ? t.id === target || t.name === target || `/root/${t.name}` === target
         : t.id === event.tool_data?.member_id
           || t.name === event.arguments?.task_name || t.name === event.arguments?.name)

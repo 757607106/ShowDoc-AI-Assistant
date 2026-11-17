@@ -19,7 +19,7 @@ import {
   type SkillCatalogItem,
   type SkillInfo,
 } from '@/api/skill'
-import { getAgentTools, getAgentTypePresets, getPlaceholders, type AgentToolCatalog, type AgentTypePreset, type PlaceholdersResponse } from '@/api/agent'
+import { getAgentTools, getAgentTypePresets, getPlaceholders, type AgentToolCatalog, type AgentTypePreset, type AgentRuntimeDefaults, type PlaceholdersResponse } from '@/api/agent'
 import { getTenantRetrievalConfig } from '@/api/retrieval'
 import { isStorageConfigDenied } from './storageEngineAccess'
 import { createCachedResource } from './resourceCache'
@@ -74,6 +74,8 @@ export const useEditorResourcesStore = defineStore('editorResources', () => {
   const skillsConfigId = ref('')
   const skillCatalog = ref<SkillCatalogItem[]>([])
   const agentTypePresets = ref<AgentTypePreset[]>([])
+  const agentRuntimeDefaults = ref<AgentRuntimeDefaults | null>(null)
+  const unsupportedQuickFields = ref<string[] | null>(null)
   const agentTools = ref<AgentToolCatalog | null>(null)
   const promptTemplates = ref<PromptTemplatesConfig | null>(null)
   const placeholders = ref<PlaceholdersResponse | null>(null)
@@ -167,11 +169,12 @@ export const useEditorResourcesStore = defineStore('editorResources', () => {
 
   const agentTypePresetsResource = createCachedResource(
     async () => {
-      const presetsRes: any = await getAgentTypePresets()
-      return presetsRes?.data && Array.isArray(presetsRes.data) ? (presetsRes.data as AgentTypePreset[]) : []
+      return getAgentTypePresets()
     },
-    (rows) => {
-      agentTypePresets.value = rows
+    (response) => {
+      agentTypePresets.value = Array.isArray(response?.data) ? response.data : []
+      agentRuntimeDefaults.value = response?.runtime_defaults ?? null
+      unsupportedQuickFields.value = response?.unsupported_quick_fields ?? null
     },
   )
 
@@ -348,6 +351,8 @@ export const useEditorResourcesStore = defineStore('editorResources', () => {
       skillsRequestScope = { key: '', configId: '' }
       skillCatalog.value = []
       agentTypePresets.value = []
+      agentRuntimeDefaults.value = null
+      unsupportedQuickFields.value = null
       agentTools.value = null
       promptTemplates.value = null
       placeholders.value = null
@@ -368,6 +373,8 @@ export const useEditorResourcesStore = defineStore('editorResources', () => {
     skillsAvailable,
     skillCatalog,
     agentTypePresets,
+    agentRuntimeDefaults,
+    unsupportedQuickFields,
     agentTools,
     promptTemplates,
     placeholders,

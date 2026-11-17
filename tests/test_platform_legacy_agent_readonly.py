@@ -56,11 +56,12 @@ def test_retired_execution_routes_are_gone_without_creating_runtime_records(auth
         ('PUT', f'/api/v1/sessions/{sid}'), ('POST', f'/api/v1/sessions/{sid}/pin'),
         ('POST', f'/api/v1/sessions/{sid}/generate_title'),
         ('DELETE', f'/api/v1/sessions/{sid}/messages/run/artifacts/0'),
-        ('DELETE', '/api/v1/artifacts'), ('POST', f'/api/v1/sessions/{sid}/attachments'),
+        ('POST', f'/api/v1/sessions/{sid}/attachments'),
     ]
     for method, path in routes:
         response = http.open(path, method=method, json={})
         assert response.status_code == 410, (method, path, response.status_code, response.json)
+    assert http.delete('/api/v1/artifacts').status_code == 400
     for path, status in [('/api/v1/agent/tool-approvals/pending', 400), ('/api/v1/agent/prompts/pending', 400),
                          ('/api/v1/agent/mcp-oauth-resolutions/pending', 501),
                          ('/api/v1/agent/mcp-oauth-resolutions/pending/cancel', 501)]:
@@ -109,6 +110,30 @@ def test_history_and_extension_gets_are_read_only_even_for_interrupted_workers(a
     assert before == after
 
 
+@pytest.mark.parametrize('has_queued', [False, True], ids=['empty', 'queued'])
+def test_legacy_queued_steers_keep_items_and_data_contract_without_mutation(authenticated_client, has_queued):
+    owner = os.environ['TEST_PLATFORM_USER']
+    sid = legacy_session(owner)
+    with connection() as conn:
+        if has_queued:
+            conn.execute("INSERT INTO agent_runs(id,session_id,owner_id,status) VALUES ('saved-run',%s,%s,'running')", (sid, owner))
+            for identifier, status in [('queued-steer', 'queued'), ('delivered-steer', 'injected')]:
+                conn.execute('''INSERT INTO agent_steers(id,session_id,owner_id,run_id,content,delivery,status)
+                    VALUES (%s,%s,%s,'saved-run','Saved follow-up','after',%s)''', (identifier, sid, owner, status))
+        before = conn.execute('SELECT * FROM agent_steers ORDER BY id').fetchall()
+    response = authenticated_client.get(f'/api/v1/sessions/{sid}/steer')
+    assert response.status_code == 200, response.json
+    body = response.json
+    assert body['success'] is True and body['read_only'] is True
+    assert body['items'] == body['data']
+    assert [item['steer_id'] for item in body['items']] == (['queued-steer'] if has_queued else [])
+    if has_queued:
+        assert body['items'][0]['content'] == 'Saved follow-up'
+        assert body['items'][0]['expected_assistant_message_id'] == 'saved-run'
+    with connection() as conn:
+        assert conn.execute('SELECT * FROM agent_steers ORDER BY id').fetchall() == before
+
+
 def test_session_metadata_and_native_clear_delete_obey_stream_lock(authenticated_client):
     http = authenticated_client
     owner = os.environ['TEST_PLATFORM_USER']
@@ -147,7 +172,7 @@ def test_static_skill_catalog_crud_never_installs_and_preserves_referenced_histo
     uploaded = http.post('/api/v1/skills/catalog', json=payload)
     assert uploaded.status_code == 201, uploaded.json
     item = uploaded.json['data']
-    assert item['execution_mode'] == 'instructions_only' and item['scripts_available'] is False
+    assert item['execution_mode'] == 'native_middleware' and item['dependency_status'] == 'not_managed'
     base = '/api/v1/skills/catalog/' + item['id']
     assert http.get(base + '/files/content?path=run.py').json['data']['content'] == payload['files']['run.py']
     assert registry.records('skill_install', owner) == []
@@ -281,6 +306,6 @@ def test_capabilities_match_native_harness_and_disabled_extensions(authenticated
     capabilities = authenticated_client.get('/api/v1/system/capabilities').json['data']['capabilities']
     for key in ('agents', 'settings.mcp', 'settings.sandbox', 'settings.sandbox.state'):
         assert capabilities[key]['supported'] is True
-    for key in ('settings.websearch', 'settings.sandbox.docker', 'settings.sandbox.host',
-                'settings.sandbox.remote', 'settings.sandbox.user_allocation'):
+    for key in ('organizations', 'settings.assistant', 'settings.websearch', 'settings.sandbox.docker', 'settings.sandbox.host',
+                'settings.sandbox.remote', 'settings.sandbox.user_allocation', 'agents.steering', 'agents.browser'):
         assert capabilities[key]['supported'] is False

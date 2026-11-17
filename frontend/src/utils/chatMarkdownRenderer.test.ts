@@ -68,7 +68,7 @@ test('ContextDB citation text uses a readable label without changing its exact s
   assert.equal(refs[0].knowledge_title, 'doc-hash.html')
 })
 
-for (const file of ['chat/components/botmsg.vue', 'chat/components/AgentStreamDisplay.vue', 'embed/EmbedBotMessage.vue']) {
+for (const file of ['chat/components/botmsg.vue', 'chat/components/AgentStreamDisplay.vue']) {
   test(`${file}: the real Markdown caller uses readable citation names and exact source identities`, () => {
     const source = readFileSync(new URL(`../views/${file}`, import.meta.url), 'utf8')
     const agent = file.includes('AgentStreamDisplay')

@@ -11,7 +11,7 @@ const initial: DefaultSettings = {
   rerank_model_id: 'rerank', vlm_model_id: 'vision', asr_model_id: 'asr',
 }
 
-function setup(t: TestContext, read = async () => ({ data: { ...initial } }), managed = false) {
+function setup(t: TestContext, read = async () => ({ data: { ...initial } }), managed = false, admin = true) {
   const f = fixture(t)
   const api = {
     getTenantDefaultSettings: t.mock.fn(read),
@@ -29,7 +29,7 @@ function setup(t: TestContext, read = async () => ({ data: { ...initial } }), ma
     'tdesign-vue-next': { MessagePlugin: { success() {}, error() {} } },
     '@/api/default-settings': api,
     '@/api/web-search-provider': api,
-    '@/stores/auth': { useAuthStore: () => ({ hasRole: () => true }) },
+    '@/stores/auth': { useAuthStore: () => ({ hasRole: () => admin }) },
     '@/stores/ui': { useUIStore: () => ({}) },
     '@/stores/chatResources': { useChatResourcesStore: () => store },
     '@/stores/deploymentCapabilities': { useDeploymentCapabilitiesStore: () => ({ isSupported: () => true }) },
@@ -37,10 +37,30 @@ function setup(t: TestContext, read = async () => ({ data: { ...initial } }), ma
   return { vm, store, api }
 }
 
-test('managed retrieval exposes chat and multimodal defaults without local embedding or rerank controls', t => {
+test('managed defaults expose only the personal main model', t => {
   const { vm } = setup(t, undefined, true)
   const fields = Array.from(vm.modelSlots, (slot: any) => slot.field)
-  assert.deepEqual(fields, ['chat_model_id', 'utility_model_id', 'vlm_model_id', 'asr_model_id'])
+  assert.deepEqual(fields, ['chat_model_id'])
+})
+
+test('personal defaults preserve hidden legacy bindings and accept missing model status', async t => {
+  const { vm, api, store } = setup(t, undefined, true)
+  store.allModels = [{ id: 'chat', name: 'Chat', type: 'KnowledgeQA' }] as any
+  await flush()
+  assert.equal(vm.effective.chat_model_id.model.id, 'chat')
+  assert.equal(vm.effective.chat_model_id.stale, false)
+  await vm.onModelChange('chat_model_id', 'new-chat')
+  assert.deepEqual({ ...api.updateTenantDefaultSettings.mock.calls[0].arguments[0] }, {
+    ...initial, chat_model_id: 'new-chat',
+  })
+})
+
+test('a read-only platform member can change their own default model', async t => {
+  const { vm, api } = setup(t, undefined, true, false)
+  await flush()
+  assert.equal(vm.canEdit, true)
+  await vm.onModelChange('chat_model_id', 'agent-main')
+  assert.equal(api.updateTenantDefaultSettings.mock.callCount(), 1)
 })
 
 test('blocks saves until all persisted slots have loaded', async t => {

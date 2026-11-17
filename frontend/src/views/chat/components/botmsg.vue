@@ -131,6 +131,10 @@
                 $t('common.loading') }}</span></div>
         </div>
         <picturePreview :reviewImg="reviewImg" :reviewUrl="reviewUrl" @closePreImg="closePreImg"></picturePreview>
+        <details v-if="session.structured_response !== undefined" class="structured-output" open>
+            <summary>{{ $t('nativeAgent.structuredResult') }}</summary>
+            <pre>{{ JSON.stringify(session.structured_response, null, 2) }}</pre>
+        </details>
         <Teleport to="body">
             <ChatCitationFloat :float="citationFloat" :on-enter="cancelCitationClose"
                 :on-leave="scheduleCitationClose" />

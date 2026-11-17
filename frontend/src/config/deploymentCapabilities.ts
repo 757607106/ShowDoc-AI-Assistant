@@ -1,11 +1,15 @@
 export const DEPLOYMENT_CAPABILITY_KEYS = [
   'organizations',
   'agents',
+  'agents.steering',
+  'agents.browser',
+  'agents.async',
   'integrations.im',
   'integrations.embed',
   'integrations.api',
   'integrations.mcpserver',
   'settings.mcp',
+  'settings.assistant',
   'settings.websearch',
   'settings.vectorstore',
   'settings.storage',
@@ -27,7 +31,7 @@ export type DeploymentCapabilityMap = Partial<Record<DeploymentCapabilityKey, De
 
 /**
  * 能力接口失败或旧版后端没有返回某个键时保持可见，避免一次探测失败把整个菜单清空。
- * 只有后端明确返回 supported: false 时才隐藏入口。
+ * 执行能力（沙箱、steering、浏览器、异步子代理）例外，必须由后端明确启用。
  */
 export function isDeploymentCapabilitySupported(
   capabilities: DeploymentCapabilityMap,
@@ -48,11 +52,15 @@ export function isDeploymentCapabilitySupported(
   // Remote sandbox is unavailable on Lite desktop; fail closed like docker/host.
   // User allocation is a deployment gate (env opt-in plus Redis). A missed
   // probe must not show the switch.
+  // Steering and browser execution also require an explicitly connected runtime.
   if (
     key === 'settings.sandbox.docker'
     || key === 'settings.sandbox.host'
     || key === 'settings.sandbox.remote'
     || key === 'settings.sandbox.user_allocation'
+    || key === 'agents.steering'
+    || key === 'agents.browser'
+    || key === 'agents.async'
   ) {
     return capabilities[key]?.supported === true
   }
@@ -60,6 +68,7 @@ export function isDeploymentCapabilitySupported(
 }
 
 export const SETTINGS_SECTION_CAPABILITY: Partial<Record<string, DeploymentCapabilityKey>> = {
+  browserconnection: 'agents.browser',
   websearch: 'settings.websearch',
   vectorstore: 'settings.vectorstore',
   storage: 'settings.storage',

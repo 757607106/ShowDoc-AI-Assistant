@@ -1,6 +1,11 @@
 """Agent configurations and request scope, independent of the chat transport."""
 import copy
+import json
+import re
 import uuid
+
+from jsonschema import validators
+from jsonschema.exceptions import SchemaError
 
 from agent import registry
 from governance.store import StoreError
@@ -15,17 +20,138 @@ TOOL_ALIASES = {
 }
 DEFAULT_CONFIG = {'agent_mode': 'smart-reasoning', 'agent_type': 'rag-qa', 'model_id': 'agent-main',
     'system_prompt': '', 'temperature': 0.7, 'max_completion_tokens': 0, 'max_iterations': 50,
-    'llm_call_timeout': 180, 'thinking': False, 'citation_enabled': True,
+    'llm_call_timeout': 120, 'thinking': False, 'citation_enabled': True,
     'allowed_tools': None, 'kb_selection_mode': 'all', 'knowledge_bases': [],
     'retrieve_kb_only_when_mentioned': False, 'mcp_selection_mode': 'none', 'mcp_services': [],
     'skills_selection_mode': 'none', 'selected_skills': [], 'web_search_enabled': False,
     'multi_turn_enabled': True, 'history_turns': 5, 'memory_enabled': True, 'retain_retrieval_history': True, 'access_level': 'confirm',
-    'image_upload_enabled': False, 'file_upload_enabled': True, 'sandbox_config_id': 'state-backend'}
+    'image_upload_enabled': False, 'file_upload_enabled': True, 'sandbox_config_id': 'state-backend',
+    'subagents': [], 'response_format': None, 'permissions': [], 'interrupt_on': {}}
 BUILTINS = {
     'builtin-quick-answer': {'name': '快速问答', 'description': '根据知识库原文直接回答',
                             'config': {'agent_mode': 'quick-answer', 'max_iterations': 8, 'temperature': 0.3}},
     'builtin-smart-reasoning': {'name': '智能推理', 'description': '按需检索、分析和调用工具', 'config': {}},
 }
+UNSUPPORTED_QUICK_FIELDS = (
+    'enable_query_expansion', 'enable_rewrite', 'embedding_top_k', 'keyword_threshold',
+    'vector_threshold', 'rerank_top_k', 'rerank_threshold', 'rerank_model_id',
+    'context_template', 'context_template_id', 'fallback_prompt', 'fallback_response',
+    'intent_prompts', 'fallback_strategy',
+)
+
+
+def validate_response_format(schema):
+    if schema is None:
+        return None
+    if not isinstance(schema, dict):
+        raise StoreError('response_format 必须为 JSON Schema 对象或 null', 400)
+    try:
+        if len(json.dumps(schema, ensure_ascii=False, allow_nan=False).encode()) > 64_000:
+            raise StoreError('response_format 不能超过 64000 字节', 400)
+        def walk(value, depth=0):
+            if depth > 30:
+                raise StoreError('response_format 嵌套不能超过 30 层', 400)
+            if isinstance(value, dict):
+                if '$id' in value and (not isinstance(value['$id'], str) or not value['$id'].startswith('#')):
+                    raise StoreError('response_format 不能改变外部资源解析范围', 400)
+                for keyword in ('$ref', '$dynamicRef', '$recursiveRef'):
+                    reference = value.get(keyword)
+                    if reference is None:
+                        continue
+                    if not isinstance(reference, str) or not reference.startswith('#'):
+                        raise StoreError('response_format 只允许本地 $ref，不能读取外部资源', 400)
+                    target = schema
+                    if reference != '#':
+                        if not reference.startswith('#/'):
+                            raise StoreError('response_format $ref 必须使用本地 JSON Pointer', 400)
+                        for part in reference[2:].split('/'):
+                            key = part.replace('~1', '/').replace('~0', '~')
+                            if isinstance(target, list) and not key.isdigit():
+                                raise StoreError('response_format 本地数组引用无效', 400)
+                            target = target[int(key)] if isinstance(target, list) else target[key]
+                for item in value.values():
+                    walk(item, depth + 1)
+            elif isinstance(value, list):
+                for item in value:
+                    walk(item, depth + 1)
+        walk(schema)
+        validator = validators.validator_for(schema, default=None) if '$schema' in schema else validators.validator_for(schema)
+        if validator is None:
+            raise StoreError('response_format 使用了不支持的 JSON Schema 版本', 400)
+        validator.check_schema(schema)
+    except (SchemaError, KeyError, IndexError, ValueError, TypeError, RecursionError) as exc:
+        raise StoreError('response_format 必须为有效且可解析的 JSON Schema', 400) from exc
+    return copy.deepcopy(schema)
+
+
+def _native_policies(value, *, child=False):
+    rules = value.get('permissions', [])
+    if not isinstance(rules, list) or len(rules) > 100:
+        raise StoreError('permissions 必须为最多 100 项的文件规则列表', 400)
+    for rule in rules:
+        if (not isinstance(rule, dict) or set(rule) - {'operations', 'paths', 'mode'}
+                or rule.get('mode', 'allow') not in (('deny',) if child else ('allow', 'deny', 'interrupt'))
+                or not isinstance(rule.get('operations'), list) or not rule['operations']
+                or any(operation not in ('read', 'write') for operation in rule['operations'])
+                or not isinstance(rule.get('paths'), list) or not rule['paths'] or len(rule['paths']) > 100
+                or any(not isinstance(path, str) or not path.startswith('/') or len(path) > 1000
+                       or '\\' in path or '\x00' in path or '..' in path.split('/') for path in rule['paths'])):
+            raise StoreError('文件权限规则无效；子代理只允许附加 deny 规则', 400)
+    interrupts = value.get('interrupt_on', {})
+    if not isinstance(interrupts, dict) or len(interrupts) > 200:
+        raise StoreError('interrupt_on 必须为工具审批配置对象', 400)
+    for name, setting in interrupts.items():
+        if not isinstance(name, str) or not name or len(name) > 300:
+            raise StoreError('审批工具名无效', 400)
+        if isinstance(setting, bool):
+            continue
+        if (not isinstance(setting, dict) or set(setting) - {'allowed_decisions', 'description'}
+                or not isinstance(setting.get('allowed_decisions'), list) or not setting['allowed_decisions']
+                or any(choice not in ('approve', 'edit', 'reject', 'respond') for choice in setting['allowed_decisions'])
+                or 'description' in setting and (not isinstance(setting['description'], str) or len(setting['description']) > 8000)):
+            raise StoreError('工具审批配置无效；条件回调只能由服务端注册', 400)
+
+
+def _native_config(value):
+    for name in ('middleware', 'state_schema', 'context_schema', 'cache', 'debug', 'name', 'native_extension', 'runnable', 'graph_id'):
+        if name in value:
+            raise StoreError(f'{name} 只能由可信服务端配置', 400)
+    value['response_format'] = validate_response_format(value.get('response_format'))
+    _native_policies(value)
+    children = value.get('subagents')
+    if not isinstance(children, list) or len(children) > 20:
+        raise StoreError('subagents 必须为最多 20 项的专业子代理列表', 400)
+    names = set()
+    for child in children:
+        if (not isinstance(child, dict) or set(child) - {'name', 'description', 'model_id', 'system_prompt',
+                'allowed_tools', 'selected_skills', 'access_level', 'response_format', 'permissions', 'interrupt_on',
+                'execution_mode', 'update_strategy', 'mode'}):
+            raise StoreError('子代理只能声明模型、指令、工具、技能、权限、审批、输出格式和运行方式', 400)
+        execution_mode = child.get('execution_mode', 'sync')
+        if execution_mode not in ('sync', 'async'):
+            raise StoreError('子代理 execution_mode 必须为 sync 或 async', 400)
+        for key, choices in (('update_strategy', ('interrupt', 'enqueue')), ('mode', ('isolated', 'fork'))):
+            if key in child and (execution_mode != 'async' or child[key] not in choices):
+                raise StoreError(f'子代理 {key} 仅适用于异步运行，可选值为 {"、".join(choices)}', 400)
+        name = child.get('name')
+        if (not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', name)
+                or name == 'general-purpose' or name in names):
+            raise StoreError('子代理名称须为唯一的 1 至 64 位字母数字、横线或下划线，不能使用 general-purpose', 400)
+        names.add(name)
+        if not isinstance(child.get('description'), str) or not child['description'].strip() or len(child['description']) > 8000:
+            raise StoreError('请提供不超过 8000 字符的子代理描述', 400)
+        for key in ('model_id', 'system_prompt'):
+            if key in child and (not isinstance(child[key], str) or len(child[key]) > (300 if key == 'model_id' else 100_000)):
+                raise StoreError(f'子代理 {key} 无效', 400)
+        if child.get('access_level', 'confirm') not in ('read_only', 'confirm', 'auto_write'):
+            raise StoreError('子代理 access_level 无效', 400)
+        for key in ('allowed_tools', 'selected_skills'):
+            selected = child.get(key)
+            if selected is not None and (not isinstance(selected, list) or len(selected) > 200
+                    or any(not isinstance(item, str) or not item or len(item) > 300 for item in selected)):
+                raise StoreError(f'子代理 {key} 必须为字符串列表或 null', 400)
+        child['response_format'] = validate_response_format(child.get('response_format'))
+        _native_policies(child, child=True)
 
 
 def validate_config(config, *, check_runtime=True):
@@ -62,35 +188,90 @@ def validate_config(config, *, check_runtime=True):
             raise StoreError(f'{key} 必须为有效整数', 400)
     if not isinstance(value['temperature'], (int, float)) or isinstance(value['temperature'], bool) or not 0 <= value['temperature'] <= 2:
         raise StoreError('temperature 必须在0到2之间', 400)
-    for key in ('system_prompt', 'model_id', 'context_template', 'reasoning_effort'):
+    for key in ('system_prompt', 'system_prompt_id', 'model_id', 'context_template', 'reasoning_effort'):
         if key in value and not isinstance(value[key], str):
             raise StoreError(f'{key} 必须为字符串', 400)
     if value.get('reasoning_effort', '') not in ('', 'off', 'auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'):
         raise StoreError('reasoning_effort 无效', 400)
+    _native_config(value)
     if check_runtime:
-        if not value['retain_retrieval_history']:
-            raise StoreError('当前 Harness 使用原生 checkpoint 保留工具历史；尚未接入跨轮清理，请开启 retain_retrieval_history', 501)
-        if value['sandbox_config_id'] not in ('state-backend', 'opensandbox-local'):
-            raise StoreError('当前 Harness 仅支持 state-backend 或 opensandbox-local', 501)
-        for key in ('web_search_enabled', 'reflection_enabled'):
-            if value.get(key) is True:
-                raise StoreError(f'{key} 尚未接入当前官方 Harness', 501)
-        # WeKnora only reads these local RAG pipeline options in quick-answer mode.
-        if value['agent_mode'] == 'quick-answer':
-            if not value['multi_turn_enabled'] or value['history_turns'] > 0:
-                raise StoreError('当前 Harness 使用原生 checkpoint 管理历史；尚未接入单轮隔离或 history_turns 窗口', 501)
-            for key in ('enable_query_expansion', 'enable_rewrite'):
-                if value.get(key) is True:
-                    raise StoreError(f'{key} 的本地算法未启用；检索处理由 ContextDB 管理', 501)
-            for key in ('embedding_top_k', 'keyword_threshold', 'vector_threshold', 'rerank_top_k', 'rerank_threshold', 'rerank_model_id'):
-                if value.get(key) not in (None, ''):
-                    raise StoreError(f'{key} 请在 ContextDB 中配置，当前平台不能覆盖其检索管线', 501)
-            for key in ('context_template', 'context_template_id', 'fallback_prompt', 'fallback_response', 'intent_prompts'):
-                if value.get(key):
-                    raise StoreError(f'{key} 尚未接入当前官方 Harness', 501)
-            if value.get('fallback_strategy') not in (None, '', 'model'):
-                raise StoreError('固定 fallback_strategy 尚未接入当前官方 Harness', 501)
+        issues = runtime_config_issues(value)
+        if issues:
+            raise StoreError(issues[0]['message'], 501)
     return value
+
+
+def runtime_config_issues(value):
+    """Describe unsupported values without changing stored configurations."""
+    issues = []
+    async_children = [index for index, child in enumerate(value.get('subagents', []))
+                      if child.get('execution_mode', 'sync') == 'async']
+    if async_children:
+        from agent.async_runtime import enabled
+        if not enabled():
+            issues.extend({'field': f'subagents[{index}].execution_mode', 'message':
+                '异步子代理服务尚未连接，请先部署 Agent Protocol 服务或改为同步运行'} for index in async_children)
+    if not value['retain_retrieval_history']:
+        issues.append({'field': 'retain_retrieval_history', 'message':
+            '当前 Harness 使用原生 checkpoint 保留工具历史；尚未接入跨轮清理，请开启 retain_retrieval_history'})
+    if value['sandbox_config_id'] not in ('state-backend', 'opensandbox-local'):
+        issues.append({'field': 'sandbox_config_id', 'message': '当前 Harness 仅支持 state-backend 或 opensandbox-local'})
+    for key in ('web_search_enabled', 'reflection_enabled'):
+        if value.get(key) is True:
+            issues.append({'field': key, 'message': f'{key} 尚未接入当前官方 Harness'})
+    # WeKnora only reads these local RAG pipeline options in quick-answer mode.
+    if value['agent_mode'] == 'quick-answer':
+        for key, unsupported in (('multi_turn_enabled', not value['multi_turn_enabled']), ('history_turns', value['history_turns'] > 0)):
+            if unsupported:
+                issues.append({'field': key, 'message':
+                    '当前 Harness 使用原生 checkpoint 管理历史；尚未接入单轮隔离或 history_turns 窗口'})
+        for key in ('enable_query_expansion', 'enable_rewrite'):
+            if value.get(key) is True:
+                issues.append({'field': key, 'message': f'{key} 的本地算法未启用；检索处理由 ContextDB 管理'})
+        for key in ('embedding_top_k', 'keyword_threshold', 'vector_threshold', 'rerank_top_k', 'rerank_threshold', 'rerank_model_id'):
+            if value.get(key) not in (None, ''):
+                issues.append({'field': key, 'message': f'{key} 请在 ContextDB 中配置，当前平台不能覆盖其检索管线'})
+        for key in ('context_template', 'context_template_id', 'fallback_prompt', 'fallback_response', 'intent_prompts'):
+            if value.get(key):
+                issues.append({'field': key, 'message': f'{key} 尚未接入当前官方 Harness'})
+        if value.get('fallback_strategy') not in (None, '', 'model'):
+            issues.append({'field': 'fallback_strategy', 'message': '固定 fallback_strategy 尚未接入当前官方 Harness'})
+    return issues
+
+
+def runtime_defaults():
+    values = {}
+    for details in BUILTINS.values():
+        config = validate_config(details['config'])
+        config.pop('model_id')
+        values[config['agent_mode']] = config
+    return values
+
+
+def _resolve_system_prompt(config, owner_id):
+    if config['system_prompt'] or not config.get('system_prompt_id'):
+        return config['system_prompt']
+    try:
+        templates = registry.record('settings', 'prompt-templates', owner_id).get('value', {})
+    except StoreError as exc:
+        if exc.status == 404:
+            raise StoreError('系统提示词模板不存在或无权访问', 404) from exc
+        raise
+    category = 'agent_system_prompt' if config['agent_mode'] == 'smart-reasoning' else 'system_prompt'
+    if not isinstance(templates, dict) or not isinstance(templates.get(category, []), list):
+        raise StoreError('系统提示词模板配置无效', 400)
+    candidates = templates.get(category, [])
+    if any(not isinstance(item, dict) for item in candidates):
+        raise StoreError('系统提示词模板配置无效', 400)
+    matches = [item for item in candidates if item.get('id') == config['system_prompt_id']]
+    if not matches:
+        raise StoreError('系统提示词模板不存在或无权访问', 404)
+    if len(matches) > 1:
+        raise StoreError('系统提示词模板 ID 重复，请修正模板配置', 400)
+    content = matches[0].get('content')
+    if not isinstance(content, str):
+        raise StoreError('系统提示词模板正文必须为字符串', 400)
+    return content
 
 
 def list_agents(owner_id):
@@ -112,7 +293,7 @@ def load_agent(agent_id=None, owner_id=None):
             'description': '当前页面的知识检索与会话助手',
             'config': validate_config({'agent_type': 'custom', 'temperature': 0.3,
                 'model_id': registry.default_model_id(owner_id),
-                'allowed_tools': [*DEFAULT_TOOLS, 'wiki_search', 'wiki_read_page']})}
+                'allowed_tools': [*DEFAULT_TOOLS, 'wiki_search']})}
     if agent_id == 'platform-agent':
         agent_id = 'builtin-smart-reasoning'
     for item in list_agents(owner_id):
@@ -138,12 +319,14 @@ def save_agent(body, owner_id, agent_id=None):
     if not agent_id and isinstance(submitted, dict) and 'model_id' not in submitted:
         submitted = {**submitted, 'model_id': registry.default_model_id(owner_id)}
     value['config'] = validate_config(submitted)
+    _resolve_system_prompt(value['config'], owner_id)
     return registry.save_record('agent', value, owner_id)
 
 
 def copy_agent(agent_id, owner_id):
     value = load_agent(agent_id, owner_id)
     value['config'] = validate_config(value['config'])
+    _resolve_system_prompt(value['config'], owner_id)
     for field in ('created_at', 'updated_at'):
         value.pop(field, None)
     value.update(id=str(uuid.uuid4()), is_builtin=False, created_by=owner_id, name=value['name'] + ' (副本)')
@@ -175,6 +358,7 @@ def resolve_request(body, *, client, owner_id, role='viewer', session=None, has_
             config['model_id' if key == 'summary_model_id' else key] = body[key]
     registry.model_config(config['model_id'], owner_id)
     config = validate_config(config)
+    config['system_prompt'] = _resolve_system_prompt(config, owner_id)
     access = body.get('assistant_access', config['access_level'])
     levels = ['read_only', 'confirm', 'auto_write']
     if access not in levels:
@@ -266,14 +450,6 @@ def resolve_request(body, *, client, owner_id, role='viewer', session=None, has_
         (mode == 'all' or (mode == 'selected' and item['id'] in config['mcp_services']))] if mode != 'none' else []
     if mode == 'selected' and set(config['mcp_services']) - {item['id'] for item in services}:
         raise StoreError('所选 MCP 服务不存在、已停用或无权访问', 403)
-    config['_mcp_versions'] = sorted([{'id': item['id'], 'updated_at': item['updated_at']} for item in services], key=lambda item: item['id'])
-    if session and session.get('id'):
-        config['_approval_grants'] = [item for item in registry.records('agent_grant', owner_id)
-            if item.get('scope_id') == session['id'] and item.get('knowledge_base_ids') is not None
-            and sorted(item['knowledge_base_ids']) == sorted(kb_ids)
-            and sorted(item.get('knowledge_ids', [])) == sorted(document_ids)
-            and item.get('sandbox_config_id') == config['sandbox_config_id']
-            and item.get('mcp_versions') == config['_mcp_versions']]
     result = {'agent_id': agent['id'], 'agent_config': config, 'knowledge_base_ids': kb_ids,
         'requested_knowledge_base_ids': requested_knowledge_base_ids,
         'knowledge_ids': document_ids, 'tag_scopes': tags, 'agent_enabled': config['agent_mode'] == 'smart-reasoning',

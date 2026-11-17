@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import threading
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import httpx
@@ -30,6 +31,17 @@ def test_json_heartbeat_survives_wait_for_first_model_chunk(authenticated_client
     monkeypatch.setattr(harness, '_prepare', lambda *args: {'agent_config': config, 'knowledge_base_ids': []})
     monkeypatch.setattr(harness, 'client_for_user', lambda *args: SimpleNamespace(api_key=''))
     monkeypatch.setattr(EventSourceResponse, 'DEFAULT_PING_INTERVAL', .02)
+    native_runtime = harness.async_runtime
+    cleanup_started = threading.Event()
+
+    @asynccontextmanager
+    async def slow_cleanup():
+        async with native_runtime() as runtime:
+            yield runtime
+            cleanup_started.set()
+            await asyncio.sleep(.1)
+
+    monkeypatch.setattr(harness, 'async_runtime', slow_cleanup)
     native_completion = litellm.acompletion
     waiting = threading.Event()
 
@@ -62,6 +74,7 @@ def test_json_heartbeat_survives_wait_for_first_model_chunk(authenticated_client
                         heartbeats_during_wait += 1
                     event, data = '', []
     kinds = [event['response_type'] for event in events]
+    assert cleanup_started.is_set()
     assert heartbeats_during_wait > 0
     assert kinds.index('heartbeat') < kinds.index('thinking')
     assert any(event['response_type'] == 'answer' and event['content'] == 'fixture answer' for event in events)

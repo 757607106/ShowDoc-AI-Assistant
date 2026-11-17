@@ -13,8 +13,7 @@
             <UploadMask></UploadMask>
         </div>
         <!-- 全局设置模态框，供所有 platform 子路由使用 -->
-        <ContextDBSettings v-if="contextdbSettings" />
-        <Settings v-else />
+        <Settings />
         <!-- 全局命令面板 (⌘K)，随 platform 路由存活 -->
         <GlobalCommandPalette />
         <!-- 知识库文件上传进度浮层：上传队列放在 store 里，切换页面不中断 -->
@@ -26,11 +25,10 @@
 <script setup lang="ts">
 import { IS_CONTEXTDB } from '@/config/contextdb'
 import Menu from '@/components/menu.vue'
-import { ref, computed, onMounted, onUnmounted, nextTick, provide, watch } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, provide, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router'
 import UploadMask from '@/components/upload-mask.vue'
 import Settings from '@/views/settings/Settings.vue'
-import ContextDBSettings from '@/views/settings/ContextDBSettings.vue'
 import GlobalCommandPalette from '@/components/GlobalCommandPalette.vue'
 import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
 import AssistantLauncher from '@/components/assistant/AssistantLauncher.vue'
@@ -49,13 +47,6 @@ const route = useRoute();
 const router = useRouter();
 const commandPaletteStore = useCommandPaletteStore();
 const uiStore = useUIStore();
-// Knowledge governance keeps its existing settings; Agent and chat use upstream Settings.
-const contextdbSettings = computed(() => {
-    const section = uiStore.settingsInitialSection || route.query.section;
-    if (section) return IS_CONTEXTDB && ['account', 'members', 'permissions', 'runtime'].includes(String(section));
-    return IS_CONTEXTDB && ['settings', 'home', 'collect', 'tasks', 'releases', 'governance',
-        'knowledgeBaseList', 'knowledgeBaseDetail', 'knowledgeBaseSettings', 'knowledgeSpaceList', 'knowledgeSpaceDetail'].includes(String(route.name));
-});
 let ismask = ref(false)
 const { t } = useI18n();
 

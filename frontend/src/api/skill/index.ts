@@ -7,31 +7,15 @@ export interface SkillInfo {
   description: string;
 }
 
-export interface SkillCatalogInstall {
-  skill_id: string;
-  sandbox_config_id: string;
-  sandbox_config_name?: string;
-  sandbox_type?: string;
-  status: string;
-  enabled: boolean;
-  error?: string;
-  version?: string;
-  bundle_sha256?: string;
-  // Present while a newer install is in flight or has failed and the sandbox
-  // still runs the previous version.
-  served?: { version?: string };
-  updated_at: string;
-}
-
 export interface SkillCatalogItem {
   id: string;
   name: string;
+  enabled?: boolean;
   version?: string;
   description?: string;
   bundle_sha256?: string;
   created_at: string;
   updated_at: string;
-  installations: SkillCatalogInstall[];
 }
 
 export interface SkillCatalogRegisterResult {
@@ -48,13 +32,8 @@ export interface AgentScope {
   sourceTenantId?: string | number;
 }
 
-// Lists the skills executable on the current sandbox config. Without a
-// sandboxConfigId, or when skills_available is false, the caller should hide or
-// disable the skills UI.
-//
-// Pass the agent for a shared one: its skills are installed on a sandbox config
-// in the OWNER's workspace, so looking them up in the caller's returns nothing.
-// The backend then reads the config off that agent and ignores sandboxConfigId.
+// Lists the current user's enabled skill directories for a native backend.
+// Directory availability does not establish that script dependencies exist.
 export function listSkills(sandboxConfigId?: string, agent?: AgentScope) {
   const params: Record<string, string> = {};
   if (sandboxConfigId) params.sandbox_config_id = sandboxConfigId;
@@ -84,13 +63,6 @@ export function registerSkillCatalogFromFile(
   return postUpload('/api/v1/skills/catalog', form, (e: any) => {
     if (e.total) onProgress?.(Math.round((e.loaded * 100) / e.total));
   }, { timeout: 5 * 60 * 1000 }) as Promise<{ data: SkillCatalogRegisterResult }>;
-}
-
-export function installSkillCatalog(catalogId: string, sandboxConfigIds: string[]) {
-  return post<{ data: { installs: Record<string, string>; errors?: Record<string, string> } }>(
-    `/api/v1/skills/catalog/${catalogId}/install`,
-    { sandbox_config_ids: sandboxConfigIds },
-  );
 }
 
 export function deleteSkillCatalog(catalogId: string) {

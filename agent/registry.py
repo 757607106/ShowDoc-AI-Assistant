@@ -17,7 +17,7 @@ MASKED = '********'
 AGENT_MODEL_FIELDS = {
     'model_id': ('chat_model', ('KnowledgeQA', 'VLLM')),
     'rerank_model_id': ('rerank_model', ('Rerank',)),
-    'vlm_model_id': ('vlm_model', ('VLLM',)),
+    'vlm_model_id': ('vlm_model', ('VLLM', 'KnowledgeQA')),
     'asr_model_id': ('asr_model', ('ASR',)),
     'query_understand_model_id': ('query_understand_model', ('KnowledgeQA', 'VLLM')),
 }
@@ -53,6 +53,11 @@ def record(kind, record_id, owner_id, *, _connection=None):
 
 def agent_model_references(config):
     values = [(config.get(field), binding, types) for field, (binding, types) in AGENT_MODEL_FIELDS.items()]
+    subagents = config.get('subagents', [])
+    if not isinstance(subagents, list) or any(not isinstance(item, dict) for item in subagents):
+        raise StoreError('子代理配置必须为对象列表', 400)
+    values.extend((item.get('model_id'), f'subagent:{item.get("name", index)}:model', ('KnowledgeQA', 'VLLM'))
+                  for index, item in enumerate(subagents))
     suggestions = config.get('question_suggestions') or {}
     if not isinstance(suggestions, dict) or not isinstance(suggestions.get('follow_ups', {}), dict):
         raise StoreError('推荐问题配置必须为对象', 400)
@@ -89,14 +94,14 @@ def default_model_references(model_id, owner_id, *, _connection=None):
     return [field for field, referenced in settings.items() if field.endswith('_model_id') and referenced == model_id]
 
 
-def save_record(kind, value, owner_id):
+def save_record(kind, value, owner_id, *, _connection=None):
     from governance.store import now
     value = copy.deepcopy(value)
     value.setdefault('id', str(uuid.uuid4()))
     value.setdefault('created_at', now())
     value['updated_at'] = now()
     metadata = {'type': kind, 'owner_id': owner_id}
-    with connection() as conn:
+    with nullcontext(_connection) if _connection is not None else connection() as conn:
         if kind == 'agent' or kind == 'settings' and value['id'] == 'default-settings':
             # Binding writes and deletion share one transaction lock, so neither can leave dangling IDs.
             _lock_model_bindings(conn, owner_id)
@@ -109,6 +114,8 @@ def save_record(kind, value, owner_id):
                 model = model_config(model_id, owner_id, _connection=conn)
                 if types and model['type'] not in types:
                     raise StoreError(f'{binding} 的模型类型必须为 {"、".join(types)}', 400)
+                if binding == 'vlm_model' and model['type'] == 'KnowledgeQA' and not model.get('parameters', {}).get('supports_vision'):
+                    raise StoreError('图片模型必须支持图片输入', 400)
         conn.execute('''INSERT INTO runtime_records(id,owner_id,kind,record_key,name,payload,metadata)
             VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (owner_id,kind,record_key)
             DO UPDATE SET payload=excluded.payload,name=excluded.name,updated_at=now()''',
@@ -124,13 +131,13 @@ def delete_record(kind, record_id, owner_id, *, _connection=None):
 
 
 def secrets(value):
-    from webapi.auth import cipher
+    from agent.credentials import cipher
     encrypted = value.get('_encrypted')
     return json.loads(cipher().decrypt(encrypted.encode())) if encrypted else {}
 
 
 def with_secrets(value, private):
-    from webapi.auth import cipher
+    from agent.credentials import cipher
     value['_encrypted'] = cipher().encrypt(json.dumps(private).encode()).decode()
     return value
 
@@ -144,6 +151,8 @@ def public(value):
         value['credentials'] = {key: {'configured': bool(private.get(key))} for key in fields}
     if value.get('_kind') == 'model' and private.get('custom_headers'):
         value.setdefault('parameters', {})['custom_headers'] = {key: MASKED for key in private['custom_headers']}
+    if value.get('_kind') == 'model':
+        value.setdefault('status', 'active')
     if value.get('_kind') == 'model' and value.get('type') in ('KnowledgeQA', 'VLLM'):
         from agent.models import describe_model
         value = describe_model(value)
@@ -163,21 +172,52 @@ def environment_model():
     from agent.models import describe_model
     name = os.getenv('AGENT_MAIN_MODEL', 'qwen-max')
     value = {'id': 'agent-main', 'name': name, 'display_name': name, 'type': 'KnowledgeQA', 'source': 'remote',
-             'is_default': True, 'is_builtin': True, 'parameters': {'model_name': name, 'provider': 'aliyun'}}
+             'is_default': True, 'is_builtin': True, 'status': 'active',
+             'parameters': {'model_name': name, 'provider': 'aliyun'}}
     return describe_model(value)
 
 
 def models(owner_id):
-    default_id = default_model_id(owner_id)
+    defaults = next((item.get('value', {}) for item in records('settings', owner_id)
+                     if item['id'] == 'default-settings'), {})
     values = [environment_model(), *[public(item) for item in records('model', owner_id)]]
     for value in values:
-        value['is_default'] = value['id'] == default_id
+        value['is_default'] = value['id'] == 'agent-main'
+        value['default_for'] = []
+    slots = {'KnowledgeQA': defaults.get('chat_model_id') or 'agent-main',
+             'Embedding': defaults.get('embedding_model_id'), 'Rerank': defaults.get('rerank_model_id'),
+             'VLLM': defaults.get('vlm_model_id'), 'ASR': defaults.get('asr_model_id'),
+             'Utility': defaults.get('utility_model_id')}
+    for kind, model_id in slots.items():
+        selected = next((value for value in values if value['id'] == model_id and value['status'] == 'active'
+                         and (value['type'] == ('KnowledgeQA' if kind == 'Utility' else kind)
+                              or kind == 'VLLM' and value['type'] == 'KnowledgeQA'
+                              and value.get('parameters', {}).get('supports_vision'))), None)
+        if selected:
+            selected['default_for'].append(kind)
+            for value in values:
+                if value['type'] == kind:
+                    value['is_default'] = value['id'] == model_id
     return values
 
 
 def default_model_id(owner_id, field='chat_model_id'):
     value = next((item for item in records('settings', owner_id) if item['id'] == 'default-settings'), {})
-    return value.get('value', {}).get(field) or 'agent-main'
+    model_id = value.get('value', {}).get(field)
+    if model_id and model_id != 'agent-main':
+        try:
+            selected = record('model', model_id, owner_id)
+        except StoreError as exc:
+            if exc.status != 404:
+                raise
+        else:
+            if selected.get('status', 'active') == 'active' and (
+                    field not in ('chat_model_id', 'summary_model_id', 'utility_model_id')
+                    or selected.get('type', 'KnowledgeQA') == 'KnowledgeQA'):
+                return model_id
+    elif model_id == 'agent-main':
+        return model_id
+    return default_model_id(owner_id) if field == 'utility_model_id' else 'agent-main'
 
 
 def model_config(model_id, owner_id, *, _connection=None):
@@ -219,6 +259,7 @@ def save_model(body, owner_id, model_id=None):
     value['parameters'] = {**value.get('parameters', {}), **params}
     value.setdefault('type', 'KnowledgeQA')
     value.setdefault('source', 'remote')
+    value.setdefault('status', 'active')
     from agent.models import validate_model_runtime
     validate_model_runtime(value)
     base_url = value['parameters'].get('base_url', '')

@@ -7,7 +7,8 @@ def policy(owner_id):
     values = {item['id']: item.get('value', {}) for item in registry.records('settings', owner_id)}
     workspace = values.get('memory-config', {}).get('enabled', False) is True
     personal = values.get('memory-preference', {}).get('enabled', True) is True
-    return {'workspace_enabled': workspace, 'user_enabled': personal, 'effective': workspace and personal,
+    return {'enabled': workspace and personal, 'scope': 'personal_agent',
+            'workspace_enabled': workspace, 'user_enabled': personal, 'effective': workspace and personal,
             'write_mode': 'native_file', 'max_items': 0, 'item_count': 0,
             'supported': True, 'storage_mode': 'agents_md', 'structured_memory_supported': False}
 

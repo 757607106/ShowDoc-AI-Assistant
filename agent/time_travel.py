@@ -45,7 +45,7 @@ async def seed(graph, source, session_id):
     # A new thread loads the latest native memory file on its next invocation.
     # The target is a new empty thread; LastValue channels must receive their native value.
     values = {key: value for key, value in source.values.items()
-              if key not in ('memory_contents', '__interrupt__')}
+              if key not in ('memory_contents', '__interrupt__', 'async_tasks')}
     config = await graph.aupdate_state({'configurable': {'thread_id': session_id}}, values, as_node='model')
     await graph.aupdate_state(config, None, as_node=END)
 

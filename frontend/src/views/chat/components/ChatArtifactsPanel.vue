@@ -252,7 +252,7 @@ async function performDelete(item: SessionArtifactItem) {
     MessagePlugin.success(t('agent.artifactDrawer.deleted'))
   } catch (err) {
     console.error('[ChatArtifactsPanel] delete failed:', err)
-    MessagePlugin.error(t('agent.artifactDrawer.deleteFailed'))
+    MessagePlugin.error((err as { message?: string })?.message || t('agent.artifactDrawer.deleteFailed'))
   } finally {
     deleting[key] = false
   }

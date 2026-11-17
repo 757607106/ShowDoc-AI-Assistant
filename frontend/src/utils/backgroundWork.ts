@@ -1,4 +1,36 @@
-import type { BackgroundWorkItem } from '../api/chat/background-work'
+import type { AsyncSubagentPrompt, BackgroundWorkItem, BackgroundWorkState } from '../api/chat/background-work'
+
+export function isBackgroundWorkActive(state: BackgroundWorkState): boolean {
+  return state === 'pending' || state === 'running' || state === 'waiting'
+}
+
+/** Collect cards without submitting a partial native interrupt batch. */
+export function asyncPromptResponses(prompts: AsyncSubagentPrompt[], drafts: Record<string, unknown>): Record<string, unknown> | null {
+  if (!prompts.length || prompts.some(prompt => !Object.hasOwn(drafts, prompt.pending_id))) return null
+  const responses: Record<string, unknown> = Object.create(null)
+  const actionCounts = new Map<string, number>()
+  for (const prompt of prompts) {
+    const answer = drafts[prompt.pending_id]
+    if (prompt.kind === 'tool_approval') {
+      const request = answer as { decision: string; modified_args?: Record<string, unknown>; message?: string; reason?: string }
+      const decision = request.decision === 'edit'
+        ? { type: 'edit', edited_action: { name: prompt.mcp_tool_name, args: request.modified_args } }
+        : request.decision === 'reject' ? { type: 'reject', message: request.reason }
+        : request.decision === 'respond' ? { type: 'respond', message: request.message }
+        : { type: request.decision }
+      const batch = responses[prompt.interrupt_id] as { decisions: unknown[] } | undefined
+      const value = batch ?? { decisions: [] }
+      value.decisions[prompt.action_index ?? 0] = decision
+      responses[prompt.interrupt_id] = value
+      if (prompt.action_count !== undefined) actionCounts.set(prompt.interrupt_id, prompt.action_count)
+    } else responses[prompt.interrupt_id] = answer
+  }
+  for (const [id, count] of actionCounts) {
+    const decisions = (responses[id] as { decisions: unknown[] }).decisions
+    if (decisions.length !== count || Object.keys(decisions).length !== count) return null
+  }
+  return responses
+}
 
 function itemTime(item: BackgroundWorkItem): number {
   const parsed = Date.parse(item.started_at ?? item.finished_at ?? '')
@@ -12,10 +44,12 @@ function sameWorkItem(a: BackgroundWorkItem, b: BackgroundWorkItem): boolean {
     && a.state === b.state
     && a.started_at === b.started_at
     && a.finished_at === b.finished_at
+    && a.read_only === b.read_only
+    && a.can_cancel === b.can_cancel
 }
 
 function compareWork(a: BackgroundWorkItem, b: BackgroundWorkItem): number {
-  const rank = (item: BackgroundWorkItem) => item.state === 'running' ? 0 : 1
+  const rank = (item: BackgroundWorkItem) => isBackgroundWorkActive(item.state) ? 0 : 1
   const byState = rank(a) - rank(b)
   if (byState !== 0) return byState
   return itemTime(a) - itemTime(b)
@@ -24,7 +58,7 @@ function compareWork(a: BackgroundWorkItem, b: BackgroundWorkItem): number {
 /**
  * Merge by work_id. Incoming wins. Unchanged items keep their object identity,
  * and an unchanged list keeps the same array, so a poll tick does not rerender.
- * Running rows stay above terminal ones; within a group, earlier times come first.
+ * Active rows stay above terminal ones; within a group, earlier times come first.
  */
 export function mergeBackgroundWork(
   existing: BackgroundWorkItem[],
@@ -103,7 +137,7 @@ export function createBackgroundWorkPoller(options: PollerOptions): {
       const items = asWorkItems(raw)
       options.onUpdate(items)
       if (!running) return
-      if (items.length === 0) {
+      if (!items.some(item => isBackgroundWorkActive(item.state))) {
         running = false
         timer = null
         return

@@ -88,9 +88,9 @@ import { CheckIcon } from 'tdesign-icons-vue-next'
 import { useI18n } from 'vue-i18n'
 import { resolveAgentPrompt } from '@/api/mcp-service'
 import { resolveEmbedAgentPrompt } from '@/api/embed'
-import { resumeSuspendedRunKey } from '@/utils/suspendedRun'
+import { resumeSuspendedRunKey, promptSubmissionTransportKey } from '@/utils/suspendedRun'
 import { usePromptCountdown } from '@/composables/usePromptCountdown'
-import { markPromptSubmitted, promptSubmission, usePromptDock } from '@/composables/usePromptDock'
+import { markPromptSubmitted as markDefaultPromptSubmitted, promptSubmission as defaultPromptSubmission, usePromptDock } from '@/composables/usePromptDock'
 import { buildAskUserResponse, canSubmitAskUser, summarizeAskUserAnswer, type AskUserQuestion } from '@/utils/askUser'
 import { isSubmitKey, isTextEntry, optionIndexForKey, optionKey } from '@/utils/promptKeys'
 
@@ -123,6 +123,10 @@ const props = defineProps<{
 const { t } = useI18n()
 const resumeSuspendedRun = inject(resumeSuspendedRunKey, undefined)
 const dock = usePromptDock()
+const { markPromptSubmitted, promptSubmission } = dock ?? {
+  markPromptSubmitted: markDefaultPromptSubmitted, promptSubmission: defaultPromptSubmission,
+}
+const submitToThread = inject(promptSubmissionTransportKey, undefined)
 const { parked, secondsLeft, timerClass, countdownText, parkedText } = usePromptCountdown(props)
 
 const maxTextLen = 4000
@@ -212,12 +216,14 @@ const submit = async (decline: boolean) => {
   const response = decline ? { declined: true } : draft()
   submitting.value = true
   try {
-    const { resumed } = await (embedTarget()
+    const result = await (submitToThread ? submitToThread(props.pendingId, 'ask_user', response) : embedTarget()
       ? resolveEmbedAgentPrompt(
         props.embedChannelId!, props.embedToken!, props.embedSessionId!, props.embedSessionSig!,
         props.embedVisitorId!, props.pendingId, 'ask_user', response,
       )
       : resolveAgentPrompt(props.pendingId, 'ask_user', response))
+    if ('stale' in result && result.stale) return
+    const { resumed } = result
     markPromptSubmitted(props.pendingId, response)
     if (resumed) resumeSuspendedRun?.(props.pendingId)
   } catch (e: any) {

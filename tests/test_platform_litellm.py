@@ -292,7 +292,7 @@ def test_debug_omits_sampling_for_always_on_reasoning_model(authenticated_client
     assert response.json['data']['request']['effective_options']['temperature'] is None
 
 
-def test_debug_picture_and_headers_use_saved_owner_credentials(authenticated_client, sdk_provider):
+def test_debug_picture_and_headers_use_saved_owner_credentials(authenticated_client, sdk_provider, monkeypatch):
     from PIL import Image
     base, calls, _ = sdk_provider
     draft = model_record('openai', 'gpt-4.1', base)
@@ -301,6 +301,12 @@ def test_debug_picture_and_headers_use_saved_owner_credentials(authenticated_cli
     identifier = authenticated_client.post('/api/v1/models', json=draft).json['data']['id']
     png = io.BytesIO()
     Image.new('RGB', (1, 1)).save(png, format='PNG')
+    png_bytes = png.getvalue()
+    parsed = []
+    def parser(name, content, *, image=False):
+        parsed.append((name, content, image))
+        return {'mime': 'image/png'}
+    monkeypatch.setattr('webapi.chat_resources._attachment_parser_result', parser)
     png.seek(0)
     result = authenticated_client.post(f'/api/v1/models/{identifier}/debug', data={'input': 'Describe',
         'options': json.dumps({'reasoning_effort': 'off', 'max_tokens': 128}), 'file': (png, 'fixture.png')})
@@ -309,6 +315,45 @@ def test_debug_picture_and_headers_use_saved_owner_credentials(authenticated_cli
     assert calls[-1]['headers']['x-fixture'] == 'custom'
     assert 'x-api-key' not in calls[-1]['headers']
     assert calls[-1]['payload']['messages'][-1]['content'][1]['image_url']['url'].startswith('data:image/png;base64,')
+    assert parsed == [('fixture.png', png_bytes, True)]
+
+
+@pytest.mark.parametrize('failure,status', [('malformed', 400), ('unavailable', 503)])
+def test_debug_picture_parser_failures_do_not_call_model(authenticated_client, sdk_provider, monkeypatch, failure, status):
+    from opensandbox.exceptions import SandboxException
+    base, calls, _ = sdk_provider
+    draft = model_record('openai', 'gpt-4.1', base)
+    draft['type'] = 'VLLM'
+    identifier = authenticated_client.post('/api/v1/models', json=draft).json['data']['id']
+    def parser(*args, **kwargs):
+        if failure == 'malformed':
+            raise StoreError('隔离附件解析失败，请检查文件格式', 422)
+        raise SandboxException('fixture parser unavailable')
+    monkeypatch.setattr('webapi.chat_resources._attachment_parser_result', parser)
+    response = authenticated_client.post(f'/api/v1/models/{identifier}/debug', data={
+        'input': 'Describe', 'file': (io.BytesIO(b'untrusted image'), 'fixture.png')})
+    assert response.status_code == status, response.json
+    assert calls == []
+
+
+def test_catalog_preview_resolves_draft_limits_with_same_precedence_as_runtime(authenticated_client):
+    client = authenticated_client
+    draft = {'provider': 'generic', 'model': 'unknown-local-model', 'model_type': 'chat',
+        'context_window': 32768, 'max_output_tokens': 4096, 'spec': {}}
+    result = client.post('/api/v1/models/catalog/resolve', json=draft)
+    assert result.status_code == 200
+    assert result.json['data']['capabilities']['context_window'] == 32768
+    assert result.json['data']['capabilities']['max_output_tokens'] == 4096
+    draft['spec'] = {'context_window': 65536, 'max_output_tokens': 8192}
+    result = client.post('/api/v1/models/catalog/resolve', json=draft)
+    assert result.status_code == 200
+    assert result.json['data']['capabilities']['context_window'] == 65536
+    assert result.json['data']['capabilities']['max_output_tokens'] == 8192
+    draft.update(context_window=-1)
+    assert client.post('/api/v1/models/catalog/resolve', json=draft).status_code == 400
+    draft.update(context_window=0, max_output_tokens=0, spec={})
+    result = client.post('/api/v1/models/catalog/resolve', json=draft)
+    assert result.status_code == 200 and result.json['data']['capabilities']['context_window'] is None
 
 
 def test_frontend_responses_protocol_streams_summaries_and_replays_encrypted_items(sdk_provider):

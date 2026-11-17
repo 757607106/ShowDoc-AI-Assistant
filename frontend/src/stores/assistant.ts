@@ -10,6 +10,7 @@ import {
   type AssistantConfig,
 } from '@/api/assistant'
 import { useAuthStore } from './auth'
+import { useDeploymentCapabilitiesStore } from './deploymentCapabilities'
 
 /** Pages that tell the assistant where the user is. */
 export type AssistantPageId =
@@ -271,6 +272,9 @@ export const useAssistantStore = defineStore('assistant', () => {
     const owner = workspaceOwner()
     if (!owner) return
     try {
+      const capabilities = useDeploymentCapabilitiesStore()
+      await capabilities.ensureLoaded()
+      if (workspaceOwner() !== owner || !capabilities.isSupported('settings.assistant')) return
       const res = await getTenantAssistantConfig()
       // A workspace switch can complete while the request is in flight.
       if (workspaceOwner() === owner) workspaceConfig.value = res?.data || null

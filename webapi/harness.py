@@ -9,18 +9,19 @@ from datetime import date, datetime, timezone
 import anyio
 import psycopg
 from langchain_core.messages import BaseMessage
-from langgraph.types import Command
+from langgraph.types import Command, Interrupt
 from psycopg.types.json import Jsonb
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 from starlette.responses import JSONResponse
 from starlette.routing import Route
+from pydantic import BaseModel
 
 from agent import sessions
 from agent.checkpointer import async_checkpointer, async_runtime, database_url
 from agent.config import apply_image_model, resolve_request
 from agent.graph import build_agent
 from agent.harness_config import prepare_harness_files
-from agent.sandbox import backend_for_session, seed_checkpoint_attachments, upload_harness_files
+from agent.sandbox import backend_for_session, seed_checkpoint_attachments, upload_harness_files, upload_skill_files
 from governance.database import connection
 from governance.store import StoreError
 from integrations.contextdb import ContextDBError
@@ -29,10 +30,16 @@ from webapi import weknora_traces
 
 # Cancellation handles belong to open HTTP requests, never to background runs.
 _active_requests = {}
+_active_backends = {}
 
 
 def _json_default(value):
+    if isinstance(value, Interrupt):
+        from webapi.weknora_prompts import response_schema
+        return {'id': value.id, 'value': value.value, 'response_schema': response_schema(value)}
     if isinstance(value, BaseMessage):
+        return value.model_dump(mode='json')
+    if isinstance(value, BaseModel):
         return value.model_dump(mode='json')
     if is_dataclass(value):
         return asdict(value)
@@ -152,7 +159,8 @@ def _display_mentions(resolved, client, owner_id):
 
 
 def _message_metadata(message, resolved):
-    return {'display_text': message, 'created_at': datetime.now(timezone.utc).isoformat(),
+    return {**({'structured_output': True} if resolved['agent_config'].get('response_format') is not None else {}),
+        'display_text': message, 'created_at': datetime.now(timezone.utc).isoformat(),
         'knowledge_base_ids': resolved['knowledge_base_ids'],
         'mentioned_items': resolved.get('mentioned_items', []),
         'attachments': [{key: item[key] for key in ('id', 'file_name', 'file_size', 'file_type', 'mime_type', 'status')
@@ -226,6 +234,12 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
         raise
 
     request_task = None
+    heartbeats_finished = False
+
+    def terminal_frame(frame):
+        nonlocal heartbeats_finished
+        heartbeats_finished = True
+        return frame
 
     async def cancel_on_response_exit():
         try:
@@ -242,6 +256,8 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
             async with async_runtime() as (saver, store), backend_for_session(
                     selected['id'], user['id'], resolved['agent_config'], user['role']) as backend:
                 graph = await _graph(saver, user, selected, resolved, store=store, backend=backend)
+                if backend is not None:
+                    _active_backends[selected['id']] = backend
                 config = {'configurable': {'thread_id': selected['id']}}
                 state = await graph.aget_state(config, subgraphs=True)
                 if backend is not None:
@@ -261,12 +277,33 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                         yield _event('message', projection.event('agent_query'))
                         yield _event('message', projection.event('answer', target['content'],
                             {'event_id': target['id'], 'replace': True}, done=True))
-                        yield _event('message', projection.event('stop', data={'reason': 'resume_already_consumed'}, done=True))
+                        yield terminal_frame(_event('message', projection.event('stop', data={'reason': 'resume_already_consumed'}, done=True)))
                         return
                 if resume is not None:
                     if not state.interrupts or set(resume) != {item.id for item in state.interrupts}:
                         raise StoreError('审批已失效，请重新加载当前会话', 409)
+                    from webapi.weknora_prompts import validate_native_resume
+                    validate_native_resume(state, resume)
                     inputs = Command(resume=resume)
+                    if resume_protocol:
+                        from webapi.weknora_prompts import cards, _receipt
+                        receipt = await anyio.to_thread.run_sync(lambda: _receipt(user['id'], selected['id'], state))
+                        human = next(message for message in reversed(state.values.get('messages', []))
+                                     if getattr(message, 'type', None) == 'human')
+                        metadata = human.additional_kwargs.get('harness', {})
+                        interactions = {card['id']: card for card in metadata.get('interactions', [])}
+                        for card in cards(state, selected['id']):
+                            card['tool_call_id'] = card['tool_call_id'] or receipt.get('tool_ids', {}).get(card['id'])
+                            response = resume[card['_interrupt']]
+                            if card['kind'] == 'tool_approval':
+                                response = response['decisions'][card['_index']]
+                                response = {**response, 'approved': response['type'] != 'reject',
+                                    **({'modified_args': response['edited_action']['args']} if response['type'] == 'edit' else {})}
+                            interactions[card['id']] = {**{key: value for key, value in card.items() if not key.startswith('_')},
+                                                        'status': 'answered', 'response': response}
+                        updated = human.model_copy(update={'additional_kwargs': {**human.additional_kwargs,
+                            'harness': {**metadata, 'interactions': list(interactions.values())}}})
+                        inputs = Command(resume=resume, update={'messages': [updated]})
                 else:
                     if state.interrupts:
                         raise StoreError('请先处理当前待确认操作', 409)
@@ -275,6 +312,7 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                     files.update(resolved.get('files', {}))
                     if backend is not None:
                         await upload_harness_files(backend, resolved.get('files', {}))
+                        await upload_skill_files(backend, files)
                     blocks = resolved.get('message_blocks', [])
                     inputs = {'messages': [{'role': 'user', 'content':
                         [{'type': 'text', 'text': message}, *blocks] if blocks else message,
@@ -283,6 +321,8 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                         inputs['messages'][0]['id'] = str(uuid.uuid4())
                     if files:
                         inputs['files'] = files
+                    if resolved['agent_config'].get('response_format') is not None:
+                        inputs['structured_response'] = None
                     await anyio.to_thread.run_sync(lambda: _save_selection(user, selected, resolved))
                 projection = None
                 if weknora:
@@ -306,6 +346,7 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                 modes = ['messages', 'updates', 'values'] + (['tasks'] if projection else [])
                 output = graph.astream(inputs, config, stream_mode=modes,
                                        subgraphs=True, version='v2', durability='sync')
+                structured_written = False
                 try:
                     while True:
                         try:
@@ -314,6 +355,9 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                                 part = await anext(output)
                         except StopAsyncIteration:
                             break
+                        if part['type'] == 'updates' and not part['ns']:
+                            structured_written |= any(isinstance(update, dict) and 'structured_response' in update
+                                                      for update in part['data'].values())
                         if projection:
                             for event in projection.feed(part):
                                 yield _event('message', event)
@@ -328,6 +372,8 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                     with anyio.CancelScope(shield=True):
                         await output.aclose()
                 state = await graph.aget_state(config, subgraphs=True)
+                from agent.async_work import reconcile_parent
+                state = await reconcile_parent(graph, state, user['id'], selected['id'])
                 if projection:
                     if traces.nodes:
                         yield _event('message', projection.event('collaboration_status', data=traces.collaboration()))
@@ -358,10 +404,13 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                             kind, data = card_event(card)
                             yield _event('message', projection.event(kind, data=data))
                             yield _event('message', projection.event('run_suspended', data={'pending_id': card['id']}))
-                        yield _event('message', projection.event('complete', data={'artifacts': artifact_meta}, done=True))
+                        yield terminal_frame(_event('message', projection.event('complete', data={'artifacts': artifact_meta}, done=True)))
                         return
-                    yield _event('message', projection.event('stop' if state.next else 'complete',
-                        data={'artifacts': artifact_meta}, done=True))
+                    complete = {'artifacts': artifact_meta}
+                    if not state.next and structured_written and 'structured_response' in state.values:
+                        complete['structured_response'] = state.values['structured_response']
+                    yield terminal_frame(_event('message', projection.event('stop' if state.next else 'complete',
+                        data=complete, done=True)))
                 else:
                     values = _state_values(state)
                     pending = values.pop('__interrupt__', None)
@@ -372,7 +421,7 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
             if weknora:
                 from webapi.weknora_adapter import StreamProjection
                 failed = projection if 'projection' in locals() and projection else StreamProjection(selected['id'], '', owner_id=user['id'])
-                yield _event('message', failed.event('error', str(exc), {'status': getattr(exc, 'status', 500)}, done=True))
+                yield terminal_frame(_event('message', failed.event('error', str(exc), {'status': getattr(exc, 'status', 500)}, done=True)))
             else:
                 yield _event('error', {'message': str(exc), 'status': getattr(exc, 'status', 500)})
         finally:
@@ -383,15 +432,26 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
             active = _active_requests.get(selected['id'])
             if active and active[1] is request_task:
                 _active_requests.pop(selected['id'], None)
+            _active_backends.pop(selected['id'], None)
 
+    heartbeat = ServerSentEvent(event='message', data=json.dumps({'response_type': 'heartbeat'})) if weknora else None
+    heartbeat_bytes = heartbeat.encode() if heartbeat else None
     response = EventSourceResponse(events(), data_sender_callable=cancel_on_response_exit,
-                                   ping_message_factory=(lambda: ServerSentEvent(event='message',
-                                       data=json.dumps({'response_type': 'heartbeat'}))) if weknora else None,
+                                   ping_message_factory=(lambda: heartbeat) if weknora else None,
                                    headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
     async def send_stream(scope, receive, send):
+        send_lock = anyio.Lock()
+
+        async def send_ordered(message):
+            async with send_lock:
+                # Official pings remain active while the iterator closes its resources.
+                if heartbeats_finished and message.get('body') == heartbeat_bytes:
+                    return
+                await send(message)
+
         try:
-            await response(scope, receive, send)
+            await response(scope, receive, send_ordered if weknora else send)
         finally:
             # Also covers a failed header send, before the iterator starts.
             with anyio.CancelScope(shield=True):
@@ -420,6 +480,15 @@ async def read_weknora_history(user, selected):
     if state is None:
         return []
     rows = history(state, selected['id'], selected['agent_config'].get('knowledge_base_ids', []), owner_id=user['id'])
+    if any(getattr(message, 'additional_kwargs', {}).get('harness', {}).get('structured_output')
+           for message in state.values.get('messages', [])):
+        from webapi.weknora_adapter import structured_outputs
+        async with async_checkpointer() as saver:
+            graph = await _graph(saver, user, selected, selected['agent_config'], load_tools=False)
+            outputs = await structured_outputs(graph, state.config, saver)
+        for row in rows:
+            if row['id'] in outputs:
+                row['structured_response'] = outputs[row['id']]
     if any(call.get('name') == 'task' for message in state.values.get('messages', [])
            for call in getattr(message, 'tool_calls', [])):
         async with async_checkpointer() as saver:
@@ -437,14 +506,17 @@ async def read_weknora_history(user, selected):
         pending = cards(state, selected['id'])
         receipt = await anyio.to_thread.run_sync(lambda: _receipt(user['id'], selected['id'], state))
         for card in pending:
-            card['tool_call_id'] = card['tool_call_id'] or receipt.get('tool_ids', {}).get(card['id'])
+            if card['kind'] != 'ask_user':
+                card['tool_call_id'] = card['tool_call_id'] or receipt.get('tool_ids', {}).get(card['id'])
             response = receipt['responses'].get(card['id'])
-            if response is not None:
+            if card['id'] in receipt['responses']:
                 card.update(status='answered', response=({**response, 'approved': response['type'] != 'reject',
                             **({'modified_args': response['edited_action']['args']} if response['type'] == 'edit' else {})}
                             if card['kind'] == 'tool_approval' else response))
-        rows[-1]['delegated_prompts'] = [{key: value for key, value in card.items() if not key.startswith('_')}
-                                       for card in pending]
+        interactions = {card['id']: card for card in rows[-1].get('delegated_prompts', [])}
+        interactions.update({card['id']: {key: value for key, value in card.items() if not key.startswith('_')}
+                             for card in pending})
+        rows[-1]['delegated_prompts'] = list(interactions.values())
     return rows
 
 
@@ -486,6 +558,10 @@ async def _child(request, *, subscribe=False):
     view = request.path_params.get('session_id') or weknora_traces.PREFIX + request.path_params['view']
     parent, namespace, call_id = weknora_traces.decode(view)
     selected = await anyio.to_thread.run_sync(lambda: sessions.get_session(parent, user['id']))
+    from webapi import async_views
+    if namespace == async_views.NAMESPACE:
+        task, rows = await async_views.read(user['id'], parent, call_id)
+        return parent, namespace, task, rows, None, None, user['id']
     live = weknora_traces.active.get(parent)
     node = live.nodes.get(namespace) if live else None
     queue = live.subscribe(namespace) if subscribe and node and node['status'] == 'running' else None

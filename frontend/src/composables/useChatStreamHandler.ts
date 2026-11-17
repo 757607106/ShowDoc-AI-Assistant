@@ -88,7 +88,7 @@ export function pendingPromptEvents(prompt: unknown): ChatMessage[] {
   const request = (p.request || {}) as Record<string, any>
   const createdAt = Date.parse(String(p.created_at || ''))
   const requestedAt = Number.isNaN(createdAt) ? undefined : Math.floor(createdAt / 1000)
-  const response = p.response || {}
+  const response = p.response ?? {}
   const resolved = Boolean(p.status && !['pending', 'suspended'].includes(p.status))
   const state = {
     resolved,
@@ -97,6 +97,11 @@ export function pendingPromptEvents(prompt: unknown): ChatMessage[] {
     abandoned: ['expired', 'superseded'].includes(p.status),
     resolve_reason: p.close_reason || response.reason,
     suspended: !resolved,
+  }
+  if (p.kind === 'native_interrupt') {
+    return [{ type: 'agent_prompt_required', pending_id: p.id, kind: p.kind, request,
+      tool_call_id: p.tool_call_id, requested_at: requestedAt, suspendable: true,
+      ...state, answered: resolved, response: p.response }]
   }
   if (p.kind === 'ask_user') {
     return [{
@@ -145,6 +150,7 @@ export function pendingPromptEvents(prompt: unknown): ChatMessage[] {
       : request.args === undefined ? '' : JSON.stringify(request.args),
     grant_scope: request.grant_scope,
     grant_lapsed: request.grant_lapsed,
+    allowed_decisions: request.allowed_decisions,
     tool_call_id: p.tool_call_id,
     requested_at: requestedAt,
     suspendable: true,
@@ -1043,6 +1049,7 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
           args_json: d.args_json,
           grant_scope: d.grant_scope,
           grant_lapsed: d.grant_lapsed,
+          allowed_decisions: d.allowed_decisions,
           timeout_seconds: d.timeout_seconds,
           hot_wait_seconds: d.hot_wait_seconds,
           suspendable: d.suspendable,
@@ -1537,6 +1544,7 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
       }
       case 'complete': {
         if (dataId) replaySegments.delete(dataId)
+        if (Object.hasOwn(dataPayload || {}, 'structured_response')) message.structured_response = (dataPayload as any).structured_response
         log('[Agent] Complete event received')
         applyFinalArtifactContent(message, (dataPayload as any)?.final_content)
         loading.value = false
@@ -1791,6 +1799,7 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
     if (data.response_type === 'complete' && existingMessage) {
       if (existingMessage.is_completed) return
       const metadata = data.data as ChatMessage | undefined
+      if (Object.hasOwn(metadata || {}, 'structured_response')) existingMessage.structured_response = metadata?.structured_response
       applyFinalArtifactContent(existingMessage, metadata?.final_content)
       if (Array.isArray(metadata?.artifacts)) existingMessage.artifacts = metadata.artifacts
       const usage = metadata?.usage || data.usage

@@ -61,7 +61,7 @@
                 <span class="model-option__meta">
                   {{ vendorLabel(model) }}
                   <template v-if="modelHasContextWindow(model.type)">
-                    · {{ formatContextWindow(model.parameters?.context_window) }}
+                    · {{ formatContextWindow(modelContextWindow(model), t('model.editor.contextWindowUnknown')) }}
                   </template>
                 </span>
               </div>
@@ -256,6 +256,7 @@ import {
 } from '@/utils/reasoningEffort'
 import {
   formatContextWindow,
+  modelContextWindow,
   modelHasContextWindow,
 } from '@/utils/contextWindow'
 

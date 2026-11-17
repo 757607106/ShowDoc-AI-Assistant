@@ -4,7 +4,7 @@
     :description="getModalDescription()" :icon="modelTypeIcon" :confirm-loading="saving" :cancel-disabled="saving"
     :confirm-text="$t('model.editor.saveAndClose')"
     :close-on-overlay-click="!saving" :close-on-esc-keydown="!saving"
-    :confirm-disabled="formData.provider === 'weknoracloud' && wkcCredentialState !== 'configured'"
+    :confirm-disabled="retiredLocalModel || (formData.provider === 'weknoracloud' && wkcCredentialState !== 'configured')"
     @update:visible="(v: boolean) => dialogVisible = v" @confirm="handleConfirm" @cancel="handleCancel">
 
     <template v-if="formData.source === 'remote'" #footer-left>
@@ -93,7 +93,7 @@
               <span class="source-option__label">{{ $t('model.editor.sourceRemote') }}</span>
             </button>
             <button
-              v-if="activeModelType !== 'rerank'"
+              v-if="ollamaManagementEnabled && activeModelType !== 'rerank'"
               type="button"
               class="source-option"
               :class="{ 'is-active': formData.source === 'local', 'is-disabled': ollamaServiceStatus === false }"
@@ -108,7 +108,7 @@
           </div>
 
           <!-- Ollama不可用时的提示信息 -->
-          <div v-if="shouldShowOllamaUnavailableTip(formData.source, activeModelType, ollamaServiceStatus)"
+          <div v-if="ollamaManagementEnabled && shouldShowOllamaUnavailableTip(formData.source, activeModelType, ollamaServiceStatus)"
             class="ollama-unavailable-tip">
             <t-icon name="error-circle-filled" class="tip-icon" />
             <span class="tip-text">{{ $t('model.editor.ollamaUnavailable') }}</span>
@@ -122,7 +122,11 @@
         <!-- Ollama 本地模型选择器 -->
         <div v-if="formData.source === 'local'" class="form-item">
           <label class="form-label required">{{ $t('model.modelName') }}</label>
-          <div class="model-select-row">
+          <template v-if="retiredLocalModel">
+            <t-input :model-value="formData.modelName" readonly />
+            <t-alert theme="info" :message="$t('model.editor.legacyLocalUnavailable')" />
+          </template>
+          <div v-else class="model-select-row">
             <t-select v-model="formData.modelName" :loading="loadingOllamaModels" :class="{ 'downloading': downloading }"
               :style="downloading ? `--progress: ${downloadProgress}%` : ''" filterable :filter="handleModelFilter"
               :placeholder="$t('model.searchPlaceholder')" @focus="loadOllamaModels"
@@ -215,7 +219,7 @@
           </div>
 
           <!-- WeKnoraCloud 提示信息 -->
-          <template v-if="formData.provider === 'weknoracloud'">
+          <template v-if="!IS_CONTEXTDB && formData.provider === 'weknoracloud'">
             <!-- 凭证已配置 -->
             <div v-if="wkcCredentialState === 'configured'" class="weknoracloud-hint weknoracloud-hint--ok">
               <t-icon name="check-circle-filled" class="hint-icon hint-icon--ok" />
@@ -451,14 +455,10 @@
                     </template>
                     <span v-else class="form-desc form-desc--inline">{{ $t('model.editor.resolved.noThinking') }}</span>
                   </dd>
-                  <template v-if="resolved.capabilities?.context_window">
-                    <dt>{{ $t('model.editor.contextWindowLabel') }}</dt>
-                    <dd>{{ formatTokenCount(resolved.capabilities.context_window) }}</dd>
-                  </template>
-                  <template v-if="resolved.capabilities?.max_output_tokens">
-                    <dt>{{ $t('model.editor.maxOutputTokensLabel') }}</dt>
-                    <dd>{{ formatTokenCount(resolved.capabilities.max_output_tokens) }}</dd>
-                  </template>
+                  <dt>{{ $t('model.editor.contextWindowLabel') }}</dt>
+                  <dd>{{ formatContextWindow(resolved.capabilities?.context_window, $t('model.editor.contextWindowUnknown')) }}</dd>
+                  <dt>{{ $t('model.editor.maxOutputTokensLabel') }}</dt>
+                  <dd>{{ resolved.capabilities?.max_output_tokens ? formatTokenCount(resolved.capabilities.max_output_tokens) : $t('model.editor.contextWindowUnknown') }}</dd>
                 </template>
               </dl>
             </div>
@@ -483,7 +483,7 @@
               :placeholder="$t('model.editor.dimensionPlaceholder')"
               :disabled="!formData.supportsDimensionOverride || (formData.source === 'local' && checking)" />
             <!-- Ollama 本地模型：自动检测维度按钮 -->
-            <t-button v-if="formData.source === 'local' && formData.modelName" variant="text" size="small"
+            <t-button v-if="ollamaManagementEnabled && formData.source === 'local' && formData.modelName" variant="text" size="small"
               :loading="checking" @click="checkOllamaDimension" class="dimension-check-btn">
               <t-icon name="refresh" />
               {{ $t('model.editor.checkDimension') }}
@@ -515,7 +515,7 @@
         <div v-if="activeModelType === 'chat' || activeModelType === 'vllm'" class="form-item">
           <label class="form-label">{{ $t('model.editor.contextWindowLabel') }}</label>
           <t-input v-model.number="formData.contextWindow" type="number" :min="1024" :max="10000000"
-            :placeholder="$t('model.editor.contextWindowPlaceholder', { value: DEFAULT_MODEL_CONTEXT_WINDOW })" />
+            :placeholder="$t('model.editor.contextWindowPlaceholder')" />
           <p class="form-desc">{{ $t('model.editor.contextWindowDesc') }}</p>
         </div>
 
@@ -534,18 +534,6 @@
           <t-input v-model.number="formData.maxOutputTokens" type="number" :min="1" :max="10000000"
             :placeholder="$t('model.editor.maxOutputTokensPlaceholder')" />
           <p class="form-desc">{{ $t('model.editor.maxOutputTokensDesc') }}</p>
-        </div>
-
-        <!--
-          Background concurrency cap for this model. Only chat / embedding / vllm
-          are gated by the governor (see internal/models/limiter), so we surface
-          it just for those three. 0 = fall back to the global default.
-        -->
-        <div v-if="['embedding', 'chat', 'vllm'].includes(activeModelType)" class="form-item">
-          <label class="form-label">{{ $t('model.editor.maxConcurrencyLabel') }}</label>
-          <t-input v-model.number="formData.maxConcurrency" type="number" :min="0" :max="4096"
-            :placeholder="$t('model.editor.maxConcurrencyPlaceholder')" />
-          <p class="form-desc">{{ $t('model.editor.maxConcurrencyDesc') }}</p>
         </div>
 
         <!--
@@ -647,7 +635,7 @@ import {
   providerLabel,
 } from '@/stores/modelProvidersState'
 import { levelLabelKey, supportedLevels } from '@/utils/reasoningEffort'
-import { DEFAULT_MODEL_CONTEXT_WINDOW, formatTokenCount } from '@/utils/contextWindow'
+import { formatContextWindow, formatTokenCount } from '@/utils/contextWindow'
 import { copyWithToast } from '@/utils/clipboard'
 import SettingDrawer from '@/components/settings/SettingDrawer.vue'
 import AssistantActionButton from '@/components/assistant/AssistantActionButton.vue'
@@ -658,6 +646,9 @@ import CredentialResource, {
 import { shouldShowOllamaUnavailableTip } from '@/components/modelEditorSourceState'
 import { WEKNORA_CLOUD_PROVIDER, WKC_MODEL_KINDS, WKC_MODEL_NAME_BY_KIND } from '@/utils/weknoraCloudModels'
 import { docsUrl } from '@/utils/docsUrl'
+import { IS_CONTEXTDB } from '@/config/contextdb'
+
+const ollamaManagementEnabled = !IS_CONTEXTDB
 
 interface CustomHeaderItem {
   key: string
@@ -678,9 +669,9 @@ interface ModelFormData {
   interfaceType?: 'ollama' | 'openai'
   isDefault: boolean
   supportsVision?: boolean
-  /** 对话/VLM 上下文窗口（token）。空/0 表示使用默认 200000。 */
+  /** 对话/VLM 总上下文窗口（token）。spec 优先；空/0 且无 spec 时未知。 */
   contextWindow?: number
-  /** 后台任务对该模型的并发上限；0/undefined 表示沿用全局默认。仅 chat/embedding/vllm 生效。 */
+  /** Legacy value retained for round trips; the current runtime has no model governor. */
   maxConcurrency?: number
   /** 对话/VLM 单次输出上限（token）。空/0 表示使用目录默认。 */
   maxOutputTokens?: number
@@ -1073,6 +1064,8 @@ const runResolve = async () => {
     const result = await resolveModelCatalog({
       provider,
       spec: buildSpec(),
+      context_window: formData.value.contextWindow || undefined,
+      max_output_tokens: formData.value.maxOutputTokens || undefined,
       model: formData.value.modelName || '',
       base_url: formData.value.baseUrl || '',
       model_type: activeModelType.value,
@@ -1288,6 +1281,7 @@ const checkingOllamaStatus = ref(false)
 const wkcCredentialState = ref<'loading' | 'unconfigured' | 'configured' | 'expired'>('loading')
 
 const checkWkcCredentialStatus = async () => {
+  if (IS_CONTEXTDB) return
   wkcCredentialState.value = 'loading'
   try {
     const status = await getWeKnoraCloudStatus()
@@ -1304,6 +1298,7 @@ const checkWkcCredentialStatus = async () => {
 }
 
 const goToWeKnoraCloudSettings = async () => {
+  if (IS_CONTEXTDB) return
   emit('update:visible', false)
   if (uiStore.showSettingsModal) {
     uiStore.closeSettings()
@@ -1336,6 +1331,7 @@ const formData = ref<ModelFormData>({
   customHeaders: [],
   appSecret: '',
 })
+const retiredLocalModel = computed(() => IS_CONTEXTDB && formData.value.source === 'local')
 
 const rules = computed(() => ({
   modelName: [
@@ -1383,6 +1379,7 @@ watch(
     props.visible, formData.value.source, formData.value.provider, formData.value.modelName,
     formData.value.baseUrl, formData.value.extraConfig?.api, formData.value.extraConfig?.remote_model_name,
     formData.value.thinkingControl, activeModelType.value,
+    formData.value.contextWindow, formData.value.maxOutputTokens,
  formData.value.specCompat, JSON.stringify(formData.value.spec),
   ],
   () => {
@@ -1426,6 +1423,7 @@ const getBaseUrlPlaceholder = () => {
 
 // 检查Ollama服务状态
 const checkOllamaServiceStatus = async () => {
+  if (!ollamaManagementEnabled) return
   console.log('开始检查Ollama服务状态...')
   checkingOllamaStatus.value = true
   try {
@@ -1447,6 +1445,7 @@ const checkOllamaServiceStatus = async () => {
 
 // 打开Ollama设置窗口
 const goToOllamaSettings = async () => {
+  if (!ollamaManagementEnabled) return
   console.log('点击跳转到Ollama设置按钮')
   // 关闭当前弹窗
   emit('update:visible', false)
@@ -1740,6 +1739,7 @@ const filteredOllamaModels = computed(() => {
 
 // 是否显示"下载模型"选项
 const showDownloadOption = computed(() => {
+  if (!ollamaManagementEnabled) return false
   if (!searchKeyword.value.trim()) return false
   // 检查搜索词是否已存在于模型列表中
   const exists = ollamaModelList.value.some(model =>
@@ -1756,6 +1756,7 @@ const handleModelFilter = (filterWords: string) => {
 
 // 加载 Ollama 模型列表
 const loadOllamaModels = async () => {
+  if (!ollamaManagementEnabled) return
   // 只在选择 local 来源时加载
   if (formData.value.source !== 'local') return
 
@@ -1773,6 +1774,7 @@ const loadOllamaModels = async () => {
 
 // 刷新模型列表
 const refreshOllamaModels = async () => {
+  if (!ollamaManagementEnabled) return
   ollamaModelList.value = [] // 清空以强制重新加载
   await loadOllamaModels()
   MessagePlugin.success(t('model.editor.listRefreshed'))
@@ -1794,6 +1796,7 @@ const formatModelSize = (bytes: number): string => {
 
 // 检查模型状态（Ollama本地模型）
 const checkModelStatus = async () => {
+  if (!ollamaManagementEnabled) return
   if (!formData.value.modelName || formData.value.source !== 'local') {
     return
   }
@@ -1812,6 +1815,7 @@ const checkModelStatus = async () => {
 
 // 检查 Ollama 本地 Embedding 模型维度
 const checkOllamaDimension = async () => {
+  if (!ollamaManagementEnabled) return
   if (checking.value || saving.value) return
   if (!formData.value.modelName || formData.value.source !== 'local' || activeModelType.value !== 'embedding') {
     return
@@ -2016,7 +2020,7 @@ const checkRemoteAPI = async () => {
 
 // 确认保存
 const handleConfirm = async () => {
-  if (saving.value) return
+  if (saving.value || retiredLocalModel.value) return
   saving.value = true
   if (checking.value) invalidateConnectionTest()
   saveError.value = ''
@@ -2103,7 +2107,7 @@ watch(() => formData.value.modelName, async (newValue, oldValue) => {
   if (!newValue) return
 
   // 处理下载逻辑
-  if (newValue.startsWith('__download__')) {
+  if (ollamaManagementEnabled && newValue.startsWith('__download__')) {
     // 提取模型名称
     const modelName = newValue.replace('__download__', '')
 
@@ -2127,6 +2131,7 @@ watch(() => formData.value.modelName, async (newValue, oldValue) => {
 
 // 开始下载模型
 const startDownload = async (modelName: string) => {
+  if (!ollamaManagementEnabled) return
   downloading.value = true
   downloadProgress.value = 0
   currentDownloadModel.value = modelName

@@ -44,6 +44,7 @@ import {
   requestRoleUpgrade as requestRoleUpgradeApi
 } from '@/api/organization'
 import { getCurrentLanguage } from '@/utils/request'
+import { useDeploymentCapabilitiesStore } from './deploymentCapabilities'
 import { createVersionedRequestCoordinator } from './versionedRequest'
 import { shouldForceLocalizedRefetch } from './localizedResourceCache'
 import {
@@ -123,6 +124,13 @@ export const useOrganizationStore = defineStore('organization', () => {
   )
 
   async function fetchOrganizations(options?: { force?: boolean }) {
+    const capabilities = useDeploymentCapabilitiesStore()
+    await capabilities.ensureLoaded()
+    if (!capabilities.isSupported('organizations')) {
+      organizations.value = []
+      resourceCounts.value = null
+      return
+    }
     return organizationsRequest.fetch(options?.force ?? false)
   }
 
@@ -493,6 +501,12 @@ export const useOrganizationStore = defineStore('organization', () => {
   )
 
   async function fetchSharedAgents(options?: { force?: boolean }) {
+    const capabilities = useDeploymentCapabilitiesStore()
+    await capabilities.ensureLoaded()
+    if (!capabilities.isSupported('organizations')) {
+      sharedAgents.value = []
+      return sharedAgents.value
+    }
     const locale = getCurrentLanguage()
     const force = options?.force ?? false
     // 飞行中的请求是用另一种语言发起的：不能复用它，排在它后面再发一次。

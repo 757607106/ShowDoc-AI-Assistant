@@ -111,7 +111,7 @@ export function modelInUseErrorFromRequest(error: unknown): ModelInUseError | nu
 const knownBindings = new Set<string>(KNOWN_MODEL_USAGE_BINDINGS)
 
 export function modelUsageBindingI18nKey(binding: string): string {
-  const key = knownBindings.has(binding) ? binding : 'unknown'
+  const key = /^subagent:.+:model$/.test(binding) ? 'chat_model' : knownBindings.has(binding) ? binding : 'unknown'
   return `modelSettings.usage.bindings.${key}`
 }
 
@@ -129,7 +129,7 @@ export type ModelUsageResourceKind = 'knowledge_base' | 'agent'
 
 export type KnowledgeBaseModelUsageSection = 'models' | 'multimodal' | 'asr' | 'advanced'
 
-export type AgentModelUsageSection = 'model' | 'multimodal' | 'suggestions'
+export type AgentModelUsageSection = 'model' | 'multimodal' | 'suggestions' | 'native'
 
 const knowledgeBaseUsageSections: Partial<Record<KnownModelUsageBinding, KnowledgeBaseModelUsageSection>> = {
   embedding_model: 'models',
@@ -165,6 +165,7 @@ export function modelUsageAgentSection(
   bindings: readonly string[],
 ): AgentModelUsageSection {
   for (const binding of bindings) {
+    if (/^subagent:.+:model$/.test(binding)) return 'native'
     const section = agentUsageSections[binding as KnownModelUsageBinding]
     if (section) return section
   }

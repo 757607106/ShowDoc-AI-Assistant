@@ -14,8 +14,7 @@ function routeBlock(name) {
 test('platform shell is the only place that mounts the settings modal', () => {
   // Two copies each fetch their own data, so a save in one leaves the other stale.
   assert.equal(platformShell.match(/<Settings\b[^>]*\/>/g)?.length, 1)
-  assert.equal(platformShell.match(/<ContextDBSettings\b[^>]*\/>/g)?.length, 1)
-  assert.match(platformShell, /<ContextDBSettings v-if="contextdbSettings"\s*\/>\s*<Settings v-else\s*\/>/)
+  assert.doesNotMatch(platformShell, /<ContextDBSettings|contextdbSettings/)
   assert.doesNotMatch(router, /views\/settings\/Settings\.vue/)
 })
 
@@ -26,12 +25,10 @@ test('/platform/settings keeps a route but renders nothing into the outlet', () 
   assert.match(router, /const SettingsRouteOutlet = defineComponent\(\{[^}]*render: \(\) => null/)
 })
 
-test('official settings retain native memory and chat history sections', () => {
-  const settings=readFileSync(new URL('../views/settings/Settings.vue',import.meta.url),'utf8')
-  assert.match(settings,/<MemorySettings\s*\/>/)
-  assert.match(settings,/<MemoryWorkspaceSettings\s*\/>/)
-  assert.match(settings,/key: 'mymemory'/)
-  assert.match(settings,/key: 'memory'/)
-  assert.match(settings,/key: 'chathistory'/)
-  assert.match(settings,/<ChatHistorySettings\s*\/>/)
+test('unified settings retain file memory without mounting retired WeKnora business panels', () => {
+  const settings=readFileSync(new URL('../views/settings/ContextDBSettings.vue',import.meta.url),'utf8')
+  assert.match(settings,/<MemorySettings[^>]*\/>/)
+  assert.match(settings,/<NativeRuntimeSettings[^>]*\/>/)
+  assert.match(settings,/key:'memory'/)
+  for(const name of ['MemoryWorkspaceSettings','ChatHistorySettings','SandboxSettings','OllamaSettings','WeKnoraCloudSettings','IntegrationSettingsSection'])assert.doesNotMatch(settings,new RegExp('<'+name+'\\b'))
 })

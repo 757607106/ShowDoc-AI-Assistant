@@ -467,10 +467,14 @@ def test_native_multi_file_approval_requires_complete_decisions(harness, missing
     if missing_decision:
         errors = [data for kind, data in events if kind == 'error']
         assert len(errors) == 1
-        assert errors[0]['message'] == 'Number of human decisions (1) does not match number of hanging tool calls (2).'
+        assert errors[0]['status'] == 400
+        assert errors[0]['message'] == '工具审批响应无效或超出允许范围'
         assert state.get('files', {}) == {}
         assert not [message for message in state['messages'] if message['type'] == 'tool']
-        return
+        assert state['__interrupt__'] == pending
+        body['command']['resume'][pending[0]['id']]['decisions'] = decisions
+        events = frames(client.post(f'/api/v1/harness/sessions/{sid}/stream', json=body))
+        state = client.get(state_url).json()['values']
     assert not [value for kind, value in events if kind == 'error'], events
     assert '__interrupt__' not in state
     assert set(state['files']) == {'/approved.txt'}

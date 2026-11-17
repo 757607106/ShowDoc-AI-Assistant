@@ -25,3 +25,6 @@ frontend/dist/
 # Local runtime and verification artifacts
 logs/
 output/
+
+# Local runtime credentials and probe files
+.runtime/

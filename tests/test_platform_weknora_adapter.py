@@ -398,33 +398,156 @@ def test_artifact_downloads_keep_each_turn_version_and_native_binary_bytes(harne
         assert result[0].error is None
         return 'uploaded'
     tools.append(upload_binary)
-    model.responses = [AIMessage(content='', tool_calls=[call('write_file', {
-        'file_path': '/report.txt', 'content': 'first'}, 'write-first')]), AIMessage(content='first report')]
+    model.responses = [AIMessage(content='', tool_calls=[
+        call('write_file', {'file_path': '/report.txt', 'content': 'first'}, 'write-first'),
+        call('write_file', {'file_path': '/note.txt', 'content': 'note first'}, 'write-note-first')]),
+        AIMessage(content='first report')]
     first = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': '生成首版'}))
     first_id = first[0]['assistant_message_id']
     first_artifacts = first[-1]['data']['artifacts']
     assert first_artifacts[0]['index'] == 0 and first_artifacts[0]['file_size'] == 5
-    model.responses = [AIMessage(content='', tool_calls=[call('edit_file', {
-        'file_path': '/report.txt', 'old_string': 'first', 'new_string': 'second'}, 'write-second')]),
+    model.responses = [AIMessage(content='', tool_calls=[
+        call('edit_file', {'file_path': '/report.txt', 'old_string': 'first', 'new_string': 'second'}, 'write-second'),
+        call('edit_file', {'file_path': '/note.txt', 'old_string': 'note first', 'new_string': 'note second'}, 'write-note-second')]),
         AIMessage(content='', tool_calls=[call('upload_binary', {}, 'native-binary')]), AIMessage(content='second report')]
     second = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': '更新并生成二进制'}))
     assert second[-1]['response_type'] == 'complete', second
     second_id = second[0]['assistant_message_id']
     second_artifacts = second[-1]['data']['artifacts']
-    assert [item['source_path'] for item in second_artifacts] == ['/report.txt', '/image.bin']
+    assert [item['source_path'] for item in second_artifacts] == ['/report.txt', '/note.txt', '/image.bin']
     base = f'/api/v1/sessions/{sid}/messages/'
     assert client.get(base + first_id + '/artifacts/0/download').content == b'first'
     assert client.get(base + second_id + '/artifacts/0/download').content == b'second'
-    assert client.get(base + second_id + '/artifacts/1/download').content == raw
+    assert client.get(base + first_id + '/artifacts/1/download').content == b'note first'
+    assert client.get(base + second_id + '/artifacts/1/download').content == b'note second'
+    assert client.get(base + second_id + '/artifacts/2/download').content == raw
     history = client.get(f'/api/v1/messages/{sid}/load').json()['data']
     assert history[1]['artifacts'] == first_artifacts and history[3]['artifacts'] == second_artifacts
+    native_before = client.get(f'/api/v1/harness/sessions/{sid}/state').json()
+    model_calls = model.i
     library = client.get('/api/v1/artifacts').json()['data']
     report = next(item for item in library if item['source_path'] == '/report.txt')
     assert report['version_count'] == 2 and report['message_id'] == second_id
+    deleted = client.delete('/api/v1/artifacts', params={
+        'session_id': sid, 'message_id': second_id, 'index': report['index']})
+    assert deleted.status_code == 200 and deleted.json()['data']['deleted'] == 2
+    assert {item['source_path'] for item in client.get('/api/v1/artifacts').json()['data']} == {'/note.txt', '/image.bin'}
+    assert client.get(base + first_id + '/artifacts/0/download').status_code == 404
+    assert client.get(base + second_id + '/artifacts/0/download').status_code == 404
+    after_report = client.get(f'/api/v1/harness/sessions/{sid}/state').json()
+    assert after_report['values']['files'] == {
+        path: item for path, item in native_before['values']['files'].items() if path != '/report.txt'}
+    assert {key: value for key, value in after_report['values'].items() if key != 'files'} == {
+        key: value for key, value in native_before['values'].items() if key != 'files'}
+    assert after_report['next'] == native_before['next']
+    deleted = client.delete(base + first_id + '/artifacts/1')
+    assert deleted.status_code == 200 and deleted.json()['data']['deleted'] == 1
+    assert client.get(base + first_id + '/artifacts/1/download').status_code == 404
+    assert client.get(base + second_id + '/artifacts/1/download').content == b'note second'
+    assert client.get(f'/api/v1/harness/sessions/{sid}/state').json() == after_report
+    assert next(item for item in client.get('/api/v1/artifacts').json()['data']
+                if item['source_path'] == '/note.txt')['version_count'] == 1
+    deleted = client.delete(base + second_id + '/artifacts/1')
+    assert deleted.status_code == 200 and deleted.json()['data']['deleted'] == 1
+    assert client.get(base + first_id + '/artifacts/1/download').status_code == 404
+    assert client.get(base + second_id + '/artifacts/1/download').status_code == 404
+    assert set(client.get(f'/api/v1/harness/sessions/{sid}/state').json()['values']['files']) == {'/image.bin'}
+    deleted = client.delete(base + second_id + '/artifacts/2')
+    assert deleted.status_code == 200 and deleted.json()['data']['deleted'] == 1
+    assert client.get(base + second_id + '/artifacts/2/download').status_code == 404
+    assert client.get('/api/v1/artifacts').json()['data'] == []
     assert client.get(base + 'assistant:forged' + '/artifacts/0/download').status_code == 404
+    native_after = client.get(f'/api/v1/harness/sessions/{sid}/state').json()
+    assert native_after['values']['files'] == {}
+    assert {key: value for key, value in native_after['values'].items() if key != 'files'} == {
+        key: value for key, value in native_before['values'].items() if key != 'files'}
+    assert native_after['next'] == native_before['next']
+    assert model.i == model_calls
     with connection() as conn:
         assert conn.execute('SELECT count(*) AS n FROM agent_runs').fetchone()['n'] == 0
-        assert conn.execute("SELECT count(*) AS n FROM runtime_records WHERE kind LIKE '%artifact%' ").fetchone()['n'] == 0
+        assert conn.execute("SELECT count(*) AS n FROM runtime_records WHERE kind='artifact_deleted'").fetchone()['n'] == 5
+    model.responses = [AIMessage(content='', tool_calls=[call('write_file', {
+        'file_path': '/report.txt', 'content': 'first'}, 'regenerate-report')]), AIMessage(content='regenerated')]
+    regenerated = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': '重新生成同名同内容文件'}))
+    assert regenerated[-1]['response_type'] == 'complete', regenerated
+    regenerated_id = regenerated[0]['assistant_message_id']
+    library = client.get('/api/v1/artifacts').json()['data']
+    assert len(library) == 1 and library[0]['message_id'] == regenerated_id and library[0]['version_count'] == 1
+    assert client.get(base + regenerated_id + '/artifacts/0/download').content == b'first'
+    assert client.get(base + first_id + '/artifacts/0/download').status_code == 404
+    assert client.get(base + second_id + '/artifacts/0/download').status_code == 404
+
+
+def test_artifact_delete_retry_removes_files_left_by_an_earlier_tombstone(harness):
+    import psycopg
+    from agent import registry, sessions
+    from agent.artifacts import artifact_key
+    from governance.store import now
+    from webapi.auth import create_user
+    client, sid, model, *_ = harness
+    model.responses = [AIMessage(content='', tool_calls=[call('write_file', {
+        'file_path': '/retry.txt', 'content': 'left behind'}, 'write-retry')]), AIMessage(content='created')]
+    streamed = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': '生成待清理文件'}))
+    assert streamed[-1]['response_type'] == 'complete', streamed
+    item = client.get('/api/v1/artifacts').json()['data'][0]
+    before = client.get(f'/api/v1/harness/sessions/{sid}/state').json()
+    params = {key: item[key] for key in ('session_id', 'message_id', 'index')}
+    foreign_owner = create_user('other-artifact@example.com', 'Other', 'test-password-123', 'admin')
+    foreign_sid = sessions.create_session(owner_id=foreign_owner)['id']
+    assert client.delete('/api/v1/artifacts', params={**params, 'session_id': foreign_sid}).status_code == 404
+    with psycopg.connect(os.environ['AGENT_DATABASE_URL'], autocommit=True) as lock:
+        lock.execute('SELECT pg_advisory_lock(hashtextextended(%s,0))', ('harness:' + sid,))
+        assert client.delete('/api/v1/artifacts', params=params).status_code == 409
+    assert client.get(f'/api/v1/harness/sessions/{sid}/state').json() == before
+    registry.save_record('artifact_deleted', {
+        'id': artifact_key(sid, '/retry.txt', before['values']['files']['/retry.txt']),
+        'session_id': sid, 'deleted_at': now()}, os.environ['TEST_PLATFORM_USER'])
+    assert client.get('/api/v1/artifacts').json()['data'] == []
+    download = f"/api/v1/sessions/{sid}/messages/{item['message_id']}/artifacts/{item['index']}/download"
+    assert client.get(download).status_code == 404
+    deleted = client.delete('/api/v1/artifacts', params=params)
+    assert deleted.status_code == 200 and deleted.json()['data']['deleted'] == 0, deleted.text
+    after = client.get(f'/api/v1/harness/sessions/{sid}/state').json()
+    assert after['values']['files'] == {}
+    assert after['values']['messages'] == before['values']['messages'] and after['next'] == before['next']
+    assert client.get(download).status_code == 404
+    assert client.delete('/api/v1/artifacts', params=params).status_code == 404
+
+
+def test_artifact_delete_failure_is_reported_and_can_retry_cleanup(harness, monkeypatch):
+    from webapi import harness as api
+    client, sid, model, *_ = harness
+    model.responses = [AIMessage(content='', tool_calls=[call('write_file', {
+        'file_path': '/cleanup.txt', 'content': 'must delete'}, 'write-cleanup')]), AIMessage(content='created')]
+    streamed = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': '生成待删除文件'}))
+    assert streamed[-1]['response_type'] == 'complete', streamed
+    item = client.get('/api/v1/artifacts').json()['data'][0]
+    params = {key: item[key] for key in ('session_id', 'message_id', 'index')}
+    before = client.get(f'/api/v1/harness/sessions/{sid}/state').json()
+    original_graph = api._graph
+
+    class FailedUpdate:
+        def __init__(self, graph):
+            self.graph = graph
+
+        def __getattr__(self, name):
+            return getattr(self.graph, name)
+
+        async def aupdate_state(self, *args, **kwargs):
+            raise RuntimeError('checkpoint write unavailable')
+
+    async def failing_graph(*args, **kwargs):
+        return FailedUpdate(await original_graph(*args, **kwargs))
+
+    with monkeypatch.context() as failing:
+        failing.setattr(api, '_graph', failing_graph)
+        response = client.delete('/api/v1/artifacts', params=params)
+    assert response.status_code == 503, response.text
+    assert client.get(f'/api/v1/harness/sessions/{sid}/state').json() == before
+    response = client.delete('/api/v1/artifacts', params=params)
+    assert response.status_code == 200 and response.json()['data']['deleted'] == 0, response.text
+    assert client.get(f'/api/v1/harness/sessions/{sid}/state').json()['values']['files'] == {}
+    assert client.get('/api/v1/artifacts').json()['data'] == []
 
 
 def test_native_followups_and_in_chat_oauth_are_explicitly_unavailable(harness):
@@ -453,3 +576,28 @@ def test_resume_replays_current_pending_tool_but_not_previous_completed_turn(har
     calls = [event['data'] for event in resumed if event['response_type'] == 'tool_call']
     assert calls == [{'tool_call_id': 'pending-current', 'tool_name': 'write_file',
                       'arguments': {'file_path': '/current.txt', 'content': 'current'}}]
+
+
+def test_artifact_delete_preserves_a_pending_native_approval(harness):
+    client, sid, model, _, approvals, *_ = harness
+    model.responses = [AIMessage(content='', tool_calls=[call('write_file', {
+        'file_path': '/keep.txt', 'content': 'existing file'}, 'write-kept')]), AIMessage(content='created')]
+    created = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': '先生成文件'}))
+    assert created[-1]['response_type'] == 'complete', created
+    item = client.get('/api/v1/artifacts').json()['data'][0]
+    model.responses = [AIMessage(content='', tool_calls=[call('write_file', {
+        'file_path': '/pending.txt', 'content': 'needs approval'}, 'pending-write')]), AIMessage(content='approved')]
+    approvals['write_file'] = True
+    pending = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': '等待审批'}))
+    assert any(event['response_type'] == 'tool_approval_required' for event in pending), pending
+    before = client.get(f'/api/v1/harness/sessions/{sid}/state').json()
+    model_calls = model.i
+    assert before['next']
+    params = {key: item[key] for key in ('session_id', 'message_id', 'index')}
+    assert client.delete('/api/v1/artifacts', params=params).status_code == 409
+    base = f"/api/v1/sessions/{sid}/messages/{item['message_id']}/artifacts/{item['index']}"
+    assert client.delete(base).status_code == 409
+    assert client.get(f'/api/v1/harness/sessions/{sid}/state').json() == before
+    assert client.get(base + '/download').content == b'existing file'
+    assert client.get('/api/v1/artifacts').json()['data'] == [item]
+    assert model.i == model_calls

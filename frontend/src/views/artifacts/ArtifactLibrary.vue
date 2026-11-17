@@ -400,8 +400,8 @@ function isDeleting(item: ArtifactLibraryItem) {
 }
 
 // A library row is the file, not one regeneration of it, so the confirmation
-// says how many versions go with it. The bytes are reclaimed server side, which
-// is why this asks at all.
+// says how many versions go with it. The matching current file is removed;
+// historical checkpoints remain, with downloads blocked for deleted versions.
 function handleDelete(item: ArtifactLibraryItem) {
   if (isDeleting(item)) return
   confirmDelete({
@@ -431,7 +431,7 @@ async function performDelete(item: ArtifactLibraryItem) {
     MessagePlugin.success(t('artifactLibrary.deleted'))
   } catch (err) {
     console.error('[ArtifactLibrary] delete failed:', err)
-    MessagePlugin.error(t('artifactLibrary.deleteFailed'))
+    MessagePlugin.error((err as { message?: string })?.message || t('artifactLibrary.deleteFailed'))
   } finally {
     deleting[key] = false
   }

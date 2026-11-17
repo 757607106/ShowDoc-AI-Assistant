@@ -1,0 +1,26 @@
+# Aegra v0.11.0, source commit 46055c0b9adffe51fb168974f79dfadaa6edd612.
+# All 102 Python source files match the released wheel.
+aegra-api @ https://files.pythonhosted.org/packages/cb/c8/fc48d38993d3df858953000e3e98fd884c3ffd6552b8c483424b7f87ac68/aegra_api-0.11.0-py3-none-any.whl#sha256=6d49695aecd4133289b9b0e84d39eb67f1fb7581cedcb1554405d93b580648d3
+deepagents==0.7.35
+langchain==1.5.0
+langchain-core==1.8.0
+langgraph==1.2.20
+langgraph-sdk==0.4.14
+langchain-openai==1.7.4
+langchain-litellm==0.11.1
+litellm==1.109.1
+openai<3
+langchain-mcp-adapters==0.3.2
+mcp==1.30.0
+langchain-sandbox-opensandbox==0.1.2
+opensandbox==1.2.1
+langgraph-checkpoint-postgres==3.2.0
+psycopg[binary,pool]==3.3.8
+requests==2.34.2
+urllib3<2
+cryptography==50.0.1
+itsdangerous==2.2.0
+jsonschema==4.26.0
+PyYAML==6.0.3
+uvicorn==0.54.0
+python-dotenv==1.0.0

@@ -1,19 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, onUnmounted, computed, watch, nextTick, h, type PropType } from "vue";
+import { ref, onMounted, onBeforeUnmount, onUnmounted, computed, watch, nextTick, h } from "vue";
 import { storeToRefs } from 'pinia';
 import { useRoute, useRouter } from 'vue-router';
 import { onBeforeRouteUpdate } from 'vue-router';
 import { MessagePlugin } from "tdesign-vue-next";
 import type { SendMessageOptions } from '@/utils/questionOrigin';
 import { useSettingsStore } from '@/stores/settings';
-import { useBrowserConnectionStore } from '@/stores/browserConnection';
 import { useUIStore } from '@/stores/ui';
-import BrowserIcon from '@/components/icons/BrowserIcon.vue';
 import { useMenuStore } from '@/stores/menu';
 import { listKnowledgeBases, searchKnowledge, batchQueryKnowledge, listKnowledgeTags } from '@/api/knowledge-base';
 import { listMCPServices, type MCPService } from '@/api/mcp-service';
 import { stopSession, transcribeVoice } from '@/api/chat';
-import type { SteerQueueItem } from '@/api/chat/steer';
 import { chatSubmitShortcut } from '@/utils/chatSubmitShortcut';
 import { loadPreference, savePreference, safeRemoveItem, userKey } from '@/composables/preferenceStorage';
 import { useOrganizationStore } from '@/stores/organization';
@@ -28,8 +25,9 @@ import { getRootZoom, rectToCssPx, cssViewportSize } from '@/utils/zoom';
 import { type ModelConfig } from '@/api/model';
 import {
   formatContextWindow,
-  isDefaultContextWindow,
+  isUnknownContextWindow,
   effectiveContextWindow,
+  modelContextWindow,
 } from '@/utils/contextWindow';
 import { type CustomAgent, BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID } from '@/api/agent';
 import { useChatResourcesStore } from '@/stores/chatResources';
@@ -58,7 +56,6 @@ import {
 } from '@/utils/agent-readiness';
 import { formatLocalizedList } from '@/utils/format-list';
 import { SKILL_ICON, type MentionItem, type MentionItemType, type MentionRequestItem } from '@/types/mention';
-import { toolboxLocation } from '@/config/toolbox';
 import { supportedLevels, levelLabelKey, levelFromLegacy, clampLevel, type ReasoningLevel } from '@/utils/reasoningEffort';
 import { customAgentStreamMode } from '@/utils/agent-mode';
 import { isVoiceInputSupported, useVoiceInput, type VoiceInputError } from '@/composables/useVoiceInput';
@@ -68,7 +65,6 @@ const route = useRoute();
 const router = useRouter();
 const settingsStore = useSettingsStore();
 const mentionAuth = useAuthStore();
-const browserConnection = useBrowserConnectionStore();
 const uiStore = useUIStore();
 const orgStore = useOrganizationStore();
 const menuStore = useMenuStore();
@@ -676,17 +672,6 @@ const props = defineProps({
     type: String,
     default: ''
   },
-  queuedSteers: {
-    type: Array as PropType<SteerQueueItem[]>,
-    default: () => []
-  },
-  // Only agent turns have a loop that can take a mid-run message. In a
-  // quick-answer session the composer keeps its old behaviour: Stop is the
-  // only action while a reply is streaming.
-  canSteer: {
-    type: Boolean,
-    default: false
-  }
 });
 
 const hostApprovalModeVisible = computed(() =>
@@ -1007,27 +992,6 @@ const isWebSearchReadinessKnown = computed(
   () => !settingsStore.selectedAgentSourceTenantId || selectedSharedAgent.value !== undefined
 );
 
-const browserSourceUnavailableHint = computed(() => {
-  if (!browserConnection.enabled) return 'localBrowser.unavailable';
-  if (browserConnection.device) return 'localBrowser.reconnectHint';
-  return 'localBrowser.settingsHint';
-});
-
-const openBrowserConnectionSettings = () => {
-  void router.push(toolboxLocation('browserconnection'));
-};
-
-const toggleBrowserSource = () => {
-  showMention.value = false;
-  showModelSelector.value = false;
-  showAgentModeSelector.value = false;
-  if (browserConnection.knownOffline) {
-    openBrowserConnectionSettings();
-    return;
-  }
-  settingsStore.toggleLocalBrowser(!settingsStore.isLocalBrowserEnabled);
-};
-
 const loadWebSearchConfig = async (force = false) => {
   try {
     await chatResources.ensureWebSearchProviders(force);
@@ -1322,25 +1286,25 @@ const modelDisplayName = (model: ModelConfig) => {
   return displayName || model.name;
 };
 
-const contextWindowTitle = (tokens?: number) => {
-  if (isDefaultContextWindow(tokens)) {
-    return t('model.editor.contextWindowDefaultHint', { value: formatContextWindow(tokens) });
+const contextWindowTitle = (tokens?: number | null) => {
+  if (isUnknownContextWindow(tokens)) {
+    return t('model.editor.contextWindowUnknown');
   }
   return t('model.editor.contextWindowTokens', { count: effectiveContextWindow(tokens) });
 };
 
 const selectedModelContextLabel = computed(() => {
   if (!composerModel.value) return '';
-  return formatContextWindow(composerModel.value.parameters?.context_window);
+  return formatContextWindow(modelContextWindow(composerModel.value), t('model.editor.contextWindowUnknown'));
 });
 
 const selectedModelContextIsDefault = computed(() => {
-  return isDefaultContextWindow(composerModel.value?.parameters?.context_window);
+  return isUnknownContextWindow(modelContextWindow(composerModel.value));
 });
 
 const selectedModelContextTitle = computed(() => {
   if (!composerModel.value) return '';
-  return contextWindowTitle(composerModel.value.parameters?.context_window);
+  return contextWindowTitle(modelContextWindow(composerModel.value));
 });
 
 const updateModelDropdownPosition = () => {
@@ -2141,7 +2105,7 @@ onMounted(() => {
   window.addEventListener('blur', onVoiceWindowBlur);
   document.addEventListener('visibilitychange', onVoiceVisibilityChange);
 
-  browserConnection.watchStatus();
+  void deploymentCapabilities.ensureLoaded();
 
   // 并行拉取；若 platform 已预取且缓存未过期则直接复用
   initChatModelSelection();
@@ -2218,7 +2182,6 @@ onUnmounted(() => {
   window.removeEventListener('keyup', onVoiceKeyup, true);
   window.removeEventListener('blur', onVoiceWindowBlur);
   document.removeEventListener('visibilitychange', onVoiceVisibilityChange);
-  if (!props.embeddedMode) browserConnection.unwatchStatus();
   window.removeEventListener(CHAT_FILE_DROP_EVENT, handleChatFileDrop as EventListener);
   document.removeEventListener('click', closeAgentModeSelector);
   document.removeEventListener('click', closeModelSelector);
@@ -2240,15 +2203,6 @@ watch(() => route.params.kbId, (newKbId) => {
   }
 });
 
-// 模型 / 联网搜索列表由设置页在写操作后直接写回 chatResources
-// （replaceModels / ensureWebSearchProviders(true)），这里读的是同一份快照，
-// 不再靠「设置弹窗关闭」「离开设置路由」两个信号各强刷一次。
-watch(() => uiStore.showSettingsModal, (visible, prevVisible) => {
-  if (prevVisible && !visible && !props.embeddedMode) {
-    void browserConnection.refresh();
-  }
-});
-
 watch([selectedKbIds, selectedFileIds], ([kbIds, fileIds]) => {
   if (!kbIds.length && !fileIds.length) {
     closeModelSelector();
@@ -2261,19 +2215,11 @@ const emit = defineEmits<{
   (e: 'stop-generation'): void;
   (e: 'stop-confirmed'): void;
   (e: 'stop-failed'): void;
-  // Running input defaults to after; the explicit shortcut/action steers.
-  // Empty input while replying shows Stop; typed text also shows Send.
-  (e: 'steer-msg', query: string, mentionedItems: MentionRequestItem[], delivery: 'inject' | 'after'): void;
-  (e: 'promote-steer', steerId: string): void;
-  (e: 'remove-steer', steerId: string): void;
-  (e: 'retry-steer', steerId: string): void;
 }>();
 
-// options ride along with this one send only: a send that returns early (or
-// steers into the running turn) drops them instead of leaving them behind.
+// Options belong to this send only; a rejected send must not consume the draft.
 const createSession = async (
   val: string,
-  delivery: 'inject' | 'after' = 'after',
   options: SendMessageOptions = {},
 ) => {
   if (props.composerLocked) {
@@ -2284,38 +2230,7 @@ const createSession = async (
     return;
   }
   if (props.isReplying) {
-    if (!props.canSteer) {
-      // Quick-answer turns have no round boundary to take a message at, and
-      // no follow-up handoff on teardown — queueing here would park the
-      // message until it expired. Stop first.
-      MessagePlugin.info(t('input.messages.replying'));
-      return;
-    }
-    // Queue the selected delivery mode until its next safe boundary.
-    // Attachments are intentionally not allowed on the steer path — the
-    // running turn already resolved its own scope.
-    if (uploadedAttachments.value.some(item => item.status === 'uploading')) {
-      MessagePlugin.warning(t('input.messages.steerAttachmentPending'));
-      return;
-    }
-    if (uploadedAttachments.value.length || uploadedImages.value.length) {
-      MessagePlugin.warning(t('input.messages.steerHasAttachments'));
-      return;
-    }
-    // Embedded scope belongs to the host, including queued and injected turns.
-    const steerMentions: MentionRequestItem[] = (props.embeddedMode ? [] : allSelectedItems.value).map(item => ({
-      id: item.id,
-      name: item.name,
-      type: item.type,
-      kb_type: item.type === 'kb' ? (item.kbType || 'document') : undefined,
-      kb_id: item.kbId,
-      kb_name: item.kbName,
-      service_id: item.serviceId,
-      skill_name: item.skillName,
-    }));
-    emit('steer-msg', val.trim(), steerMentions, delivery);
-    clearvalue();
-    void focusInput();
+    MessagePlugin.info(t('input.messages.replying'));
     return;
   }
   // Only block while the file is still uploading (no document ID yet). Once
@@ -2635,16 +2550,6 @@ const clearPendingUploads = () => {
   uploadedAttachments.value = [];
 }
 
-const steerShortcutLabel = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ Enter' : 'Alt+Enter';
-const firstQueuedSteer = computed(() => props.queuedSteers.find(item =>
-  item.delivery === 'after' && !item.pending && !item.promoting && !item.failed));
-const injectCurrentInput = () => {
-  if (props.composerLocked) return;
-  if (!props.isReplying || !props.canSteer) return;
-  if (query.value.trim()) void createSession(query.value, 'inject');
-  else if (firstQueuedSteer.value) emit('promote-steer', firstQueuedSteer.value.steer_id);
-};
-
 const onKeydown = (val: string, event: { e: KeyboardEvent }) => {
   if (isComposing.value || event.e.isComposing || event.e.keyCode === 229) return;
   if (showMention.value) {
@@ -2690,12 +2595,10 @@ const onKeydown = (val: string, event: { e: KeyboardEvent }) => {
     }
   }
 
-  const delivery = chatSubmitShortcut(event.e, props.isReplying && props.canSteer);
-  if (delivery) {
+  if (chatSubmitShortcut(event.e)) {
     event.e.preventDefault();
     if (props.composerLocked) return;
-    if (delivery === 'inject' && props.isReplying && props.canSteer) injectCurrentInput();
-    else void createSession(val, delivery);
+    void createSession(val);
   }
 }
 
@@ -2944,7 +2847,7 @@ defineExpose({
   triggerSend(text: string, options: SendMessageOptions = {}) {
     if (!text.trim()) return;
     query.value = text;
-    nextTick(() => createSession(text, 'after', options));
+    nextTick(() => createSession(text, options));
   },
   /**
    * Puts text in the composer WITHOUT sending it. Session fork uses this so
@@ -2962,31 +2865,6 @@ defineExpose({
     <!-- Hidden file input for image upload -->
     <input ref="imageInputRef" type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple
       style="display:none" @change="handleImageSelect" />
-    <!-- 队列紧贴输入框上方，不参与输入区的焦点高亮 -->
-    <div v-if="queuedSteers.length" class="steer-queue" role="list" :aria-label="$t('input.steerQueueWaiting')">
-      <div v-for="item in queuedSteers" :key="item.steer_id" class="steer-queue-item" role="listitem">
-        <t-tooltip :content="$t('input.steerAfter')">
-          <t-icon name="time" class="steer-queue-icon" :aria-label="$t('input.steerAfter')" />
-        </t-tooltip>
-        <span class="steer-queue-text" :title="item.content">{{ item.content }}</span>
-        <div class="steer-queue-actions">
-          <t-tooltip v-if="item.failed" :content="$t('input.steerRetry')">
-            <button type="button" class="steer-queue-action" :aria-label="$t('input.steerRetry')" @click="emit('retry-steer', item.steer_id)"><t-icon name="refresh" /></button>
-          </t-tooltip>
-          <t-icon v-else-if="item.pending" name="loading" class="steer-sending" :aria-label="$t('common.loading')" />
-          <t-tooltip v-else :content="`${$t('input.steerQueueSendNow')}${item.steer_id === firstQueuedSteer?.steer_id ? ` · ${steerShortcutLabel}` : ''}`">
-            <button type="button" class="steer-queue-action"
-              :aria-label="$t('input.steerQueueSendNow')" :disabled="item.promoting || item.pending"
-              @click="emit('promote-steer', item.steer_id)"><t-icon name="arrow-up" /></button>
-          </t-tooltip>
-          <t-tooltip :content="$t('common.remove')">
-            <button type="button" class="steer-queue-action steer-queue-remove"
-              :aria-label="$t('common.remove')" :disabled="item.promoting || item.pending"
-              @click="emit('remove-steer', item.steer_id)"><t-icon name="close" /></button>
-          </t-tooltip>
-        </div>
-      </div>
-    </div>
     <div class="rich-input-container" data-guide="chat-input">
       <!-- 图片预览区域 -->
       <div v-if="uploadedImages.length > 0" class="image-preview-bar">
@@ -3057,31 +2935,6 @@ defineExpose({
             @close="closeAgentModeSelector" @select="handleSelectAgent" @not-ready="handleAgentNotReady" />
 
           <HostApprovalModeSelect v-if="hostApprovalModeVisible && sessionId" :session-id="sessionId" />
-
-          <t-tooltip v-if="settingsStore.isAgentStreamMode" placement="top" theme="light"
-            :popupProps="{ overlayClassName: 'input-field-tooltip' }">
-            <template #content>
-              <div v-if="!browserConnection.knownOffline" class="browser-source-tooltip">
-                <strong>{{ $t('localBrowser.local') }}</strong>
-                <span>{{ $t('localBrowser.sourceHint') }}</span>
-              </div>
-              <div v-else class="tooltip-with-link">
-                <span>{{ $t(browserSourceUnavailableHint) }}</span>
-                <a href="#" @click.prevent="openBrowserConnectionSettings">{{ $t('localBrowser.openSettings') }}</a>
-              </div>
-            </template>
-            <button type="button" class="control-btn browser-source-btn"
-              :class="{
-                active: settingsStore.isLocalBrowserEnabled && browserConnection.online,
-                disabled: browserConnection.knownOffline,
-              }"
-              :aria-pressed="settingsStore.isLocalBrowserEnabled && browserConnection.online"
-              :aria-disabled="browserConnection.knownOffline"
-              :aria-label="$t('localBrowser.local')"
-              @click.stop="toggleBrowserSource">
-              <BrowserIcon class="control-icon" />
-            </button>
-          </t-tooltip>
 
           <!-- WebSearch 开关按钮（智能体未启用时不显示） -->
           <t-tooltip v-if="showWebSearchButton" placement="top" theme="light"
@@ -3298,9 +3151,9 @@ defineExpose({
                   </div>
                   <span
                     class="model-option-ctx"
-                    :class="{ 'is-default': isDefaultContextWindow(model.parameters?.context_window) }"
-                    :title="contextWindowTitle(model.parameters?.context_window)"
-                  >{{ formatContextWindow(model.parameters?.context_window) }}</span>
+                    :class="{ 'is-default': isUnknownContextWindow(modelContextWindow(model)) }"
+                    :title="contextWindowTitle(modelContextWindow(model))"
+                  >{{ formatContextWindow(modelContextWindow(model), $t('model.editor.contextWindowUnknown')) }}</span>
                   <span class="model-option-check">
                     <t-icon v-if="model.id === composerModelId" name="check" size="14px" />
                   </span>
@@ -3313,17 +3166,17 @@ defineExpose({
           </div>
         </Teleport>
 
-        <!-- 右侧控制：回复中且输入为空是停止，一旦输入新内容同一位置变成发送 -->
+        <!-- 右侧控制：回复中显示停止，其余时间显示发送 -->
         <div class="control-right">
-          <t-tooltip v-if="isReplying && (!canSteer || !query.trim())" :content="$t('input.stopGeneration')" placement="top">
+          <t-tooltip v-if="isReplying" :content="$t('input.stopGeneration')" placement="top">
             <button type="button" @click="handleStop" class="control-btn stop-btn" :aria-label="$t('input.stopGeneration')">
               <t-icon name="stop" />
             </button>
           </t-tooltip>
-          <t-tooltip v-else :content="`${isReplying && canSteer ? $t('input.steerAfter') : $t('input.send')} · Enter`">
+          <t-tooltip v-else :content="`${$t('input.send')} · Enter`">
             <button type="button" @click="createSession(query)" class="control-btn send-btn" data-guide="chat-send"
               :disabled="!query.trim() || composerLocked" :class="{ 'disabled': !query.trim() || composerLocked }"
-              :aria-label="isReplying && canSteer ? $t('input.steerAfter') : $t('input.send')">
+              :aria-label="$t('input.send')">
               <t-icon name="arrow-up" />
             </button>
           </t-tooltip>
@@ -3375,79 +3228,11 @@ const getImgSrc = (url: string) => {
     transform: none;
     z-index: auto;
 
-    .rich-input-container,
-    .steer-queue {
+    .rich-input-container {
       max-width: 100%;
     }
   }
 }
-
-.steer-queue {
-  width: calc(100% - 24px);
-  max-width: 936px;
-  box-sizing: border-box;
-  max-height: 140px;
-  overflow-y: auto;
-  background: var(--td-bg-color-secondarycontainer);
-  border: 1px solid var(--td-component-stroke);
-  border-bottom: 0;
-  border-radius: 10px 10px 0 0;
-}
-
-.steer-queue-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-}
-
-.steer-queue-item + .steer-queue-item {
-  border-top: 1px solid var(--td-component-stroke);
-}
-
-.steer-queue-text {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--app-text-md);
-  line-height: 1.5;
-  color: var(--td-text-color-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.steer-queue-actions {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 4px;
-}
-
-.steer-queue-icon {
-  flex-shrink: 0;
-  font-size: var(--app-text-base);
-  color: var(--td-text-color-secondary);
-}
-
-.steer-queue-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--app-radius-sm);
-  background: transparent;
-  color: var(--td-text-color-secondary);
-  font-size: var(--app-text-xl);
-  cursor: pointer;
-  &:hover:not(:disabled) { background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-primary); }
-  &:disabled { opacity: 0.4; cursor: default; }
-}
-
-.steer-sending { animation: wk-spin 1s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .steer-sending { animation: none; } }
 
 /* 富文本输入框容器 */
 .rich-input-container {
@@ -4004,44 +3789,6 @@ const getImgSrc = (url: string) => {
     &:hover {
       background: rgba(0, 0, 0, 0.7);
     }
-  }
-}
-
-.browser-source-btn {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  background: transparent;
-
-  &:hover:not(.disabled):not(.active) {
-    color: var(--td-text-color-primary);
-  }
-
-  &.active {
-    color: var(--td-brand-color);
-    background: var(--td-bg-color-secondarycontainer);
-
-    &:hover {
-      color: var(--td-brand-color);
-      background: var(--td-bg-color-secondarycontainer);
-    }
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--td-brand-color);
-    outline-offset: 2px;
-  }
-}
-
-.browser-source-tooltip {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 240px;
-  line-height: 1.5;
-
-  strong {
-    font-weight: 500;
   }
 }
 

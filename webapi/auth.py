@@ -6,7 +6,6 @@ import secrets
 import unicodedata
 import uuid
 
-from cryptography.fernet import Fernet
 from flask import Blueprint, current_app, g, has_request_context, jsonify, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -14,6 +13,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from governance.database import connection, initialize
 from governance.store import StoreError
 from integrations.contextdb import ContextDBClient
+from agent.credentials import cipher
 
 auth_bp = Blueprint('auth', __name__)
 DEFAULT_BROWSER_SEARCH_INSTRUCTIONS = 'Default search engine: Bing.\nSearch URL: https://www.bing.com/search?q={query}'
@@ -24,13 +24,6 @@ PUBLIC_PATHS = {
     '/api/v1/auth/config',
     '/api/v1/mcp-oauth/callback',
 }
-
-
-def cipher():
-    key = os.getenv('CREDENTIAL_ENCRYPTION_KEY', '')
-    if not key:
-        raise StoreError('CREDENTIAL_ENCRYPTION_KEY 未配置', 503)
-    return Fernet(key.encode())
 
 
 def user_id():
@@ -114,7 +107,8 @@ def require_login():
         read_posts = ('/search', '/chat', '/query', '/load')
         batch_download = request.method == 'POST' and re.fullmatch(r'/api/v1/knowledge-bases/[^/]+/knowledge/batch-download', request.path)
         revoke_grant = request.method == 'DELETE' and request.path.startswith('/api/v1/agent/grants/')
-        personal = request.path.startswith(('/api/v1/me/env-vars/', '/api/v1/memory/', '/api/v1/agent/mcp-oauth-resolutions/'))
+        personal = (request.path.startswith(('/api/v1/me/env-vars/', '/api/v1/memory/', '/api/v1/agent/mcp-oauth-resolutions/'))
+                    or request.method == 'PUT' and request.path == '/api/v1/tenants/kv/default-settings')
         oauth = bool(re.fullmatch(r'/api/v1/mcp-services/[^/]+/oauth/(authorize-url|token)', request.path))
         metadata = re.fullmatch(r'/api/v1/mcp-services/([^/]+)/metadata/refresh', request.path)
         if metadata and request.method == 'POST':

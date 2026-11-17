@@ -184,6 +184,7 @@ import { createSessions, getSessionsList, getSession, type SessionSummary } from
 import { classifyDateBucket } from '@/components/sessionGrouping'
 import { BUILTIN_WEKNORA_ASSISTANT_ID } from '@/api/agent'
 import { useAuthStore } from '@/stores/auth'
+import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities'
 import { useAssistantDataChange } from '@/utils/assistantDataChange'
 import {
   ASSISTANT_PANEL_MAX_WIDTH,
@@ -202,6 +203,7 @@ const childTabs = createChildAgentTabs()
 provide(childAgentTabsKey, childTabs)
 const assistant = useAssistantStore()
 const auth = useAuthStore()
+const deploymentCapabilities = useDeploymentCapabilitiesStore()
 useAssistantDataChange(() => { void auth.refreshFromAuthMe() }, { areas: ['workspace'] })
 const conversationOwner = computed(() => `${auth.user?.id}:${auth.effectiveTenantId}`)
 const assistantName = computed(() => assistant.displayName || t('assistant.title'))
@@ -364,7 +366,7 @@ const welcomeContent = computed(() => {
     description: t('assistant.welcomeDescriptions.mcp'),
     starters: [t('assistant.starters.mcpFind'), t('assistant.starters.mcpSetup'), t('assistant.starters.mcpExamples')],
   }
-  if (route.name === 'toolbox' && route.params.section === 'browserconnection') return {
+  if (route.name === 'toolbox' && route.params.section === 'browserconnection' && deploymentCapabilities.isSupported('agents.browser')) return {
     description: t('assistant.welcomeDescriptions.browser'),
     starters: [t('assistant.starters.browserConnect'), t('assistant.starters.browserTasks'), t('assistant.starters.browserReconnect')],
   }

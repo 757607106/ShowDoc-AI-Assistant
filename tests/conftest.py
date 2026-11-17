@@ -76,6 +76,7 @@ def agent_test_database(postgres_admin_database):
 
 @pytest.fixture(autouse=True)
 def isolate_contextdb(monkeypatch, request, tmp_path):
+    monkeypatch.delenv('PLATFORM_DATABASE_URL', raising=False)
     # Use the pinned SDK's real tokenizer data; isolated captures must not download it.
     tokenizer_cache = Path(find_spec('litellm').origin).parent / 'litellm_core_utils' / 'tokenizers'
     assert (tokenizer_cache / '9b5ad71b2ce5302211f9c61530b329a4922fc6a4').is_file()

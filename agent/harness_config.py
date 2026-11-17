@@ -43,6 +43,15 @@ def prepare_harness_files(owner_id, agent_config, existing_files=None):
                 files[f'/skills/{name}/{relative}'] = create_file_data(raw.decode('utf-8'))
             except UnicodeDecodeError:
                 files[f'/skills/{name}/{relative}'] = create_file_data(base64.b64encode(raw).decode('ascii'), encoding='base64')
+    for child in agent_config.get('subagents', []):
+        selected_skills = child.get('selected_skills')
+        if selected_skills is None:
+            continue
+        if set(selected_skills) - {skill['name'] for skill in skills}:
+            raise StoreError('子代理只能选择主 Agent 已授权的技能', 403)
+        for path, item in list(files.items()):
+            if path.startswith('/skills/') and path.split('/')[2] in selected_skills:
+                files[f'/subagent-skills/{child["name"]}/{path.removeprefix("/skills/")}'] = item
     files.update({path: None for path in (existing_files or {})
-                  if path.startswith('/skills/') and path not in files})
+                  if path.startswith(('/skills/', '/subagent-skills/')) and path not in files})
     return files

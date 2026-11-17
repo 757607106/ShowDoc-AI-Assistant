@@ -110,15 +110,12 @@ test('a prompt answered on this page leaves the dock before the stream confirms 
   assert.deepEqual(promptSubmission('answered-here'), { approved: true })
 })
 
-test('both chat views mount the dock above their composer and feed it their messages', () => {
+test('the shared chat view mounts the dock above its composer and feeds it messages', () => {
   const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
   const chat = read('../views/chat/index.vue')
   assert.match(chat, /providePromptDock\(messagesList\)/)
   assert.match(chat, /<PendingPromptDock[^>]*\/>[\s\S]*?<InputField/)
 
-  const embed = read('../views/embed/EmbedChatCore.vue')
-  assert.match(embed, /providePromptDock\(messagesList\)/)
-  assert.match(embed, /<PendingPromptDock[\s\S]*?:embed-session-sig="sessionSig"[\s\S]*?\/>\s*<EmbedInputField/)
 })
 
 test('option keys are letters, and a letter key picks its option', () => {
@@ -163,16 +160,21 @@ test('the approval handler does not approve when Enter targets Reject', () => {
   const card = readFileSync(new URL('../views/chat/components/ToolApprovalCard.vue', import.meta.url), 'utf8')
   const handler = card.slice(card.indexOf('const handleKey ='), card.indexOf('defineExpose'))
   const decisions = []
+  let mayApprove = true
   const compiled = ts.transpileModule(handler, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
   const handleKey = vm.runInNewContext(compiled + '\nhandleKey', {
     interactive: { value: true }, isJsonValid: { value: true }, isSubmitKey,
     submit: (decision) => decisions.push(decision),
+    canDecide: () => mayApprove,
   })
   const key = { key: 'Enter', shiftKey: false, isComposing: false, keyCode: 13,
     target: { tagName: 'BUTTON', closest: () => ({ textContent: 'Reject' }) } }
   assert.equal(handleKey(key), false)
   assert.deepEqual(decisions, [])
   assert.equal(handleKey({ ...key, target: { tagName: 'SECTION', closest: () => null } }), true)
+  assert.deepEqual(decisions, ['approve'])
+  mayApprove = false
+  assert.equal(handleKey({ ...key, target: { tagName: 'SECTION', closest: () => null } }), false)
   assert.deepEqual(decisions, ['approve'])
 })
 

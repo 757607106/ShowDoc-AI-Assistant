@@ -11,15 +11,17 @@ from datetime import datetime, timezone
 
 platform_bp = Blueprint('platform', __name__)
 DISABLED = ('organizations', 'integrations.im', 'integrations.embed', 'integrations.api',
-            'integrations.mcpserver', 'settings.mcp', 'settings.websearch', 'settings.vectorstore',
+            'integrations.mcpserver', 'settings.mcp', 'settings.assistant', 'settings.websearch', 'settings.vectorstore',
             'settings.storage', 'settings.sandbox', 'settings.sandbox.docker', 'settings.sandbox.host',
-            'settings.sandbox.remote', 'settings.sandbox.user_allocation')
+            'settings.sandbox.remote', 'settings.sandbox.user_allocation', 'agents.steering', 'agents.browser')
 
 
 @platform_bp.route('/api/v1/system/capabilities')
 def deployment_capabilities():
     values = {key: {'supported': False, 'reason': '当前平台未启用此功能'} for key in DISABLED}
     values['agents'] = {'supported': True}
+    from agent.async_runtime import enabled
+    values['agents.async'] = {'supported': enabled(), 'reason': '' if enabled() else '异步运行服务尚未部署启用'}
     for key in ('settings.mcp', 'settings.sandbox', 'settings.sandbox.state'):
         values[key] = {'supported': True}
     return jsonify(success=True, data={'edition': 'contextdb', 'capabilities': values})

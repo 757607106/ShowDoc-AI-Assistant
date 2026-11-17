@@ -6,10 +6,9 @@ import ts from 'typescript'
 import * as vue from 'vue'
 import * as citationMarkdown from '../utils/citationMarkdown.ts'
 import type { useChatCitationPopover } from './useChatCitationPopover.ts'
-import type { useEmbedCitationPopover } from './useEmbedCitationPopover.ts'
 
 const compiled = new Map<string, string>()
-for (const file of ['useCitationPopover', 'useChatCitationPopover', 'useEmbedCitationPopover', '../utils/citationChunkCache']) {
+for (const file of ['useCitationPopover', 'useChatCitationPopover', '../utils/citationChunkCache']) {
   compiled.set(file, ts.transpileModule(readFileSync(new URL(`${file}.ts`, import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText)
@@ -50,7 +49,7 @@ test('ContextDB click and hover require exact scoped evidence and load the match
     { id: 'opaque:1', knowledge_base_id: 'kb-a', knowledge_id: 'doc-a', knowledge_title: 'Document' },
     { id: 'opaque:1', knowledge_base_id: 'kb-b', knowledge_id: 'doc-b', knowledge_title: 'Document' },
   ]
-  const f = fixture('chat', { contextdb: true, refs }); t.after(f.close)
+  const f = fixture({ contextdb: true, refs }); t.after(f.close)
   const citation = (id: string, kbId: string) => new Element('citation-kb', {
     'data-chunk-id': id, 'data-kb-id': kbId, 'data-doc': 'Document',
   })
@@ -69,7 +68,7 @@ test('ContextDB click and hover require exact scoped evidence and load the match
   assert.equal(f.requests.length, 2, 'stale citation nodes cannot fetch without current evidence')
 })
 
-function fixture(mode: 'chat' | 'embed', options: { contextdb?: boolean; drawer?: boolean; refs?: citationMarkdown.CitationKnowledgeRef[] } = {}) {
+function fixture(options: { contextdb?: boolean; drawer?: boolean; refs?: citationMarkdown.CitationKnowledgeRef[] } = {}) {
   const timers = new Map<number, { at: number; callback: () => void }>()
   let now = 0, nextId = 0, hovered = false
   const win = Object.assign(new Element(), {
@@ -113,7 +112,7 @@ function fixture(mode: 'chat' | 'embed', options: { contextdb?: boolean; drawer?
     })
     return exports
   }
-  const channel = vue.ref(mode === 'embed' ? 'channel' : ''), token = vue.ref(mode === 'embed' ? 'token' : '')
+  const channel = vue.ref(''), token = vue.ref('')
   const session = vue.ref('session-a'), refs = vue.ref(options.refs || [])
   const root = vue.shallowRef<HTMLElement | null>(new Element() as unknown as HTMLElement)
   let state!: ReturnType<typeof useChatCitationPopover>
@@ -123,11 +122,9 @@ function fixture(mode: 'chat' | 'embed', options: { contextdb?: boolean; drawer?
   })
   const app = renderer.createApp({ setup() {
     const common = { getKnowledgeReferences: () => refs.value }
-    state = mode === 'chat'
-      ? (load('useChatCitationPopover').useChatCitationPopover as typeof useChatCitationPopover)(root, {
+    state = (load('useChatCitationPopover').useChatCitationPopover as typeof useChatCitationPopover)(root, {
         ...common, sessionId: () => session.value, embedChannelId: () => channel.value, embedToken: () => token.value,
       })
-      : (load('useEmbedCitationPopover').useEmbedCitationPopover as typeof useEmbedCitationPopover)(root, channel, token, common)
     return () => null
   } })
   app.mount({})
@@ -139,9 +136,9 @@ function fixture(mode: 'chat' | 'embed', options: { contextdb?: boolean; drawer?
   }
 }
 
-for (const mode of ['chat', 'embed'] as const) {
+for (const mode of ['chat'] as const) {
   test(`${mode}: hover delay, positioning, cancellation and popup close share one timer`, async t => {
-    const f = fixture(mode); t.after(f.close)
+    const f = fixture(); t.after(f.close)
     f.fire('mouseover', kb()); f.tick(79)
     assert.equal(f.requests.length, 0)
     f.fire('mouseout', kb()); f.tick(200)
@@ -170,7 +167,7 @@ for (const mode of ['chat', 'embed'] as const) {
   })
 
   test(`${mode}: late responses cannot overwrite newer citations or cached results`, async t => {
-    const f = fixture(mode); t.after(f.close)
+    const f = fixture(); t.after(f.close)
     f.fire('click', kb('a')); f.fire('click', kb('b'))
     f.requests[0]!.pending.resolve('old'); await flush()
     assert.equal(f.state.float.value.loading, true)
@@ -188,7 +185,7 @@ for (const mode of ['chat', 'embed'] as const) {
   })
 
   test(`${mode}: concurrent opens share one request and 404 remains cached`, async t => {
-    const f = fixture(mode); t.after(f.close)
+    const f = fixture(); t.after(f.close)
     f.fire('click', kb('missing')); f.fire('click', kb('missing'))
     f.fire('mouseover', kb('missing')); f.tick(80)
     assert.equal(f.requests.length, 1)
@@ -200,7 +197,7 @@ for (const mode of ['chat', 'embed'] as const) {
   })
 
   test(`${mode}: hover retries a transient failure only after cooldown`, async t => {
-    const f = fixture(mode); t.after(f.close)
+    const f = fixture(); t.after(f.close)
     f.fire('mouseover', kb()); f.tick(80)
     f.requests[0]!.pending.reject(new Error('offline')); await flush()
     f.fire('mouseover', kb()); f.tick(80)
@@ -213,11 +210,11 @@ for (const mode of ['chat', 'embed'] as const) {
   })
 
   test(`${mode}: a scope change cannot reuse or cache an older request`, async t => {
-    const f = fixture(mode); t.after(f.close)
+    const f = fixture(); t.after(f.close)
     f.fire('click', kb())
-    if (mode === 'chat') f.session.value = 'other'; else f.token.value = 'other'
+    f.session.value = 'other'
     f.fire('click', kb())
-    if (mode === 'chat') f.session.value = 'session-a'; else f.token.value = 'token'
+    f.session.value = 'session-a'
     f.fire('click', kb())
     assert.equal(f.requests.length, 3)
     f.requests[0]!.pending.resolve('stale'); await flush()
@@ -227,7 +224,7 @@ for (const mode of ['chat', 'embed'] as const) {
   })
 
   test(`${mode}: root replacement detaches listeners and discards pending hovers and loads`, async t => {
-    const f = fixture(mode); t.after(f.close)
+    const f = fixture(); t.after(f.close)
     const oldRoot = f.root.value as unknown as Element
     f.fire('click', kb()); f.fire('mouseover', web())
     f.root.value = new Element() as unknown as HTMLElement
@@ -247,7 +244,7 @@ for (const mode of ['chat', 'embed'] as const) {
   })
 
   test(`${mode}: unmount clears timers and listeners and ignores late responses`, async () => {
-    const f = fixture(mode), root = f.root.value as unknown as Element
+    const f = fixture(), root = f.root.value as unknown as Element
     f.fire('click', kb()); f.fire('mouseover', web()); f.state.scheduleClose(); f.close()
     assert.equal(f.timers.size, 0)
     assert.equal(root.listenerCount, 0)
@@ -260,7 +257,7 @@ for (const mode of ['chat', 'embed'] as const) {
   })
 
   test(`${mode}: drawer resolves aliases and web highlights while preserving wiki policy`, t => {
-    const f = fixture(mode, { drawer: true, refs: [{ id: 'resolved-chunk', knowledge_title: 'Document' }] }); t.after(f.close)
+    const f = fixture({ drawer: true, refs: [{ id: 'resolved-chunk', knowledge_title: 'Document' }] }); t.after(f.close)
     const event = f.fire('click', kb('DOC-1'))
     assert.equal(event.prevented && event.stopped, true)
     assert.equal(f.drawerCalls[0].highlight.chunkId, 'resolved-chunk')
@@ -269,14 +266,14 @@ for (const mode of ['chat', 'embed'] as const) {
     assert.equal(f.drawerCalls[1].highlight.url, 'https://example.com/source')
     assert.equal(f.requests.length, 0)
     const wiki = f.fire('click', new Element('citation-wiki'))
-    assert.equal(wiki.prevented, mode === 'embed')
-    assert.equal(wiki.stopped, mode === 'embed')
+    assert.equal(wiki.prevented, false)
+    assert.equal(wiki.stopped, false)
     f.refs.value = []; f.fire('click', kb())
     assert.equal(f.requests.length, 1, 'empty reference lists fall back to the popup')
   })
 
   test(`${mode}: opening the drawer cancels pending and in-flight popovers`, async t => {
-    const f = fixture(mode, { drawer: true, refs: [{ id: 'chunk', knowledge_title: 'Document' }] }); t.after(f.close)
+    const f = fixture({ drawer: true, refs: [{ id: 'chunk', knowledge_title: 'Document' }] }); t.after(f.close)
     f.fire('mouseover', kb()); f.fire('click', kb()); f.tick(100)
     assert.equal(f.drawerCalls.length, 1)
     assert.equal(f.requests.length, 0, 'pending KB hover was cancelled')
@@ -296,16 +293,16 @@ for (const mode of ['chat', 'embed'] as const) {
   })
 
   test(`${mode}: hover ID resolution and empty/error cache policies remain compatible`, async t => {
-    const f = fixture(mode, { refs: [{ id: 'resolved-chunk', knowledge_title: 'Document' }] }); t.after(f.close)
+    const f = fixture({ refs: [{ id: 'resolved-chunk', knowledge_title: 'Document' }] }); t.after(f.close)
     f.fire('mouseover', kb('DOC-1')); f.tick(80)
-    assert.equal(f.requests[0]!.args.at(-1), mode === 'chat' ? 'resolved-chunk' : 'DOC-1')
+    assert.equal(f.requests[0]!.args.at(-1), 'resolved-chunk')
     f.requests[0]!.pending.resolve('  '); await flush()
-    assert.equal(f.state.float.value.error, mode === 'chat' ? 'agentStream.citation.notFound' : '')
+    assert.equal(f.state.float.value.error, 'agentStream.citation.notFound')
     f.fire('click', kb('DOC-1'))
     assert.equal(f.requests.length, 1, 'empty results are cached')
     f.refs.value = []; f.fire('click', kb('failed'))
     f.requests[1]!.pending.reject(new Error('failure')); await flush()
-    assert.equal(f.state.float.value.error, mode === 'chat' ? 'agentStream.citation.loadFailed' : 'Failed to load')
+    assert.equal(f.state.float.value.error, 'agentStream.citation.loadFailed')
     f.fire('mouseover', kb('failed')); f.tick(80)
     assert.equal(f.requests.length, 2, 'hover does not repeatedly retry')
     f.fire('click', kb('failed'))
@@ -322,7 +319,7 @@ for (const mode of ['chat', 'embed'] as const) {
 }
 
 test('chat citation supplies its official document ID for chunk lookup', async t => {
-  const f = fixture('chat', { refs: [{ id: 'chunk', knowledge_id: 'document', knowledge_title: 'Source.md' }] }); t.after(f.close)
+  const f = fixture({ refs: [{ id: 'chunk', knowledge_id: 'document', knowledge_title: 'Source.md' }] }); t.after(f.close)
   f.fire('click', kb())
   assert.deepEqual(f.requests[0]!.args, ['chunk', 'document'])
   f.requests[0]!.pending.resolve('official evidence'); await flush()
@@ -330,7 +327,7 @@ test('chat citation supplies its official document ID for chunk lookup', async t
 })
 
 test('chat sessions isolate cached content and invalidate in-flight requests on scope change', async t => {
-  const f = fixture('chat'); t.after(f.close)
+  const f = fixture(); t.after(f.close)
   f.fire('click', kb()); f.requests[0]!.pending.resolve('session a'); await flush()
   assert.deepEqual(f.requests[0]!.args, ['chunk'])
   assert.equal(f.requests[0]!.route, 'chat')
@@ -347,9 +344,9 @@ test('chat sessions isolate cached content and invalidate in-flight requests on 
   assert.equal(f.cache.getCitationChunkCache('default', 'chunk').content, 'default')
 })
 
-test('embed scopes include channel and token for both entry points and preserve API routing', async t => {
-  for (const mode of ['chat', 'embed'] as const) {
-    const f = fixture(mode); t.after(f.close)
+test('chat citation embed scopes include channel and token and preserve API routing', async t => {
+  for (const mode of ['chat'] as const) {
+    const f = fixture(); t.after(f.close)
     f.channel.value = 'channel-a'; f.token.value = 'token-a'
     f.fire('click', kb()); f.requests[0]!.pending.resolve('a'); await flush()
     assert.equal(f.requests[0]!.route, 'embed')
@@ -365,17 +362,16 @@ test('embed scopes include channel and token for both entry points and preserve 
     assert.equal(f.state.float.value.content, 'a')
     f.token.value = ''; f.fire('click', kb())
     assert.equal(f.requests[3]!.route, mode, 'standalone embed never falls back to the normal API')
-    if (mode === 'embed') assert.deepEqual(f.requests[3]!.args, ['channel-a', '', 'chunk'])
   }
 })
 
 test('only chat observes viewport changes and keeps hovered popups open', t => {
-  for (const mode of ['chat', 'embed'] as const) {
-    const f = fixture(mode); t.after(f.close)
+  for (const mode of ['chat'] as const) {
+    const f = fixture(); t.after(f.close)
     f.fire('click', web()); f.win.fire('scroll'); f.tick(120)
-    assert.equal(f.state.float.value.visible, mode === 'embed')
+    assert.equal(f.state.float.value.visible, false)
     f.fire('click', web()); f.setHovered(true); f.state.scheduleClose(); f.tick(120)
-    assert.equal(f.state.float.value.visible, mode === 'chat')
+    assert.equal(f.state.float.value.visible, true)
     f.setHovered(false); f.win.fire('resize'); f.tick(120)
     assert.equal(f.state.float.value.visible, false)
   }

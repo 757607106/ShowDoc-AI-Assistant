@@ -16,9 +16,9 @@
           <span class="selected-model__name">{{ modelDisplayName(selectedModel) }}</span>
           <span
             class="model-ctx"
-            :class="{ 'model-ctx--default': isDefaultContextWindow(selectedModel.parameters?.context_window) }"
-            :title="contextWindowTitle(selectedModel.parameters?.context_window)"
-          >{{ formatContextWindow(selectedModel.parameters?.context_window) }}</span>
+            :class="{ 'model-ctx--default': isUnknownContextWindow(modelContextWindow(selectedModel)) }"
+            :title="contextWindowTitle(modelContextWindow(selectedModel))"
+          >{{ formatContextWindow(modelContextWindow(selectedModel), t('model.editor.contextWindowUnknown')) }}</span>
         </span>
       </template>
       <!-- 已有的模型选项 -->
@@ -37,9 +37,9 @@
           <span
             v-if="showContextWindow"
             class="model-ctx"
-            :class="{ 'model-ctx--default': isDefaultContextWindow(model.parameters?.context_window) }"
-            :title="contextWindowTitle(model.parameters?.context_window)"
-          >{{ formatContextWindow(model.parameters?.context_window) }}</span>
+            :class="{ 'model-ctx--default': isUnknownContextWindow(modelContextWindow(model)) }"
+            :title="contextWindowTitle(modelContextWindow(model))"
+          >{{ formatContextWindow(modelContextWindow(model), t('model.editor.contextWindowUnknown')) }}</span>
         </div>
       </t-option>
       
@@ -68,7 +68,8 @@ import { filterModelsByType } from './modelSelectorFilter'
 import { isDefaultModelForType } from '@/utils/modelDefaults'
 import {
   formatContextWindow,
-  isDefaultContextWindow,
+  isUnknownContextWindow,
+  modelContextWindow,
   effectiveContextWindow,
   modelHasContextWindow,
 } from '@/utils/contextWindow'
@@ -112,9 +113,9 @@ const modelDisplayName = (model: ModelConfig) => {
 
 const showContextWindow = computed(() => modelHasContextWindow(props.modelType))
 
-const contextWindowTitle = (tokens?: number) => {
-  if (isDefaultContextWindow(tokens)) {
-    return t('model.editor.contextWindowDefaultHint', { value: formatContextWindow(tokens) })
+const contextWindowTitle = (tokens?: number | null) => {
+  if (isUnknownContextWindow(tokens)) {
+    return t('model.editor.contextWindowUnknown')
   }
   return t('model.editor.contextWindowTokens', { count: effectiveContextWindow(tokens) })
 }

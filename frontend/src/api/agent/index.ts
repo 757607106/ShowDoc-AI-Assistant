@@ -31,8 +31,40 @@ export interface QuestionSuggestionConfig {
   };
 }
 
+export type AgentJSONSchema = Record<string, unknown>;
+export interface AgentFilePermission {
+  operations: Array<'read' | 'write'>;
+  paths: string[];
+  mode?: 'allow' | 'deny' | 'interrupt';
+}
+export type AgentInterruptConfig = Record<string, boolean | {
+  allowed_decisions: Array<'approve' | 'edit' | 'reject' | 'respond'>;
+  description?: string;
+}>;
+export interface NativeSubagentConfig {
+  name: string;
+  description: string;
+  execution_mode?: 'sync' | 'async';
+  update_strategy?: 'interrupt' | 'enqueue';
+  // Experimental: copies the parent's conversation history when launching an async task.
+  mode?: 'isolated' | 'fork';
+  model_id?: string;
+  system_prompt?: string;
+  // Missing/null inherits the parent; [] explicitly disables optional tools/skills.
+  allowed_tools?: string[] | null;
+  selected_skills?: string[] | null;
+  access_level?: AssistantAccessLevel;
+  response_format?: AgentJSONSchema | null;
+  permissions?: Array<AgentFilePermission & { mode: 'deny' }>;
+  interrupt_on?: AgentInterruptConfig;
+}
+
 export interface CustomAgentConfig {
   retrieval_provider?: 'contextdb';
+  response_format?: AgentJSONSchema | null;
+  subagents?: NativeSubagentConfig[];
+  permissions?: AgentFilePermission[];
+  interrupt_on?: AgentInterruptConfig;
   // ===== 基础设置 =====
   agent_mode?: 'quick-answer' | 'smart-reasoning';  // 运行模式：quick-answer=RAG模式, smart-reasoning=ReAct Agent模式
   // 智能推理模式下的类型预设，用于一键应用"系统提示词 + 工具 + KB 兼容性"组合
@@ -117,6 +149,7 @@ export interface CustomAgentConfig {
   // ===== 多轮对话设置 =====
   multi_turn_enabled?: boolean;     // 是否启用多轮对话
   history_turns?: number;           // 保留历史轮数
+  retain_retrieval_history?: boolean;
 
   // ===== 长期记忆 =====
   // 该智能体是否可以读取用户的长期记忆。
@@ -159,6 +192,7 @@ export interface CustomAgent {
   // creator_name 由后端 list 接口批量回填，仅用于列表卡片来源徽章。
   creator_name?: string;
   config: CustomAgentConfig;
+  config_issues?: Array<{ field: string; message: string }>;
   created_at?: string;
   updated_at?: string;
 }
@@ -311,8 +345,14 @@ export interface AgentTypePreset {
 }
 
 // 拉取类型预设列表（编辑器用）
+export type AgentRuntimeDefaults = Record<'quick-answer' | 'smart-reasoning', CustomAgentConfig>;
+
 export function getAgentTypePresets() {
-  return get<{ data: AgentTypePreset[] }>('/api/v1/agents/type-presets');
+  return get<{
+    data: AgentTypePreset[];
+    runtime_defaults?: AgentRuntimeDefaults;
+    unsupported_quick_fields?: string[];
+  }>('/api/v1/agents/type-presets');
 }
 
 // 智能体可选工具目录（编辑器用，来自后端 AvailableToolDefinitions）

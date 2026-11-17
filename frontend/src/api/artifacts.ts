@@ -58,8 +58,8 @@ export interface ArtifactDeleteResult {
  * it in the same session — a library row is the file, not one regeneration of
  * it, so leaving the older versions behind would leave the row in place.
  *
- * The stored bytes are reclaimed unless something else still references them,
- * so this is not reversible. Callers confirm with the user first.
+ * Removes the matching current StateBackend file and blocks version downloads.
+ * Historical checkpoints remain. Callers confirm with the user first.
  */
 export function deleteArtifactLibraryItem(item: ArtifactLibraryItem) {
   const query = new URLSearchParams({

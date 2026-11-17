@@ -1,0 +1,16 @@
+**
+!deployment/
+!deployment/async-agent/
+!deployment/async-agent/requirements.txt
+!deployment/async-agent/aegra.json
+!deployment/async-agent/start.py
+!deployment/async-agent/compat.py
+!deployment/async-agent/multitask_compat.py
+!agent/
+!agent/**/*.py
+!governance/
+!governance/**/*.py
+!integrations/
+!integrations/**/*.py
+!common/
+!common/**/*.py

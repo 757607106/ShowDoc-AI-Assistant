@@ -3,6 +3,6 @@
   "commit": "cbdcebabf48c5ee2d6868b370326aa8341703f62",
   "version": "0.9.0",
   "license": "UPSTREAM-LICENSE",
-  "adaptations": "Official Agent chat and management templates/styles/interactions; ContextDB readiness and business DTO adapters at API/data boundaries",
+  "adaptations": "Pinned official Agent UI baseline with explicitly reviewed ContextDB citations/resources/preview adapters, native Agent interactions and configuration, effective model limits, and retirement dispositions. Exact adapted hashes, reasons, references and supplemental source attribution are recorded separately in the Agent UI manifest; the original baseline hashes and license remain unchanged, and unadapted retained sources remain pinned.",
   "agent_ui_manifest": "UPSTREAM-AGENT-UI.json"
 }

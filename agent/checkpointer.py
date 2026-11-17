@@ -14,7 +14,8 @@ def database_url():
     if not value:
         raise RuntimeError('AGENT_DATABASE_URL 未配置；Agent 必须使用独立 PostgreSQL 数据库和账号')
     agent = conninfo_to_dict(value)
-    platform = conninfo_to_dict(os.getenv('DATABASE_URL', ''))
+    from governance.database import database_url as platform_database_url
+    platform = conninfo_to_dict(platform_database_url())
     if not agent.get('dbname') or not agent.get('user'):
         raise RuntimeError('AGENT_DATABASE_URL 必须明确指定数据库和应用账号')
     if agent.get('dbname') == platform.get('dbname') or agent.get('user') == platform.get('user'):

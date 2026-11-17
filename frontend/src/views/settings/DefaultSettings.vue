@@ -111,7 +111,7 @@ const modelSlots: ModelSlot[] = [
   { field: 'rerank_model_id', key: 'rerank', type: 'Rerank' },
   { field: 'vlm_model_id', key: 'vlm', type: 'VLLM' },
   { field: 'asr_model_id', key: 'asr', type: 'ASR' },
-].filter(slot => !IS_CONTEXTDB || !['embedding_model_id', 'rerank_model_id'].includes(slot.field)) as ModelSlot[]
+].filter(slot => !IS_CONTEXTDB || slot.field === 'chat_model_id') as ModelSlot[]
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -119,7 +119,7 @@ const uiStore = useUIStore()
 const chatResources = useChatResourcesStore()
 const deploymentCapabilities = useDeploymentCapabilitiesStore()
 
-const canEdit = computed(() => authStore.hasRole('admin'))
+const canEdit = computed(() => IS_CONTEXTDB || authStore.hasRole('admin'))
 const saving = ref(false)
 const settingsLoaded = ref(false)
 const settingsLoadFailed = ref(false)
@@ -133,7 +133,7 @@ const settings = reactive<DefaultSettings>({
   asr_model_id: '',
 })
 
-const models = computed<ModelConfig[]>(() => chatResources.allModels.filter((m) => m.status === 'active'))
+const models = computed<ModelConfig[]>(() => chatResources.allModels.filter((m) => !m.status || m.status === 'active'))
 
 const effective = computed(() => {
   const out = {} as Record<ModelField, EffectiveDefault<ModelConfig>>
@@ -179,8 +179,9 @@ const loadSettings = async () => {
   try {
     const response = await getTenantDefaultSettings()
     if (!response.data) throw new Error('Default settings response is missing data')
-    for (const slot of modelSlots) {
-      settings[slot.field] = response.data[slot.field] || ''
+    // Hidden legacy slots still feed existing Agents and title generation.
+    for (const field of Object.keys(settings) as ModelField[]) {
+      settings[field] = response.data[field] || ''
     }
     settingsLoaded.value = true
   } catch (error) {

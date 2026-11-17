@@ -26,17 +26,8 @@
       <t-icon v-if="session?.is_pinned" name="pin" size="12px" class="chat-header__pin" />
       <span ref="titleTextRef" class="chat-header__title-text">{{ displayTitle }}</span>
     </h1>
-    <router-link
-      v-if="!titleEditing && automation"
-      class="chat-header__automation"
-      :to="`/platform/automations/${encodeURIComponent(automation.id)}`"
-      :title="t('chatHeader.automationOpen', { name: automation.name })"
-    >
-      <t-icon name="time" size="12px" />
-      <span>{{ automation.name }}</span>
-    </router-link>
     <span
-      v-else-if="!titleEditing && session?.kind === 'automation'"
+      v-if="!titleEditing && session?.kind === 'automation'"
       class="chat-header__automation"
     >
       <t-icon name="time" size="12px" />
@@ -140,12 +131,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { copyToClipboard } from '@/utils/clipboard'
 import { getMessageList } from '@/api/chat'
-import { getAutomationBySession } from '@/api/automation'
 import { listAgentGrants, revokeAgentGrant, type AgentGrant } from '@/api/mcp-service'
 import {
   removeSession,
@@ -184,20 +174,6 @@ const titleDraft = ref('')
 const titleInputRef = ref<HTMLInputElement | null>(null)
 
 const displayTitle = computed(() => props.session?.title?.trim() || t('menu.newSession'))
-const automation = ref<{ id: string; name: string } | null>(null)
-
-watch(() => [props.session?.id, props.session?.kind] as const, async ([id, kind]) => {
-  automation.value = null
-  if (!id || kind !== 'automation') return
-  try {
-    const res = await getAutomationBySession(id)
-    if (props.session?.id === id && res.data?.id) {
-      automation.value = { id: res.data.id, name: res.data.name }
-    }
-  } catch {
-    // The badge stays, without a link, when the automation is gone.
-  }
-}, { immediate: true })
 const titleTextRef = ref<HTMLElement | null>(null)
 useSessionTitleMotion(titleTextRef, () => props.session?.id, () => displayTitle.value)
 const workspaceLabel = computed(() => {

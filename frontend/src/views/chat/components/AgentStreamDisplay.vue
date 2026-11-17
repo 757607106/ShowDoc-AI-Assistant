@@ -123,7 +123,7 @@
               <div v-else-if="event.type === 'tool_approval_required' && showInlineToolApproval(event)" class="tool-event">
                 <ToolApprovalCard :pending-id="event.pending_id" :delegated-task="event.delegated_task" :service-name="event.service_name || ''"
                   :mcp-tool-name="event.mcp_tool_name || ''" :description="event.description"
-                  :args-json="event.args_json" :grant-scope="event.grant_scope" :grant-lapsed="event.grant_lapsed" :timeout-seconds="event.timeout_seconds"
+                  :allowed-decisions="event.allowed_decisions" :args-json="event.args_json" :grant-scope="event.grant_scope" :grant-lapsed="event.grant_lapsed" :timeout-seconds="event.timeout_seconds"
                   :requested-at="event.requested_at" :resolved="event.resolved" :approved="event.approved" :canceled="event.canceled"
                   :resolve-reason="event.resolve_reason" :suspendable="event.suspendable"
                   :hot-wait-seconds="event.hot_wait_seconds" :suspended="event.suspended"
@@ -138,6 +138,11 @@
                   :requested-at="event.requested_at" :resolved="event.resolved" :answered="event.answered"
                   :response="event.response" :resolve-reason="event.resolve_reason" :timed-out="event.timed_out"
                   :canceled="event.canceled" :abandoned="event.abandoned" v-bind="embedAuthProps" />
+              </div>
+
+              <div v-else-if="event.type === 'agent_prompt_required' && event.kind === 'native_interrupt'" class="tool-event">
+                <NativeInterruptCard :pending-id="event.pending_id" :request="event.request"
+                  :resolved="event.resolved" :response="event.response" />
               </div>
 
               <div v-else-if="event.type === 'agent_prompt_required' && event.kind === 'secure_form'" class="tool-event">
@@ -172,7 +177,7 @@
               <div v-else-if="showInlineToolApproval(event)" class="tool-event">
                 <ToolApprovalCard :pending-id="event.pending_id" :service-name="event.service_name || ''"
                   :mcp-tool-name="event.mcp_tool_name || ''" :description="event.description"
-                  :args-json="event.args_json" :timeout-seconds="event.timeout_seconds"
+                  :allowed-decisions="event.allowed_decisions" :args-json="event.args_json" :timeout-seconds="event.timeout_seconds"
                   :requested-at="event.requested_at" :resolved="event.resolved" :approved="event.approved"
                   :resolve-reason="event.resolve_reason" v-bind="embedAuthProps" />
               </div>
@@ -428,7 +433,7 @@
             <!-- MCP tool human approval -->
             <div v-else-if="event.type === 'tool_approval_required' && showInlineToolApproval(event)" class="tool-event">
               <ToolApprovalCard :pending-id="event.pending_id" :delegated-task="event.delegated_task" :service-name="event.service_name || ''"
-                :mcp-tool-name="event.mcp_tool_name || ''" :description="event.description" :args-json="event.args_json"
+                :mcp-tool-name="event.mcp_tool_name || ''" :description="event.description" :allowed-decisions="event.allowed_decisions" :args-json="event.args_json"
                 :grant-scope="event.grant_scope" :grant-lapsed="event.grant_lapsed" :timeout-seconds="event.timeout_seconds" :requested-at="event.requested_at" :resolved="event.resolved"
                 :approved="event.approved" :canceled="event.canceled" :resolve-reason="event.resolve_reason" :suspendable="event.suspendable"
                 :hot-wait-seconds="event.hot_wait_seconds" :suspended="event.suspended" :expires-at="event.expires_at"
@@ -445,7 +450,12 @@
                 :canceled="event.canceled" :abandoned="event.abandoned" v-bind="embedAuthProps" />
             </div>
 
-            <div v-else-if="event.type === 'agent_prompt_required' && event.kind === 'secure_form'" class="tool-event">
+            <div v-else-if="event.type === 'agent_prompt_required' && event.kind === 'native_interrupt'" class="tool-event">
+                <NativeInterruptCard :pending-id="event.pending_id" :request="event.request"
+                  :resolved="event.resolved" :response="event.response" />
+              </div>
+
+              <div v-else-if="event.type === 'agent_prompt_required' && event.kind === 'secure_form'" class="tool-event">
               <SecureFormCard :pending-id="event.pending_id" :request="event.request"
                 :timeout-seconds="event.timeout_seconds" :hot-wait-seconds="event.hot_wait_seconds"
                 :suspendable="event.suspendable" :suspended="event.suspended" :expires-at="event.expires_at"
@@ -476,7 +486,7 @@
             <div v-else-if="showInlineToolApproval(event)" class="tool-event">
               <ToolApprovalCard :pending-id="event.pending_id" :service-name="event.service_name || ''"
                 :mcp-tool-name="event.mcp_tool_name || ''" :description="event.description"
-                :args-json="event.args_json" :timeout-seconds="event.timeout_seconds"
+                :allowed-decisions="event.allowed_decisions" :args-json="event.args_json" :timeout-seconds="event.timeout_seconds"
                 :requested-at="event.requested_at" :resolved="event.resolved" :approved="event.approved"
                 :resolve-reason="event.resolve_reason" v-bind="embedAuthProps" />
             </div>
@@ -802,7 +812,8 @@ const ChildAgentStream = defineAsyncComponent(() => import('./ChildAgentStream.v
 import ProgressUpdates from './ProgressUpdates.vue';
 import { attachReasoningToTools, earlierStepKeys, foldProgressIntoThinking, groupProgressUpdates } from '@/utils/agentTimelinePresentation';
 import { isUnresolvedCollaborationPrompt, collaborationActivity, collaborationWaitState, collaborationTimeline, collaborationTasks, countToolCalls } from '@/utils/collaborationDisplay';
-import ToolApprovalCard from './ToolApprovalCard.vue';
+import ToolApprovalCard from './ToolApprovalCard.vue'
+import NativeInterruptCard from './NativeInterruptCard.vue';
 import McpOAuthCard from './McpOAuthCard.vue';
 import OpenPageCard from './OpenPageCard.vue';
 import PageEditCard from './PageEditCard.vue';

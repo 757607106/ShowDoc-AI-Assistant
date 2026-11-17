@@ -152,9 +152,9 @@
                   <span class="model-card__sep">·</span>
                   <span
                     class="model-card__ctx"
-                    :class="{ 'model-card__ctx--default': isDefaultContextWindow(model.contextWindow) }"
-                    :title="contextWindowTitle(model.contextWindow)"
-                  >{{ formatContextWindow(model.contextWindow) }}</span>
+                    :class="{ 'model-card__ctx--default': isUnknownContextWindow(model.resolvedContextWindow) }"
+                    :title="contextWindowTitle(model.resolvedContextWindow)"
+                  >{{ formatContextWindow(model.resolvedContextWindow, t('model.editor.contextWindowUnknown')) }}</span>
                 </template>
                 <template v-if="(model._modelType === 'chat' && model.supportsVision)
                   || (model._modelType === 'embedding' && model.capabilities?.input?.includes('image'))">
@@ -346,7 +346,8 @@ import { matchesResourceQuery } from '@/utils/resourceListSearch'
 import { useAssistantDataChange } from '@/utils/assistantDataChange'
 import {
   formatContextWindow,
-  isDefaultContextWindow,
+  isUnknownContextWindow,
+  modelContextWindow,
   effectiveContextWindow,
 } from '@/utils/contextWindow'
 
@@ -425,6 +426,7 @@ function convertToLegacyFormat(model: ModelConfig) {
     isBuiltin: model.is_builtin || false,
     supportsVision: model.parameters.supports_vision || false,
     contextWindow: model.parameters.context_window || undefined,
+    resolvedContextWindow: modelContextWindow(model),
     maxConcurrency: model.parameters.max_concurrency,
     maxOutputTokens: model.parameters.max_output_tokens || undefined,
     customHeaders: model.parameters.custom_headers
@@ -536,9 +538,9 @@ useAssistantPageContext(() => {
   }
 })
 
-const contextWindowTitle = (tokens?: number) => {
-  if (isDefaultContextWindow(tokens)) {
-    return t('model.editor.contextWindowDefaultHint', { value: formatContextWindow(tokens) })
+const contextWindowTitle = (tokens?: number | null) => {
+  if (isUnknownContextWindow(tokens)) {
+    return t('model.editor.contextWindowUnknown')
   }
   return t('model.editor.contextWindowTokens', { count: effectiveContextWindow(tokens) })
 }
@@ -729,7 +731,7 @@ const handleModelSave = async (modelData: any) => {
         ...appSecretFields,
         provider: modelData.provider || '',
         ...extraConfigFields,
-        ...(Object.keys(customHeadersMap).length > 0 ? { custom_headers: customHeadersMap } : {}),
+        custom_headers: customHeadersMap,
         ...(saveType === 'embedding' && modelData.dimension ? {
           embedding_parameters: {
             dimension: modelData.dimension,
@@ -743,18 +745,15 @@ const handleModelSave = async (modelData: any) => {
           supports_vision: modelData.supportsVision ?? false
         } : {}),
         ...((saveType === 'chat' || saveType === 'vllm')
-          && Number(modelData.contextWindow) >= 1024
-          ? { context_window: Math.round(Number(modelData.contextWindow)) }
+          ? { context_window: Number(modelData.contextWindow) >= 1024 ? Math.round(Number(modelData.contextWindow)) : 0 }
           : {}),
         ...((saveType === 'chat' || saveType === 'vllm')
-          && Number(modelData.maxOutputTokens) > 0
-          ? { max_output_tokens: Math.round(Number(modelData.maxOutputTokens)) }
+          ? { max_output_tokens: Number(modelData.maxOutputTokens) > 0 ? Math.round(Number(modelData.maxOutputTokens)) : 0 }
           : {}),
         ...specFields,
-        // 后台并发上限：仅 chat/embedding/vllm 受治理，>0 才写入（0/空沿用全局默认）。
+        // Explicit zero clears an old override; omission preserves it on updates.
         ...(['chat', 'embedding', 'vllm'].includes(saveType)
-          && Number(modelData.maxConcurrency) > 0
-          ? { max_concurrency: Number(modelData.maxConcurrency) }
+          ? { max_concurrency: Number(modelData.maxConcurrency) > 0 ? Number(modelData.maxConcurrency) : 0 }
           : {})
       }
     }

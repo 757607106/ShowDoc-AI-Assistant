@@ -22,12 +22,12 @@ export function promptSubmission(pendingId: string): Record<string, unknown> | u
   return submissions.get(pendingId)
 }
 
-function isDockable(e: PromptEvent): boolean {
+function isDockable(e: PromptEvent, answers: typeof submissions): boolean {
   if (!DOCKED_TYPES.has(String(e?.type || '')) || e.resolved || !e.pending_id) return false
   // Lite host commands use the composer card, which shows the command and grant.
   if (e.type === 'tool_approval_required' && isHostApprovalEvent(e)) return false
-  if (e.type === 'agent_prompt_required' && e.kind !== 'ask_user' && e.kind !== 'secure_form') return false
-  if (submissions.has(e.pending_id)) return false
+  if (e.type === 'agent_prompt_required' && !['ask_user', 'secure_form', 'native_interrupt'].includes(e.kind)) return false
+  if (answers.has(e.pending_id)) return false
   if (e.suspended && e.expires_at) {
     const expires = Date.parse(String(e.expires_at))
     if (!Number.isNaN(expires) && expires <= Date.now()) return false
@@ -40,7 +40,7 @@ function isDockable(e: PromptEvent): boolean {
  * streaming or suspended on input can be waiting; cards in settled messages
  * are history.
  */
-export function pendingPrompts(messages: ChatRow[]): PromptEvent[] {
+export function pendingPrompts(messages: ChatRow[], answers = submissions): PromptEvent[] {
   const out: PromptEvent[] = []
   const liveTurns = new Set(messages
     .filter(m => m.role === 'assistant' && (!m.is_completed || isAwaitingInput(m)))
@@ -53,7 +53,7 @@ export function pendingPrompts(messages: ChatRow[]): PromptEvent[] {
     if (message.is_completed && !isAwaitingInput(message) &&
       !(message.steerForked && liveTurns.has(persistedAssistantId(message)))) continue
     for (const e of (message.agentEventStream as PromptEvent[] | undefined) || []) {
-      if (isDockable(e) && !seen.has(e.pending_id)) {
+      if (isDockable(e, answers) && !seen.has(e.pending_id)) {
         seen.add(e.pending_id)
         out.push(e)
       }
@@ -70,13 +70,15 @@ export interface PromptDock {
   focusRequest: Ref<number>
   isDocked: (pendingId: string) => boolean
   focus: (pendingId: string) => void
+  promptSubmission: typeof promptSubmission
+  markPromptSubmitted: typeof markPromptSubmitted
 }
 
 const promptDockKey: InjectionKey<PromptDock> = Symbol('promptDock')
 
 /** Called by a chat view; its timeline cards and its dock share the result. */
-export function providePromptDock(messages: ChatRow[]): PromptDock {
-  const prompts = computed(() => pendingPrompts(messages))
+export function providePromptDock(messages: ChatRow[], answers = submissions): PromptDock {
+  const prompts = computed(() => pendingPrompts(messages, answers))
   const activeId = ref('')
   const collapsed = ref(false)
   const focusRequest = ref(0)
@@ -85,6 +87,8 @@ export function providePromptDock(messages: ChatRow[]): PromptDock {
     activeId,
     collapsed,
     focusRequest,
+    promptSubmission: pendingId => answers.get(pendingId),
+    markPromptSubmitted: (pendingId, answer = {}) => { answers.set(pendingId, answer) },
     isDocked: (pendingId) => prompts.value.some((e) => e.pending_id === pendingId),
     focus: (pendingId) => {
       activeId.value = pendingId

@@ -1,4 +1,3 @@
-import { IS_CONTEXTDB } from '@/config/contextdb'
 import { createRouter, createWebHistory } from 'vue-router'
 import { defineComponent } from 'vue'
 import type { RouteLocationNormalized } from 'vue-router'
@@ -9,7 +8,6 @@ import { autoSetup, userInfoFromApi } from '@/api/auth'
 import type { DeploymentCapabilityKey } from '@/config/deploymentCapabilities'
 import { MessagePlugin } from 'tdesign-vue-next'
 import i18n from '@/i18n'
-import { normalizeSettingsSection } from '@/config/settingsRoute'
 import { isToolboxSection, toolboxLocation } from '@/config/toolbox'
 
 /** Lite /桌面 WebView 硬刷新时可能只打开 `/`，用 session 记住上次页面以便恢复 */
@@ -77,14 +75,7 @@ const router = createRouter({
     {
       path: "/join",
       name: "joinOrganization",
-      // 重定向到组织列表页，并将 code 参数转换为 invite_code
-      redirect: (to) => {
-        const code = to.query.code as string
-        return {
-          path: '/platform/organizations',
-          query: code ? { invite_code: code } : {}
-        }
-      },
+      redirect: '/platform/knowledge-bases',
       meta: { requiresInit: true, requiresAuth: true }
     },
     {
@@ -171,7 +162,7 @@ const router = createRouter({
         {
           path: "automations/:automationId?",
           name: "automationList",
-          component: () => import("../views/automation/AutomationList.vue"),
+          redirect: '/platform/knowledge-bases',
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
@@ -182,19 +173,7 @@ const router = createRouter({
         },
         {
           path: "integrations",
-          redirect: (to) => {
-            const tab = typeof to.query.tab === 'string' ? to.query.tab : undefined
-            const incoming = typeof to.query.section === 'string' ? to.query.section : 'integrations'
-            const rest = { ...to.query }
-            delete rest.tab
-            return {
-              path: '/platform/settings',
-              query: {
-                ...rest,
-                section: normalizeSettingsSection(incoming, tab),
-              },
-            }
-          },
+          redirect: '/platform/settings',
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
@@ -218,8 +197,8 @@ const router = createRouter({
         {
           path: "organizations",
           name: "organizationList",
-          component: () => import("../views/organization/OrganizationList.vue"),
-          meta: { requiresInit: true, requiresAuth: true, requiredCapability: 'organizations' }
+          redirect: '/platform/knowledge-bases',
+          meta: { requiresInit: true, requiresAuth: true }
         },
         // Compatibility redirects for /platform/system/* URLs. System
         // administration surfaces live as dedicated sections inside the

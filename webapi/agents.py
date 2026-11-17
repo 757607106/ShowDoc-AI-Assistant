@@ -3,8 +3,9 @@ import asyncio
 import os
 from flask import Blueprint, g, jsonify, request
 
-from agent.config import (DEFAULT_TOOLS, allowed_knowledge_tools, copy_agent, delete_agent, list_agents,
-                          load_agent, save_agent)
+from agent.config import (DEFAULT_TOOLS, UNSUPPORTED_QUICK_FIELDS, allowed_knowledge_tools, copy_agent,
+                          delete_agent, list_agents, load_agent, runtime_config_issues, runtime_defaults,
+                          save_agent, validate_config)
 from governance.store import StoreError
 
 agents_bp = Blueprint('agents', __name__)
@@ -18,10 +19,11 @@ def body():
 
 
 def _view(value):
-    config = {**value['config'], 'retrieval_provider': 'contextdb', 'retain_retrieval_history': True}
+    config = {**value['config'], 'retrieval_provider': 'contextdb'}
+    issues = runtime_config_issues(validate_config(config, check_runtime=False))
     if config.get('sandbox_config_id') == 'state-backend':
         config['sandbox_config_id'] = ''
-    return {**value, 'config': config}
+    return {**value, 'config': config, 'config_issues': issues}
 
 
 @agents_bp.route('/api/v1/agents', methods=['GET', 'POST'])
@@ -100,7 +102,8 @@ def presets():
     return jsonify(success=True, data=[{'id': key, 'i18n': {'zh-CN': {'label': name, 'description': name},
         'en-US': {'label': key, 'description': key}}, 'config': {'allowed_tools': sorted(allowed_knowledge_tools({'allowed_tools': allowed}) | {'ask_user'}),
             'retain_retrieval_history': True} if allowed else None,
-        'kb_filter': requirements} for key, name, allowed, requirements in rows])
+        'kb_filter': requirements} for key, name, allowed, requirements in rows],
+        runtime_defaults=runtime_defaults(), unsupported_quick_fields=list(UNSUPPORTED_QUICK_FIELDS))
 
 
 @agents_bp.route('/api/v1/agents/placeholders')

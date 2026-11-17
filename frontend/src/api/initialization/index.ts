@@ -694,6 +694,8 @@ export function listModelProviders(modelType?: string): Promise<ModelProviderOpt
 
 export interface ResolveModelCatalogParams {
     spec?: ModelSpecOverride;
+    context_window?: number;
+    max_output_tokens?: number;
     provider: string;
     model?: string;
     base_url?: string;
@@ -704,7 +706,7 @@ export interface ResolveModelCatalogParams {
     // Vendor-declared non-secret extra fields (Azure api_version, ...) are
     // forwarded by key so the preview resolves the same request the runtime
     // will make. The backend only accepts keys the vendor declares.
-    [extraField: string]: string | ModelSpecOverride | undefined;
+    [extraField: string]: string | number | ModelSpecOverride | undefined;
 }
 
 // 目录解析结果。Mirrors handler.ResolveModelCatalog response data.

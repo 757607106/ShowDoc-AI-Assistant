@@ -704,5 +704,307 @@
     "src/config/toolbox.ts": "9e251b1d072e84489b7538707dfda8b42d4e9d4b4127337cf4631597a4d641d5",
     "src/config/deploymentCapabilities.ts": "9dc3d5bdddf43d512e15ceefa89267f178d17a30947ce2bec0d548f90eac042c",
     "src/config/settingsAccess.ts": "67ced0248b19a031aa23b8fd243a950aeea649068337497581f2492d0380598f"
+  },
+  "adaptations": {
+    "src/components/ChatReferenceSourceView.vue": {
+      "template": "303acb7d6b866935cc564f6ca2fc6b74717673773236887afb5eb8ec5199966b",
+      "source": "9fc1a0a7d2afb087119c1ba3df9f3f4c5c94f3cfffed838a6cfc0e959467f4dd",
+      "reason": "Existing ContextDB source navigation preserves document-scoped chunk IDs, original/display filenames and source resources when opening a reference preview.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/components/Input-field.vue": {
+      "template": "257b41847caa32e86587ee0181b59e896230241722464aa9d857811348e36cbd",
+      "styles": "b7ed9e19e2e2f5a08f1d8d875d69d50e9549e2f9332295174b361bb89132e286",
+      "source": "be95275a3a4c6650f9c7043063cbab2cabb2c685a01b82b76f1151ecae1faa3a",
+      "reason": "The retired browser execution control, subscription and steering queue/emits/shortcuts are removed. Send/stop, attachment drafts, ContextDB knowledge mentions and AssistantPanel embeddedMode remain. Removed-control styles are explicitly reviewed; existing effective model limit labels retain unknown values instead of fabricated defaults.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/ModelSelector.vue": {
+      "template": "d6924fd9e58cfb1fc7922e3a0c03a947ce20df7188e387cc791c63da60ee5e00",
+      "source": "27e95bbd19b82d409032c68adf784c6221ace0c341935ba485c28f9bbfaabae6",
+      "reason": "Reviewed model selection labels use effective context limits, including spec overrides, and display unknown without a fabricated default.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/components/document-preview.vue": {
+      "template": "0b768624dccbb9faf15f9c5784d4099eaff5ec9f2b720f414d2ecab6139fe842",
+      "source": "7e7d51757eccdb0b6496cd103128de9ae95f6ba7f1bed6bd2e72797b5694163c",
+      "reason": "Existing preview adapts original/display filenames, rejects stale decoder generations, and renders sanitized uploaded HTML in an opaque iframe without scripts while retaining artifact preview behavior.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/agent/AgentEditorModal.vue": {
+      "template": "574a940ba9c5e44ab2d9ff48e93207d8263ee12c7080d28670fc187ea014ffd6",
+      "styles": "71d04a6bca65ea1e432fb0a9011dc8e8320092cd212c36eb958f8247ac0f4ef9",
+      "source": "b2a3c27c59e2984a81f0ab74988c23d8b81f0b8722b4923d350fc8cf4ee52e55",
+      "reason": "Native Agent presets expose declared professional subagents, structured output, file permissions and HITL, while retaining ContextDB resource scope and explicit legacy adoption. Skills select real catalog names without installation jobs or implicit shell activation; unsupported Go RAG and WeKnora business controls are removed. Newly selected skills exclude disabled directories; unavailable saved selections stay visible for explicit correction instead of being silently removed. Async subagent selection requires the explicit deployment capability, preserves unavailable saved choices and rejects unsupported asynchronous settings before saving. Retired sharing mounts, channel-count API requests, integration navigation and their exclusive styles are removed; old sharing/channel sections resolve to basic Agent settings.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/AgentStreamDisplay.vue": {
+      "template": "e84bf1163ad576fce86960314bf30040065cbbf63a3ad090c22aa4278eaa875c",
+      "source": "14ed9d50e67f7218cf2a5b2524b8d84830183af5bb98526b7726c3cb030a62bb",
+      "reason": "Existing exact ContextDB citations remain; native interrupt cards and tool approval allowed_decisions now render for main and delegated streams with the original pending IDs.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/ChatArtifactsPanel.vue": {
+      "source": "54e0bcb194f0df48ce7a90414fd7305f9731b1cbff6b3960f392c3e2534c74ba",
+      "reason": "Preserve the existing user change that displays the server artifact-deletion rejection message, with the original localized fallback.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/chat/components/botmsg.vue": {
+      "template": "77be1478cb882f1c0bd526996d8ed1d0127249daf4e5b1a3abda68a9eba227fc",
+      "source": "d4f71ad797e06f0d81102716b504918fe5cae38f76624e6b97136cc9f30e3b59",
+      "reason": "Existing exact ContextDB citations remain; native structured_response is displayed directly from checkpoint/SSE state as JSON rather than inferred from answer text.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/docInfo.vue": {
+      "source": "ef9a883c52647eca5fea88ef3b1ff0bc3babf21ef842fffdc71065067348094c",
+      "reason": "Existing ContextDB references prefer document_display_name over parser or storage filenames in the document list.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/chat/components/tool-results/ChunkDetail.vue": {
+      "template": "434208bc05dc29c8a34d7e9f7cbfad7144e651f045de3f93c4a77f00d7991280",
+      "source": "6cb754c4dc6d31cb27b651394af5368997abec6589a2eebf66e6292f05e48b8f",
+      "reason": "Existing ContextDB chunk details use the document-aware content renderer so source resources and protected attachments remain accessible.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/chat/components/tool-results/ContentPopup.vue": {
+      "template": "09a4882f5daaa9fbbcadf857c3111b981109f2f6f0c4fb8f6cfc7332e1168b2d",
+      "source": "c2a8d0dcdfa3153655f8cbc2f37d6bc6d465ac5d679c6f51c784e04f7a983d02",
+      "reason": "Existing ContextDB chunks retain document and asset metadata and use the shared Markdown/attachment renderer instead of cleaning structured source content into plain snippets.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/chat/components/tool-results/DocMarkdown.vue": {
+      "local_path": "src/components/DocMarkdown.vue",
+      "template": "d6f68692c565b1fd299ca19138018d850769a7b39160feb855d379592d01815a",
+      "styles": "1ae41a4ae16547829a0de2e43a4737c0b2016ea41c06d056237b107b71880fce",
+      "source": "85628ee03a8662ac4d76e120125c248330ed0a63f79750f120b8d3a40887bb91",
+      "reason": "Existing ContextDB shared renderer replaces the old tool-result renderer: its content prop and protected resource-attachment contract, template and styles are local adaptations, not a verbatim copy of the old official renderer.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/chat/components/tool-results/GrepResults.vue": {
+      "template": "495470307bf14d5ea05dcd1cd9f3d6f27daa577e2532dc5ab25e6c0ad05cda46",
+      "source": "441620d5e94fa832d320febf7b7da2c19b8f484d59d9661faad0cd1ae2a79550",
+      "reason": "Existing ContextDB grep results preserve original content and resource metadata, and resolve display filenames while keeping the upstream grouping and FAQ behavior.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/chat/components/tool-results/RelatedChunks.vue": {
+      "template": "670d95f4dab6957ad365d2235a53abd5c63f2c37a808d1cfec764b53b7d2e53f",
+      "source": "dd38a944b2f51fd659e25d90b9d42d835566b52f8c6b291db4971d2de373c2d9",
+      "reason": "Existing related chunks pass document-scoped IDs and complete chunk metadata to the shared content popup.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/chat/components/tool-results/SearchResults.vue": {
+      "source": "1eb612917135528aa815a289ba632ad0755ba9de28876d41827571c966f05834",
+      "reason": "Existing ContextDB search results retain source-resource metadata and display filenames when grouping retrieved chunks.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/chat/components/tool-results/WeKnoraDocResult.vue": {
+      "template": "14f2d233eb5b9e9f2275ad4f17d83468ed02f9ec72a0c8151da82e749bd4f7fd",
+      "source": "61a528b093bf9c6781b0dfa47e95ad4057ca01384b43fe858b73e4cc80e5f8bc",
+      "reason": "Existing document-tool results call the shared ContextDB Markdown renderer through its content prop and relocated import.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/chat/components/usermsg.vue": {
+      "template": "aebbf81905601574d7fb1324a6ce214e225bce11d8303281b32eb502df90d91b",
+      "source": "7f70902d6fa2f118cd5ecb946b789fc0e4c016cb01b8b745dff0615a324e03b6",
+      "reason": "Reviewed historical failed steering messages remain readable, while retry and removal controls require the execution capability.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/chat/index.vue": {
+      "template": "2841ea42d79a37a78908110c7ed84a31c46c494f41176cfe44aa67186594a4ae",
+      "source": "f20e614f30bfecc4e37070511331495650a2c15c9534592d82c67b4d20a46dc7",
+      "reason": "Retired steering controllers, queue writes and browser execution controls/previews/request fields are removed, while persisted message identity and historical steering rows remain readable. Existing native async background results and completed outputs remain viewable; owner/session generations isolate polling and cancellation, and historical shell tasks remain read-only.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/tool-results/WeKnoraGraphQueryResults.vue": {
+      "template": "60afa9f949107f67cac8869f82bbfa8ba1dabe4a61c88671b07abb0ffdbdac33",
+      "source": "63e3c5574174185e5c8782a575afb0b2dc2dab7fb1b3aec8477ad368b22f4617",
+      "reason": "Existing ContextDB graph results resolve display filenames and pass complete chunks to document-aware content rendering; the official relocated graph component remains separately tracked.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/settings/ModelSettings.vue": {
+      "template": "21daa842e4a695d436f382a2ec79c12e3ffcf3afe1174f45905fdcbb96454774",
+      "source": "9b3be6cb5c3541ad67fe5ade4ee6585f644cae914f3e8539dc3e7e208df91d08",
+      "reason": "Existing effective model context displays remain; saving explicitly clears obsolete headers and context/output overrides and retains native model selection consumers.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/ModelEditorDialog.vue": {
+      "template": "63d1a599af2708547ed235e71ac600842c62d7ea4d1bc2a6aab84a66c9d698e6",
+      "source": "f9b9e44eb5476827f80964e433281805f9611d6192c4a558f30b728f60179b90",
+      "reason": "Existing raw/effective model limit previews remain; the unconsumed concurrency governor input is removed while legacy round-trip values remain compatible. In ContextDB, retired Ollama and WeKnoraCloud management probes, downloads and settings links are disabled. Historical local model names remain readable with an explicit retirement notice; ordinary remote OpenAI-compatible connections, including localhost endpoints, remain available.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/ModelDebugDrawer.vue": {
+      "template": "78f407b9059202799e0a5b73b9aeff5cb445e7624832f8783896af6e26792d6e",
+      "source": "c0c6561d636fa352e7439f0d9f39dadab17da5be88c4ab36105c958c1041ccb8",
+      "reason": "Reviewed model debugging labels use effective context capabilities and explicitly display unknown limits.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/components/assistant/AssistantPanel.vue": {
+      "source": "ae173b88bb1ba5ca4f6342cd58d1182a6fe2784d63730d6cbd810836f5d3ac0e",
+      "reason": "Reviewed assistant welcome guidance advertises browser setup/tasks only when the deployment explicitly enables browser execution.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/config/deploymentCapabilities.ts": {
+      "source": "ead124e1f6f25816ecd1526d046b62a9e7a9ae4e71405ab18c7fe82e2b8871ff",
+      "reason": "Reviewed steering/browser execution probes fail closed on missing, false or failed capability responses; the browser connection toolbox route uses the same gate. Native asynchronous subagents require agents.async=true; missing or failed probes cannot enable the background execution picker. The settings.assistant capability lets deployments disable unsupported workspace assistant configuration requests while older backends retain the existing fail-open behavior.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/PendingPromptDock.vue": {
+      "template": "3db3875fc73473695f827f5123ded205b2225ea119974007087f0034b0f0a9a9",
+      "source": "53d19ecb6aeea20a06ee24df313cd6d71d6a74d01e61313c623289e73f6671d5",
+      "reason": "The pending prompt dock renders native generic interrupts and passes server allowed_decisions to tool approvals, retaining the existing prompt identity and submission flow.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/ToolApprovalCard.vue": {
+      "template": "b8f60d40862b2749ec86dedd2cca12ec629d903fb8a4dcdc0f2c6249fe7a019c",
+      "source": "56ab99cc1754a66407fc8afc22dea5eeb59de3e106ae85e9ab6bf2862b6b80f1",
+      "reason": "Approval controls obey server allowed_decisions. Explicit edit sends modified arguments, approve retains original arguments, and respond supplies a human tool result without execution. An optional child-thread transport and nearest-dock submission map preserve the same decisions for nested async prompts; batch staging is distinct from an actual run resume, and stale transport responses do not mark another task as submitted.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/settings/SkillSettings.vue": {
+      "template": "d2e3293ecc5fe9c350472810a2f6c56b68c62eb12b52155e5ef128dc4b491c62",
+      "styles": "84ba79729009f03ab1bead80718866e44e22c972130f74035dbe65f6b426fa65",
+      "source": "37e6f2ee7e14364e0c41375f2308ef927b03ac3cb57bcb595fa7aca386688cb9",
+      "reason": "The retained skill directory manages actual catalog import, search, files and deletion. Upload progress reports file transfer only; fake installation, upgrade and polling controls are removed. Disabled historical catalog directories are visibly labelled as unavailable.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/settings/Settings.vue": {
+      "template": "7975ab8d0b344cdeb7b674547a8d3f49200d25e343036413f10310bfe1944a9a",
+      "styles": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "source": "725b7b3d4ed6f864ee4a052732a6865f966015e4f9b7b466814bf8fdd621a69b",
+      "reason": "The settings entry mounts the native ContextDB settings shell. The shell preserves account, membership, knowledge permissions, personal model/default/file-memory/runtime settings and explicit retired-bookmark results.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/toolbox/Toolbox.vue": {
+      "template": "132cd7aa015f16dc3aaff319fc433c36a6b117afbd264a8b5388b702de6cff4a",
+      "styles": "085c5baa773260071a2c0f9072bea959e44912df10a04b15a495bf132ce31052",
+      "source": "071949ef7f64f7bfef428d3205d11cd5bcafc331935362c4c5d323684f37f859",
+      "reason": "The tool directory retains skills and remote MCP. The dedicated browser pairing business tab and status probes are removed, with old browser bookmarks routed to an explicit retired settings result.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/settings/MemorySettings.vue": {
+      "template": "1a4bc4e277fe13499e318b10803cb2a97a70254788bdf1749111ce79e6c9c1ed",
+      "styles": "6abbd13e38782f1416104a366e20e16085ba506f284038550e7206d6b643f38d",
+      "source": "61986f66a0898738abcde5bc39fb18440438a048b6f63233034fb341ba82e09f",
+      "reason": "File memory uses the current owner and Agent AGENTS.md endpoints, preserves the effective personal switch, supports read/edit/clear, guards unsaved changes and stale account responses, and explains native new-session cache semantics.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/api/model/modelUsage.ts": {
+      "source": "cb6d5bcd0049904ec016cae62b985ff55b6c9311bceedd55dcfb3a4dd8594eed",
+      "reason": "Professional subagent model bindings resolve to the existing chat-model usage label so referenced models cannot appear unbound in the UI.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/config/toolbox.ts": {
+      "source": "ff85712091ca64e5c37799ad62b4f27b5dbbf54a49d94ad4364514c753e52d87",
+      "reason": "Toolbox navigation lists real skills and remote MCP only; legacy browser pairing bookmarks point to the retired settings result.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/BackgroundWorkChip.vue": {
+      "reason": "The existing background chip retains completed results, labels pending and waiting states, and offers cancellation only for explicitly writable native async tasks. Owner/session generations discard late cancellation results and preserve retry after a failure; added styles keep state labels and errors readable.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md",
+      "source": "5e9f0201b25b681eb307b6d8b124d327668f190b55727daa89e25cd87900f5e4",
+      "template": "b658a99e053ba9e580d1c8980668303bc9a100b8d3bdc9485223022f66111d69",
+      "styles": "c872c6b157cbc5387c8af9d372e6bc47416ba7d5c1a4a251b4bcc8847e282236"
+    },
+    "src/views/chat/components/BackgroundWorkResults.vue": {
+      "template": "3144eafbc0392d56be83893f15c9d9ff522ab40e84da00a829d55a77bae149f9",
+      "styles": "7b1d0e4989dd10b949ebfba5da19189a315e06580696e93b5363ccf5e018bea3",
+      "source": "107b3258294fe0f0a9cf77e4a38e73cc364e6be0f681d69e01ef62c5cd006eca",
+      "reason": "The native async result panel reuses ChildAgentStream for the bound child thread history/checkpoint projection and existing prompt cards/dock for real interrupt-ID responses. Its local answer map, guarded update/resume/cancel and owner/session generations isolate batch staging, stale replies and failed drafts. View refresh follows actual actions; this is checkpoint/history observation, not token streaming. Native structured output and errors remain visible, historical shell results remain read-only, and existing artifact preview/download UI adds no CRUD.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/ChatHeader.vue": {
+      "template": "e7878219acbf1126a1882f11314b6cdd3ff34305184ce3c10c4d73c8f59d5629",
+      "source": "51f1516dec918531d47896a14e1048c3dd04e0c951a51a82f8ab6ac272b28ecc",
+      "reason": "Retired automation definitions no longer trigger a session-header API lookup or link into the removed automation editor. Existing automation history retains its read-only badge; ordinary title, file and grant controls are unchanged.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/agent/AgentList.vue": {
+      "source": "9476373f1d04a5462b568dda3a422ec09e78c136d2ce36d5f014ea80868fde52",
+      "reason": "Retired channel deep links no longer redirect Agent editing to a removed integration panel. The retained editor handles legacy sections safely while existing ContextDB resource selection and shared organization consumers remain.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/AskUserCard.vue": {
+      "source": "d880bc98a68b1040d99b172a14c4b0965c64d24e5521703066a3a27b82f5a994",
+      "reason": "Existing ask-user cards accept an optional injected child-thread submission transport and nearest-dock submission map. The ordinary main-session API is retained; stale child responses cannot mark a different owner or task draft as submitted.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/ChildAgentStream.vue": {
+      "source": "2b29b5688cef20f3eae848ce99a025d648f32e4937a554afe839ae45513cb4d9",
+      "reason": "The existing child transcript viewer accepts an optional refreshKey so a nested async detail can reload its bound native history/checkpoint after a real update or resume. Existing owner/thread identity and polling behavior remain; no token-stream or second execution state is introduced.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    }
+  },
+  "dispositions": {
+    "src/components/SandboxConfigEditorDrawer.vue": {
+      "status": "retired",
+      "reason": "The multi-provider sandbox editor is removed with its sole retired SandboxSettings consumer. Actual execution backend health and deployment configuration remain in the native runtime settings.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/settings/SandboxBackendBadge.vue": {
+      "status": "retired",
+      "reason": "This provider-specific badge was referenced only by the retired sandbox editor and settings page; no retained runtime import remains.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/settings/SandboxSettings.vue": {
+      "status": "retired",
+      "reason": "The WeKnora multi-provider allocation, template, environment and installation console is retired. Native runtime settings expose the actual StateBackend/OpenSandbox deployment and health.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/settings/BrowserConnectionSettings.vue": {
+      "status": "retired",
+      "reason": "Dedicated browser pairing and browser search configuration are retired. Controlled tools/MCP remain the extension surface; old bookmarks show an explicit retired result.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/settings/BrowserSearchPreferences.vue": {
+      "status": "retired",
+      "reason": "The dedicated browser search preferences component had only the retired browser connection settings consumer and is removed with it.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/settings/MemoryWorkspaceSettings.vue": {
+      "status": "retired",
+      "reason": "The obsolete workspace structured-memory settings page is removed. Personal owner-and-Agent AGENTS.md file memory is retained in MemorySettings.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/SandboxSkillsPanel.vue": {
+      "status": "retired",
+      "reason": "The per-sandbox installation, upgrade and polling panel is removed after its Agent editor and retired sandbox settings consumers were removed. Native skill directory selection and source-file browsing remain.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/SkillInstallTimeline.vue": {
+      "status": "retired",
+      "reason": "The installation job timeline is removed with its only SandboxSkillsPanel consumer. Real upload progress and native tool/command progress remain in their actual interfaces.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/AgentShareSettings.vue": {
+      "status": "retired",
+      "reason": "The retired WeKnora organization-sharing panel is removed after its hidden Agent editor mount and sharing navigation were removed. ContextDB users, ACL and shared resource APIs remain in their retained consumers.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    }
+  },
+  "localSources": {
+    "src/composables/usePromptDock.ts": {
+      "source": "4b905b2e7c5dfacdc1908335a1154c258287296ce3e2e49d8f3d65a405db5a2d",
+      "upstream_source": "c8d7772eb93e7320000401aa70b4583653ecb33cdd6d9acf0e9020db5cf9e38f",
+      "reason": "Adapted from the pinned WeKnora commit: optional dock-local submission maps isolate nested async conversation answers, while the main conversation retains the original default map and historical prompt identity rules.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/utils/suspendedRun.ts": {
+      "source": "a7ff393ab5239bdab1aacfb3af1051a42d7a892cc4e8bd762176eacbacec032e",
+      "upstream_source": "e572f1d2af3de062b945a81ac55657f155961cedb74f3ca6a20ca267837026a4",
+      "reason": "Adapted from the pinned WeKnora commit: the optional injected submission transport routes existing prompt cards to their bound child thread without changing the default main-session API or exposing a runtime registry.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/utils/collaborationDisplay.ts": {
+      "source": "b96bd575511866a86012fd65a23c669aa3eeddf882ba290cb2bc95dedcbb2e01",
+      "upstream_source": "1c8c1aa3af53e8ce8fb737bc327b4353defb1e727d35f6f0b53c801b0a354190",
+      "reason": "Adapted from the pinned WeKnora commit: retained collaboration projections preserve historical task identity, while native async/background task status and timeline display remain presentation data rather than a second execution state store.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/NativeInterruptCard.vue": {
+      "source": "26be8d86194c75de10cfadd5900528020cfdb59ee72c85159ff69b11b3c4c0ce",
+      "reason": "Locally authored native interrupt bridge, not an unchanged WeKnora component: it validates and submits real JSON responses by pending interrupt ID, uses server-owned schema and decisions, and supports the same optional child-thread transport and dock-local draft isolation as the existing cards.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    }
   }
 }

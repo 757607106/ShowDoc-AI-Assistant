@@ -105,9 +105,10 @@ def _rows(messages, view, status, knowledge_base_ids=(), *, owner_id=None):
     return rows
 
 
-def task_view(view, name, status, rows):
+def task_view(view, name, status, rows, call_id=None):
     return {'id': view, 'name': name, 'display_name': name, 'agent_id': '',
             'session_id': view, 'run_id': '', 'status': status,
+            'parent_tool_call_id': call_id,
             'latest_message': rows[-1]['content'] if rows else ''}
 
 
@@ -121,7 +122,7 @@ async def read_child(saver, graph, root_state, parent, namespace, call_id, *, ow
     node = live.nodes.get(namespace) if live else None
     if node and node['call_id'] == call_id:
         rows = _rows(node['messages'], node['view'], node['status'], node['scope'], owner_id=owner_id)
-        return node['view'], node['group_id'], task_view(node['view'], node['name'], node['status'], rows), rows
+        return node['view'], node['group_id'], task_view(node['view'], node['name'], node['status'], rows, call_id), rows
     saved = await saver.aget_tuple({'configurable': {'thread_id': parent, 'checkpoint_ns': namespace}})
     if saved is None:
         raise StoreError('子图视图不存在', 404)
@@ -164,7 +165,7 @@ async def read_child(saver, graph, root_state, parent, namespace, call_id, *, ow
     if status not in ('succeeded', 'failed') and node is None and await anyio.to_thread.run_sync(lambda: _request_busy(parent)):
         raise StoreError('父请求在另一 API 进程执行，当前进程无法订阅其实时子图；请使用单 worker 或会话粘连', 409)
     rows = _rows(messages, view, status, _scope(root_origin.values.get('messages', [])), owner_id=owner_id)
-    return view, group_id, task_view(view, name, status, rows), rows
+    return view, group_id, task_view(view, name, status, rows, call_id), rows
 
 
 async def children(saver, graph, root_state, parent, parent_namespace='', *, owner_id=None):
@@ -223,7 +224,7 @@ class LiveTraces:
 
     def collaboration(self, namespace=''):
         self.revision = max(self.revision + 1, time.time_ns() // 1000)
-        items = [task_view(node['view'], node['name'], node['status'], [])
+        items = [task_view(node['view'], node['name'], node['status'], [], node['call_id'])
                  for ns, node in self.nodes.items() if ns.rpartition('|')[0] == namespace]
         source = self.nodes[namespace]['projection'] if namespace else self.projection
         return snapshot(source.identifier, items, self.revision)
@@ -234,7 +235,8 @@ class LiveTraces:
         changed = False
         if not ns and part['type'] == 'values':
             self.scope = _scope(data.get('messages', []))
-        if ns and part['type'] == 'tasks' and 'input' in data:
+        # Resumed tools receive a ToolCall list, not the child graph's state.
+        if ns and part['type'] == 'tasks' and isinstance(data.get('input'), dict):
             meta = data.get('metadata', {})
             call_id, name = meta.get('lc_subagent_tool_call_id'), meta.get('lc_agent_name')
             if call_id and name and ns not in self.nodes:

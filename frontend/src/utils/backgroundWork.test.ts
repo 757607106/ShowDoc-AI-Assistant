@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   mergeBackgroundWork,
   createBackgroundWorkPoller,
+  isBackgroundWorkActive,
 } from './backgroundWork.ts'
 import type { BackgroundWorkItem } from '../api/chat/background-work.ts'
 import { get, post } from '../utils/request.ts'
@@ -19,6 +20,29 @@ test('merge keeps newest state per work_id, running first', () => {
   const merged = mergeBackgroundWork(existing, incoming)
   assert.deepEqual(merged.map(i => i.work_id), ['sj_a', 'sj_c', 'sj_b'])
   assert.equal(merged[2].state, 'succeeded', '新数据覆盖旧状态')
+})
+
+test('pending and interrupted async tasks remain active above completed results', () => {
+  const items: BackgroundWorkItem[] = [
+    { work_id: 'done', kind: 'async_subagent', title: 'Done', state: 'succeeded', started_at: '2026-11-17T00:00:00Z' },
+    { work_id: 'waiting', kind: 'async_subagent', title: 'Approval', state: 'waiting', started_at: '2026-11-17T00:00:02Z' },
+    { work_id: 'pending', kind: 'async_subagent', title: 'Queued', state: 'pending', started_at: '2026-11-17T00:00:01Z' },
+    { work_id: 'running', kind: 'shell', title: 'Shell', state: 'running', started_at: '2026-11-17T00:00:03Z' },
+  ]
+  assert.deepEqual(mergeBackgroundWork([], items).map(item => item.work_id), ['pending', 'waiting', 'running', 'done'])
+  for (const state of ['pending', 'running', 'waiting'] as const) assert.equal(isBackgroundWorkActive(state), true)
+  for (const state of ['succeeded', 'failed', 'cancelled', 'lost'] as const) assert.equal(isBackgroundWorkActive(state), false)
+})
+
+test('merge preserves stable rows but adopts authoritative action permissions', () => {
+  const first: BackgroundWorkItem = { work_id: 'native', kind: 'async_subagent', title: 'Research', state: 'waiting', read_only: false, can_cancel: true }
+  const existing = [first]
+  assert.equal(mergeBackgroundWork(existing, [{ ...first }]), existing)
+  const restricted = mergeBackgroundWork(existing, [{ ...first, read_only: true, can_cancel: false }])
+  assert.notEqual(restricted, existing)
+  assert.equal(restricted[0].read_only, true)
+  assert.equal(restricted[0].can_cancel, false)
+  assert.equal(mergeBackgroundWork(restricted, [{ ...restricted[0] }]), restricted)
 })
 
 test('poller retries after a list error instead of stopping', async () => {
@@ -126,4 +150,37 @@ test('manual refresh is invalidated on switch away and back, unmount, and newer 
   poller.start()
   assert.equal(requests.length, 3)
   assert.deepEqual(seen, [])
+})
+
+test('empty and fully terminal lists stop timers, but an explicit task event refresh wakes polling', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let items: BackgroundWorkItem[] = [], calls = 0
+  const seen: BackgroundWorkItem[][] = []
+  const poller = createBackgroundWorkPoller({
+    sessionId: 'session', intervalMs: 5,
+    list: async () => { calls++; return items }, onUpdate: rows => seen.push(rows),
+  })
+  try {
+    poller.start()
+    await Promise.resolve()
+    t.mock.timers.tick(20)
+    assert.equal(calls, 1)
+    items = [{ work_id: 'task', kind: 'async_subagent', state: 'running', title: 'Worker' }]
+    await poller.refresh()
+    assert.equal(calls, 2)
+    assert.equal(seen.at(-1)?.[0]?.state, 'running')
+    items = [{ ...items[0]!, state: 'succeeded' }]
+    t.mock.timers.tick(5)
+    await Promise.resolve()
+    assert.equal(calls, 3)
+    assert.equal(seen.at(-1)?.[0]?.state, 'succeeded', 'completed output remains visible')
+    t.mock.timers.tick(50)
+    assert.equal(calls, 3, 'completed task is not polled forever')
+    items = [{ ...items[0]!, state: 'pending' }]
+    await poller.refresh()
+    assert.equal(calls, 4, 'a queued update wakes a stopped terminal list')
+    t.mock.timers.tick(5)
+    await Promise.resolve()
+    assert.equal(calls, 5)
+  } finally { poller.dispose() }
 })

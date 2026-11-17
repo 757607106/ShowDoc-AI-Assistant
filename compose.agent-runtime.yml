@@ -1,0 +1,62 @@
+name: showdoc-async-agent
+services:
+  agent-runtime:
+    image: showdoc-async-agent:aegra-0.11.0
+    build:
+      context: .
+      dockerfile: deployment/async-agent/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .runtime/async-agent.env
+    environment:
+      AEGRA_CONFIG: /app/deployment/async-agent/aegra.json
+      AUTH_TYPE: custom
+      ENV_MODE: PRODUCTION
+      DEBUG: "false"
+      RUN_MIGRATIONS_ON_STARTUP: "true"
+      REDIS_BROKER_ENABLED: "true"
+      REDIS_URL: redis://valkey:6379/0
+      WORKER_COUNT: "1"
+      N_JOBS_PER_WORKER: "4"
+      CRON_ENABLED: "false"
+      OTEL_TARGETS: ""
+      OTEL_CONSOLE_EXPORT: "false"
+      LANGSMITH_TRACING: "false"
+      LANGCHAIN_TRACING_V2: "false"
+      SQLALCHEMY_POOL_SIZE: "3"
+      SQLALCHEMY_MAX_OVERFLOW: "3"
+      LANGGRAPH_MIN_POOL_SIZE: "1"
+      LANGGRAPH_MAX_POOL_SIZE: "8"
+    ports:
+      - "127.0.0.1:2026:2026"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - type: bind
+        source: "${GOVERNANCE_DATA_DIR:?Run bootstrap and pass --env-file .runtime/async-agent.env}/skill-bundles"
+        target: "${GOVERNANCE_DATA_DIR:?Run bootstrap and pass --env-file .runtime/async-agent.env}/skill-bundles"
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:2026/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+  valkey:
+    image: valkey/valkey:9.0.7-alpine@sha256:2d04268dfa26ab31cfa3fdc538866e76438b2d00e41db41b8cb86d780ac5a416
+    restart: unless-stopped
+    command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec", "--save", ""]
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  valkey_data:

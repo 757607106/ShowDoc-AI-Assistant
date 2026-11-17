@@ -40,6 +40,86 @@ def text(content):
                    and part.get('type') in (None, 'text', 'output_text'))
 
 
+def _answer_blocks(message):
+    from deepagents.middleware.async_subagents import _final_content
+    return [{key: value for key, value in block.items() if key != 'id'}
+            for block in _final_content({'messages': [message]})
+            if block.get('type') in ('text', 'image', 'audio', 'video', 'file')]
+
+
+def _media_file(message, index, block):
+    import base64
+    import hashlib
+    import mimetypes
+    if block.get('type') not in ('audio', 'video', 'file'):
+        return None
+    encoded, mime = block.get('base64'), block.get('mime_type')
+    url = block.get('url', '')
+    if isinstance(url, str) and url.startswith('data:') and ';base64,' in url:
+        mime, encoded = url[5:].split(';base64,', 1)
+    if not isinstance(encoded, str) or not isinstance(mime, str) or not message.get('id'):
+        return None
+    try:
+        base64.b64decode(encoded, validate=True)
+    except ValueError:
+        return None
+    identifier = hashlib.sha256(str(message['id']).encode()).hexdigest()[:16]
+    mime = mime.split(';', 1)[0].lower()
+    extension = '.wav' if mime in ('audio/wav', 'audio/x-wav') else mimetypes.guess_extension(mime) or '.bin'
+    path = f'/response-media/{block["type"]}-{identifier}-{index}{extension}'
+    return path, {'content': encoded, 'encoding': 'base64'}
+
+
+def media_files(messages):
+    """Read-only artifact projections of bytes already persisted in native messages."""
+    result = {}
+    for raw in messages:
+        message = message_dict(raw)
+        if message.get('type', message.get('role')) not in ('ai', 'assistant') or message.get('tool_calls'):
+            continue
+        if isinstance(message.get('content'), list):
+            for index, block in enumerate(_answer_blocks(message)):
+                if item := _media_file(message, index, block):
+                    result[item[0]] = item[1]
+    return result
+
+
+def answer_content(message):
+    """Keep SDK answer blocks and reuse Markdown images and native artifact downloads."""
+    if not isinstance(message.get('content'), list):
+        return text(message.get('content')), []
+    from urllib.parse import quote, urlsplit
+    blocks = _answer_blocks(message)
+    output = []
+    for index, block in enumerate(blocks):
+        kind = block.get('type')
+        if kind == 'text':
+            output.append(block.get('text', ''))
+            continue
+        if item := _media_file(message, index, block):
+            output.append(f'\n\n[{kind}](sandbox:{item[0]})\n\n')
+            continue
+        url = block.get('url')
+        if not url and block.get('base64') and block.get('mime_type'):
+            url = f"data:{block['mime_type']};base64,{block['base64']}"
+        if not isinstance(url, str):
+            continue
+        try:
+            scheme = urlsplit(url).scheme.lower()
+        except ValueError:
+            continue
+        if scheme not in ('http', 'https', 'data') and not url.startswith('/'):
+            continue
+        if scheme == 'data' and not url.startswith(('data:image/', 'data:audio/', 'data:video/', 'data:application/')):
+            continue
+        if scheme == 'data' and kind != 'image':
+            continue
+        destination = quote(url, safe=':/?#=&;,[]%+@')
+        output.append(f'\n\n![image]({destination})\n\n' if kind == 'image'
+                      else f'\n\n[{kind}]({destination})\n\n')
+    return ''.join(output), blocks
+
+
 def message_dict(message):
     return message.model_dump(mode='json') if hasattr(message, 'model_dump') else message
 
@@ -129,6 +209,8 @@ def history(state, session_id, knowledge_base_ids=(), *, owner_id=None):
                 'request_id': assistant_id(message), 'session_id': session_id, 'role': 'assistant',
                 'created_at': metadata.get('created_at'), 'content': '', 'agent_steps': [],
                 'is_completed': True, 'knowledge_references': []}
+            if metadata.get('interactions'):
+                current['delegated_prompts'] = metadata['interactions']
             rows.append(current)
             tools = {}
             citations = AnswerCitations(metadata.get('knowledge_base_ids', knowledge_base_ids))
@@ -139,7 +221,10 @@ def history(state, session_id, knowledge_base_ids=(), *, owner_id=None):
                 step['thought'] = text(message.get('content'))
                 current['content'] = ''
             else:
-                current['content'] += text(message.get('content'))
+                rendered, blocks = answer_content(message)
+                current['content'] += rendered
+                if blocks:
+                    current.setdefault('content_blocks', []).extend(blocks)
             reasoning = reasoning_text(message)
             if reasoning:
                 step['reasoning_content'] = reasoning
@@ -162,12 +247,36 @@ def history(state, session_id, knowledge_base_ids=(), *, owner_id=None):
     return rows
 
 
+async def structured_outputs(graph, config, checkpointer):
+    from agent.time_travel import ancestry
+    results, completed = {}, set()
+    async for state in ancestry(graph, config):
+        users = [message_dict(message) for message in state.values.get('messages', [])
+                 if getattr(message, 'type', None) == 'human']
+        if not users or not users[-1].get('additional_kwargs', {}).get('harness', {}).get('structured_output'):
+            continue
+        identifier = assistant_id(users[-1])
+        if not state.next and not state.interrupts:
+            completed.add(identifier)
+        if identifier not in completed or identifier in results or 'structured_response' not in state.values:
+            continue
+        current = await checkpointer.aget_tuple(state.config)
+        parent = await checkpointer.aget_tuple(state.parent_config) if state.parent_config else None
+        # A native channel write distinguishes valid JSON null from a stale or reset value.
+        version = current.checkpoint['channel_versions'].get('structured_response') if current else None
+        previous = parent.checkpoint['channel_versions'].get('structured_response') if parent else None
+        if state.metadata.get('source') == 'loop' and version is not None and version != previous:
+            results[identifier] = state.values['structured_response']
+    return results
+
+
 class StreamProjection:
     """Translate one request's native stream; discard child graph answer channels."""
     def __init__(self, session_id, identifier, knowledge_base_ids=(), *, owner_id=None):
         self.session_id, self.identifier = session_id, identifier
         self.calls = {}
         self.child_calls = []
+        self.background_work = {}
         self.citations = AnswerCitations(knowledge_base_ids)
         self.names = _knowledge_names(owner_id)
         self.owner_id = self.names.owner_id if self.names else None
@@ -201,6 +310,17 @@ class StreamProjection:
             for update in part['data'].values():
                 if not isinstance(update, dict):
                     continue
+                for work_id, task in (update.get('async_tasks') or {}).items():
+                    current = (task.get('run_id'), task.get('status'))
+                    if self.background_work.get(work_id) == current:
+                        continue
+                    self.background_work[work_id] = current
+                    state = {'success': 'succeeded', 'error': 'failed', 'timeout': 'failed',
+                             'interrupted': 'cancelled'}.get(task.get('status'), task.get('status', 'running'))
+                    event = 'work_finished' if state in ('succeeded', 'failed', 'cancelled') else 'work_started'
+                    events.append(self.event(event, data={'work_id': work_id, 'kind': 'async_subagent',
+                        'title': task.get('agent_name', ''), 'state': state,
+                        'payload': {'run_id': task.get('run_id')}}))
                 messages = update.get('messages', [])
                 for raw in messages if isinstance(messages, list) else [messages]:
                     message = message_dict(raw)
@@ -208,9 +328,10 @@ class StreamProjection:
                         continue
                     kind, identifier = message.get('type'), message.get('id', '')
                     if kind == 'ai':
-                        if text(message.get('content')):
-                            events.append(self.event('answer', text(message['content']),
-                                {'event_id': identifier, 'replace': True}, done=True))
+                        rendered, blocks = answer_content(message) if not message.get('tool_calls') else (text(message.get('content')), [])
+                        if rendered:
+                            events.append(self.event('answer', rendered,
+                                {'event_id': identifier, 'replace': True, **({'content_blocks': blocks} if blocks else {})}, done=True))
                         for call in message.get('tool_calls', []):
                             if call['id'] not in self.calls:
                                 self.calls[call['id']] = call
