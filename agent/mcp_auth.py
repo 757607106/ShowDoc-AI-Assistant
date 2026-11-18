@@ -221,7 +221,7 @@ def provider(owner, value, *, redirect_uri=None, redirect_handler=None, callback
         await asyncio.to_thread(storage.clear_tokens)
         raise OAuthRequired(value['id'])
     result = ConfiguredOAuthProvider(server_url=value['url'],
-        client_metadata=OAuthClientMetadata(redirect_uris=[redirect_uri], client_name='WeKnora',
+        client_metadata=OAuthClientMetadata(redirect_uris=[redirect_uri], client_name='小知',
             grant_types=['authorization_code', 'refresh_token'], response_types=['code'],
             scope=' '.join(value.get('auth_config', {}).get('scopes', [])) or None),
         storage=storage, redirect_handler=redirect_handler or required, callback_handler=callback_handler, timeout=TTL)

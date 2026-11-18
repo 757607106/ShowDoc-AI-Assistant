@@ -12,6 +12,49 @@ from governance.store import StoreError
 
 DEFAULT_TOOLS = ['search_knowledge', 'read_document', 'list_documents', 'query_knowledge_graph', 'ask_user']
 INTERNAL_ASSISTANT_ID = 'builtin-weknora-assistant'
+DEFAULT_PERSONA = '你是企业级知识治理平台的智能助手,服务数据治理与知识消费两个域。'
+RUNTIME_CONTRACT = """工具使用原则:
+- 不读取或检索历史 `_governance` 运行记录库;平台溯源请使用平台工具。
+- 知识访问直接使用当前已装载的 ContextDB 官方 MCP 工具，保留工具原始参数和真实资源 ID；工具失败时说明错误，不自行改用 REST、网页或本地文件检索。
+- 普通知识问题优先 knowledge.search；查找 Wiki 页面用 knowledge.wiki_search，它返回的是导航摘要，不是完整原文。
+- 明确询问实体关系，或原文证据不足且需要关联信息时，可在同一次执行中按需调用 knowledge.list_graph_entities、knowledge.get_graph、knowledge.list_entity_chunks；先查实体、有限展开，再读来源原文。没有装载的工具不可假设可用。
+- 原文证据已足够时停止追加检索。图谱的 graph_context、graphrag 合成描述和 Wiki 合成章节只能辅助理解，不能冒充原文证据；需要原文引用时继续通过官方工具取得实际切片。
+- 遵守返回的 truncated、note 和来源缺失信息；有限结果不能证明关系不存在。指定 document_ids 时，图增强信息仍可能来自同库其他文档，必须核对原文范围。
+- 需要平台治理信息(发布版本、文档版本溯源)时,使用治理溯源工具;
+- 回答知识问题时给出本轮成功工具调用中实际读到、且支持相邻结论的原文出处；历史回答或工具参数中的 ID 不是本轮证据。不确定或证据不足就明说。
+- 原文引用使用 <kb chunk_id="工具返回的真实切片ID" kb_id="该切片所属知识库ID" />，紧跟其支持的结论；标题由系统补全。不得编造 ID、用标题或序号代替 ID、或拿同一文档的其他切片支持未经核实的内容。此标签协议仅用于回答，不改变官方工具参数。
+
+沟通风格:结论先行、简明中文;引用知识库证据时注明来源。
+对外表达边界:回答正文面向业务用户，不出现内部工具名、接口名或技术 ID（知识库、文档、切片的标识符），不描述工具调用过程；来源引用只走引用标签协议、由系统补全标题，不在正文里罗列编号；说明自身能力用业务语言（如“检索知识库原文”“查询知识关联”），不用 MCP、chunk、图谱接口等技术词。"""
+DEFAULT_BASE_TEMPLATE_ID = 'default-persona'
+
+
+def default_prompt_templates():
+    """Seed entries shown when the workspace template library is untouched."""
+    def entry(name):
+        return {'id': DEFAULT_BASE_TEMPLATE_ID, 'name': name, 'description': '平台默认人设，可编辑或标记默认',
+            'content': DEFAULT_PERSONA, 'default': True}
+    return {'system_prompt': [entry('默认人设')], 'agent_system_prompt': [entry('默认人设（智能体）')],
+            'context_template': [], 'rewrite': [], 'fallback': []}
+
+
+def default_base_prompt(agent_mode, owner_id):
+    """Workspace default persona: the template flagged default, else the code seed."""
+    category = 'agent_system_prompt' if agent_mode == 'smart-reasoning' else 'system_prompt'
+    if owner_id:
+        try:
+            templates = registry.record('settings', 'prompt-templates', owner_id).get('value', {})
+        except Exception:
+            # Fail open: persona lookup must never block agent assembly (DB-less
+            # harness tests and offline builds keep the seed persona).
+            templates = None
+        items = templates.get(category) if isinstance(templates, dict) else None
+        if isinstance(items, list):
+            for item in items:
+                if (isinstance(item, dict) and item.get('default') is True
+                        and isinstance(item.get('content'), str) and item['content'].strip()):
+                    return item['content']
+    return DEFAULT_PERSONA
 TOOL_ALIASES = {
     'search_knowledge': {'knowledge.search'}, 'read_document': {'knowledge.get_document'},
     'list_documents': {'knowledge.list_documents'}, 'query_knowledge_graph': {
@@ -19,7 +62,7 @@ TOOL_ALIASES = {
     'wiki_search': {'knowledge.wiki_search'}, 'wiki_read_page': {'knowledge.get_wiki_page'},
 }
 DEFAULT_CONFIG = {'agent_mode': 'smart-reasoning', 'agent_type': 'rag-qa', 'model_id': 'agent-main',
-    'system_prompt': '', 'temperature': 0.7, 'max_completion_tokens': 0, 'max_iterations': 50,
+    'system_prompt': '', 'use_custom_system_prompt': False, 'temperature': 0.7, 'max_completion_tokens': 0, 'max_iterations': 50,
     'llm_call_timeout': 120, 'thinking': False, 'citation_enabled': True,
     'allowed_tools': None, 'kb_selection_mode': 'all', 'knowledge_bases': [],
     'retrieve_kb_only_when_mentioned': False, 'mcp_selection_mode': 'none', 'mcp_services': [],
@@ -177,7 +220,7 @@ def validate_config(config, *, check_runtime=True):
         if not isinstance(value[key], list) or len(value[key]) > 200 or any(not isinstance(x, str) or not x or len(x) > 300 for x in value[key]):
             raise StoreError(f'{key} 必须为有效字符串列表', 400)
         value[key] = list(dict.fromkeys(value[key]))
-    for key in ('retrieve_kb_only_when_mentioned', 'thinking', 'citation_enabled', 'multi_turn_enabled', 'web_search_enabled', 'memory_enabled', 'retain_retrieval_history'):
+    for key in ('retrieve_kb_only_when_mentioned', 'thinking', 'citation_enabled', 'multi_turn_enabled', 'web_search_enabled', 'memory_enabled', 'retain_retrieval_history', 'use_custom_system_prompt'):
         if not isinstance(value[key], bool):
             raise StoreError(f'{key} 必须为布尔值', 400)
     # WeKnora's smart-mode form hides this switch; its backend always enables history.
@@ -305,7 +348,7 @@ def list_agents(owner_id, *, resolve_default=True):
 def load_agent(agent_id=None, owner_id=None, *, resolve_default=True):
     agent_id = agent_id or 'builtin-smart-reasoning'
     if agent_id == INTERNAL_ASSISTANT_ID:
-        return {'id': agent_id, 'is_builtin': True, 'name': 'WeKnora 助手',
+        return {'id': agent_id, 'is_builtin': True, 'name': '小知助手',
             'description': '当前页面的知识检索与会话助手',
             'config': validate_config({'agent_type': 'custom', 'temperature': 0.3,
                 'model_id': registry.default_model_id(owner_id) if resolve_default else '',

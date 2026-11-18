@@ -58,13 +58,14 @@ async function save() {
       <p class="hint">创建后不可切换编译模式。</p>
     </t-form>
     </t-loading>
-    <template #footer><t-button :loading="saving" :disabled="loading" @click="save">确定</t-button><t-button variant="outline" :disabled="saving" @click="emit('update:visible',false)">取消</t-button></template>
+    <template #footer><t-button variant="outline" :disabled="saving" @click="emit('update:visible',false)">取消</t-button><t-button :loading="saving" :disabled="loading" @click="save">确定</t-button></template>
   </t-dialog>
 </template>
 <style scoped>
 .native-form{padding:8px 0;font-family:var(--app-font-family);font-size:var(--app-text-base)}.hint{color:var(--td-text-color-secondary);line-height:1.6;margin:8px 0 0;font-size:var(--app-text-sm)}
-.mode-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;width:100%}
-.mode-card{display:flex;align-items:flex-start;height:auto;padding:16px;border:1px solid var(--td-component-border);border-radius:var(--td-radius-default);cursor:pointer;white-space:normal}
+.mode-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;width:100%;align-items:stretch}
+.mode-card{display:flex;align-items:flex-start;height:auto;padding:16px;border:1px solid var(--td-component-border);border-radius:var(--app-radius-md);cursor:pointer;white-space:normal}
+.mode-cards .mode-card{margin-right:0}
 .mode-card :deep(.t-radio__label){white-space:normal}
 .mode-card.selected{border-color:var(--app-selection-border);background:var(--app-selection-bg);color:var(--app-selection-text)}
 .mode-card p{margin:12px 0 0;color:var(--td-text-color-secondary);font-size:var(--app-text-md);line-height:1.7;white-space:normal}

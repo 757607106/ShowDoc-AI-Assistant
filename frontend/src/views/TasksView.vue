@@ -17,6 +17,7 @@ const error = ref(''), actionError = ref(''), loading = ref(false), busy = ref('
 const page = ref(1), pageSize = ref(20), total = ref(0), filter = ref<TaskFilter>('all')
 const detail = ref<MaterialTask | null>(null), detailId = ref(''), detailLoading = ref(false), detailError = ref(''), submissionReadError = ref('')
 const detailPending = ref(false)
+const detailHistory = ref<string[]>([])
 const addingBusy = ref(false), releasesRef = ref<{refresh: () => void} | null>(null)
 const spaceScope = computed(() => typeof route.query.space === 'string' && route.query.space ? route.query.space : undefined)
 const activeView = computed(() => route.query.view === 'history' ? 'history' : 'tasks')
@@ -28,6 +29,20 @@ const scopeOptions = computed(() => {
   return [...values].map(([value, label]) => ({value, label}))
 })
 const detailSubmission = computed(() => detail.value?.kind === 'ctxdb_sync' ? detail.value : detail.value?.submission_task)
+function stageStatus(status?: string): 'default' | 'process' | 'finish' | 'error' {
+  if (status === 'completed') return 'finish'
+  if (status && ['failed', 'cancelled'].includes(status)) return 'error'
+  if (status && ['pending', 'running', 'cancelling'].includes(status)) return 'process'
+  return 'default'
+}
+const stage1Status = computed(() => detail.value?.kind === 'ctxdb_sync' ? 'finish' as const : stageStatus(detail.value?.status))
+const stage2Status = computed(() => {
+  if (!detail.value) return 'default' as const
+  if (detailSubmission.value) return stageStatus(detailSubmission.value.status)
+  if (detail.value.phase === 'submission_failed') return 'error' as const
+  if (detail.value.phase === 'submitted') return 'process' as const
+  return 'default' as const
+})
 const filters: {value: TaskFilter; label: string}[] = [
   {value:'all', label:'全部'}, {value:'active', label:'进行中'}, {value:'action', label:'需处理'}, {value:'done', label:'已结束'},
 ]
@@ -53,6 +68,7 @@ async function load() {
 }
 async function openDetails(taskId: string, background = false) {
   const request = ++detailRequest
+  if (!background && detailId.value && detailId.value !== taskId) detailHistory.value.push(detailId.value)
   detailId.value = taskId
   detailPending.value = true
   if (!background) { detail.value = null; detailLoading.value = true; actionError.value = '' }
@@ -72,7 +88,13 @@ async function openDetails(taskId: string, background = false) {
 }
 function closeDetails() {
   detailRequest++; detailId.value = ''; detail.value = null; detailLoading.value = false; detailPending.value = false
-  detailError.value = ''; submissionReadError.value = ''; actionError.value = ''
+  detailError.value = ''; submissionReadError.value = ''; actionError.value = ''; detailHistory.value = []
+}
+function goBackDetail() {
+  const previous = detailHistory.value.pop()
+  if (!previous) return
+  detailId.value = ''
+  void openDetails(previous)
 }
 function duration(seconds = 0) {
   if (seconds < 60) return `${seconds} 秒`
@@ -116,6 +138,16 @@ function refresh() {
 }
 function changePage(value: number) { page.value = value; void load() }
 function changePageSize(value: number) { pageSize.value = value; page.value = 1; void load() }
+function rowAttrs() { return { tabindex: 0 } }
+function onRowActivate({ row }: { row: MaterialTask }) { void openDetails(row.task_id) }
+function onRowEnter(event: KeyboardEvent) {
+  const target = event.target as HTMLElement
+  if (target.closest('button,a,input,textarea,select')) return
+  const tr = target.closest('tr')
+  if (!tr?.parentElement) return
+  const row = taskRows.value[Array.from(tr.parentElement.children).indexOf(tr)]
+  if (row) { event.preventDefault(); void openDetails(row.task_id) }
+}
 function openKnowledgeBase(row: MaterialTask) {
   void router.push({path:`/platform/knowledge-spaces/${encodeURIComponent(row.scope)}`})
 }
@@ -148,9 +180,15 @@ watch([spaceScope, () => route.query.task], ([, value]) => {
   if (typeof value === 'string' && value) void openDetails(value)
   else if (detailId.value) closeDetails()
 }, {immediate:true})
+let pollTick = 0
 const timer = window.setInterval(() => {
-  if (activeView.value === 'tasks' && !loading.value && !busy.value) void load()
-  if (detailId.value && !detailPending.value && !busy.value) void openDetails(detailId.value, true)
+  pollTick++
+  if (document.hidden) return
+  const active = tasks.value.some(row => taskFilter(row) === 'active')
+  const due = active || pollTick % 6 === 0
+  const detailActive = !!detail.value && taskFilter(detail.value) === 'active'
+  if (activeView.value === 'tasks' && !loading.value && !busy.value && due) void load()
+  if (detailId.value && !detailPending.value && !busy.value && (due || detailActive)) void openDetails(detailId.value, true)
 }, 4000)
 function allowNavigation() {
   if (!addingBusy.value) return true
@@ -166,7 +204,7 @@ onUnmounted(() => { stopped = true; requestId++; spaceRequest++; closeDetails();
   <t-card title="资料任务" :bordered="false" class="material-workspace">
     <template #description>采集、提交与异常处理</template>
     <template #actions><t-space><t-button variant="outline" @click="refresh"><template #icon><t-icon name="refresh" /></template>刷新</t-button><t-button v-if="auth.hasRole('contributor')" @click="openAdd"><template #icon><t-icon name="add" /></template>添加资料</t-button></t-space></template>
-    <t-alert v-if="error" theme="error" :message="error" />
+    <t-alert v-if="error" theme="error" :message="error"><template #operation><t-button size="small" variant="text" @click="refresh">重试</t-button></template></t-alert>
     <t-alert v-if="actionError && !detailId" theme="error" :message="actionError" />
     <div class="workspace-navigation">
       <t-tabs :value="activeView" @change="changeView"><t-tab-panel value="tasks" label="处理任务" /><t-tab-panel value="history" label="提交历史" /></t-tabs>
@@ -174,9 +212,9 @@ onUnmounted(() => { stopped = true; requestId++; spaceRequest++; closeDetails();
     </div>
     <template v-if="activeView === 'tasks'">
       <div class="task-toolbar"><t-radio-group v-model="filter" variant="default-filled" aria-label="筛选当前页任务"><t-radio-button v-for="item in filters" :key="item.value" :value="item.value">{{item.label}}</t-radio-button></t-radio-group><span class="hint">当前账号 · 筛选当前页</span></div>
-      <t-table row-key="task_id" :data="taskRows" :loading="loading && !tasks.length" :columns="[
+      <t-table row-key="task_id" :data="taskRows" :loading="loading && !tasks.length" :row-attributes="rowAttrs" :row-class-name="({row}:any)=>taskFilter(row)==='action'?'task-row-needs-action':''" @row-click="onRowActivate" @keydown.enter="onRowEnter" :columns="[
         {colKey:'source',title:'资料来源',minWidth:190}, {colKey:'scope',title:'所属知识库',minWidth:120},
-        {colKey:'status',title:'当前阶段',minWidth:130}, {colKey:'result',title:'处理结果',minWidth:230}, {colKey:'operation',title:'操作',width:110},
+        {colKey:'status',title:'当前阶段',minWidth:130}, {colKey:'result',title:'处理结果',minWidth:230}, {colKey:'operation',title:'操作',width:150},
       ]">
         <template #source="{row}"><div class="source-name">{{taskSourceName(row)}}</div><small>{{row.entry_name}} · {{dateTime(row.start_time)}}</small></template>
         <template #scope="{row}"><span :title="row.scope">{{spaceName(row.scope,spaces)}}</span></template>
@@ -187,9 +225,9 @@ onUnmounted(() => { stopped = true; requestId++; spaceRequest++; closeDetails();
           <small v-if="row.submission_task">采集已完成 · 关联全库资料提交</small>
           <t-progress v-if="taskFilter(row)==='active'" :percentage="currentTask(row).progress || 0" size="small" :label="false" class="task-progress" />
         </template>
-        <template #operation="{row}"><t-button size="small" variant="text" @click="openDetails(row.task_id)">{{taskFilter(row)==='action'?'查看并处理':'详情'}}</t-button></template>
+        <template #operation="{row}"><div class="row-operations" @click.stop><t-button size="small" variant="text" @click="openDetails(row.task_id)">{{taskFilter(row)==='action'?'查看并处理':'详情'}}</t-button><template v-if="auth.hasRole('contributor') && row.kind!=='ctxdb_sync'"><t-button v-if="canRetry(row)" size="small" variant="text" :loading="busy===row.task_id" :disabled="!!busy" @click="act(row,'retry')">重试</t-button><t-popconfirm v-if="canCancel(row)" content="确认取消该任务？仅停止后续处理，不撤回已投递文档。" @confirm="act(row,'cancel')"><t-button size="small" variant="text" theme="danger" :disabled="!!busy">取消</t-button></t-popconfirm></template></div></template>
       </t-table>
-      <t-empty v-if="!taskRows.length && !loading" :description="tasks.length?'当前页没有符合条件的任务':'暂无资料任务，请先添加资料'" />
+      <t-empty v-if="!taskRows.length && !loading" :description="tasks.length?'当前页没有符合条件的任务':'暂无资料任务，请先添加资料'"><t-button v-if="!tasks.length && auth.hasRole('contributor')" @click="openAdd">添加资料</t-button></t-empty>
       <div class="task-pagination"><span class="hint">当前页 {{taskRows.length}} 组 · 共 {{total}} 条执行记录；关联提交在详情展开</span><t-pagination :total="total" :current="page" :page-size="pageSize" :page-size-options="[20,50,100]" :total-content="false" @current-change="changePage" @page-size-change="changePageSize" /></div>
     </template>
     <ReleasesView v-else ref="releasesRef" embedded :scope="spaceScope" :spaces="spaces" @show-task="showHistoryTask" />
@@ -201,23 +239,30 @@ onUnmounted(() => { stopped = true; requestId++; spaceRequest++; closeDetails();
         <t-alert v-if="detailError" theme="error" :message="detailError" />
         <t-alert v-if="actionError" theme="error" :message="actionError" />
         <template v-if="detail">
+          <div v-if="detailHistory.length" class="detail-back"><t-button variant="text" size="small" @click="goBackDetail"><t-icon name="chevron-left" />返回上一任务</t-button></div>
           <div class="detail-heading"><h3>{{taskSourceName(detail)}}</h3><t-tag>{{spaceName(detail.scope,spaces)}}</t-tag></div>
           <ImportDirectoryLinks :directories="detail.import_directories" />
-          <div class="task-stages">
-            <section><small>{{detail.kind==='ctxdb_sync'?'触发来源':detail.entry==='file'?'文件检查':'网站采集'}}</small><p>{{detail.kind==='ctxdb_sync'?(detail.source_task_id?'由采集任务触发':'独立资料提交'):detail.status==='completed'?(detail.entry==='file'?'检查完成':'采集完成'):stateLabel(detail.status,'task')}}</p><t-button v-if="detail.kind==='ctxdb_sync' && detail.source_task_id" variant="text" size="small" @click="openDetails(detail.source_task_id)">查看触发任务</t-button></section>
-            <section><small>资料提交</small><p>{{detailSubmission?taskStatusLabel(detailSubmission):detail.phase==='submission_failed'?'自动提交失败':detail.phase==='submitted'?'已排队提交':'未开始'}}</p><small v-if="detailSubmission">已处理 {{detailSubmission.completed_pages || 0}} / {{detailSubmission.total_pages || 0}} 份</small></section>
-            <section><small>评审 / 入库 / 生成</small><p>分别查看正式处理状态</p><t-button v-if="detail.kind==='ctxdb_sync' || detail.submission_id" variant="text" size="small" @click="openKnowledgeBase(detail)">查看正式处理结果</t-button></section>
-          </div>
+          <t-steps class="task-stages" layout="horizontal">
+            <t-step-item :title="detail.kind==='ctxdb_sync'?'触发来源':detail.entry==='file'?'文件检查':'网站采集'" :status="stage1Status">
+              <template #default><p>{{detail.kind==='ctxdb_sync'?(detail.source_task_id?'由采集任务触发':'独立资料提交'):detail.status==='completed'?(detail.entry==='file'?'检查完成':'采集完成'):stateLabel(detail.status,'task')}}</p><t-button v-if="detail.kind==='ctxdb_sync' && detail.source_task_id" variant="text" size="small" @click="openDetails(detail.source_task_id)">查看触发任务</t-button></template>
+            </t-step-item>
+            <t-step-item title="资料提交" :status="stage2Status">
+              <template #default><p>{{detailSubmission?taskStatusLabel(detailSubmission):detail.phase==='submission_failed'?'自动提交失败':detail.phase==='submitted'?'已排队提交':'未开始'}}</p><small v-if="detailSubmission">已处理 {{detailSubmission.completed_pages || 0}} / {{detailSubmission.total_pages || 0}} 份</small></template>
+            </t-step-item>
+            <t-step-item title="评审 / 入库 / 生成" status="default">
+              <template #default><p>分别查看正式处理状态</p><t-button v-if="detail.kind==='ctxdb_sync' || detail.submission_id" variant="text" size="small" @click="openKnowledgeBase(detail)">查看正式处理结果</t-button></template>
+            </t-step-item>
+          </t-steps>
           <t-alert v-if="submissionReadError" theme="warning" :message="'提交任务详情暂不可用：'+submissionReadError" />
           <t-alert v-if="detail.phase==='submission_failed'" theme="warning" message="自动提交尚未成功。补交包含该知识库全部当前资料，不只本次采集内容。" />
           <t-alert v-if="detailSubmission" theme="info" message="提交处理的是该知识库的资料快照；提交完成不代表评审、入库或内容生成完成。取消只停止后续处理，不撤回已投递文档。" />
           <p class="detail-message">{{currentTask(detail).message}}</p>
           <t-space v-if="auth.hasRole('contributor')" break-line class="detail-actions">
-            <t-button v-if="detail.kind!=='ctxdb_sync' && canCancel(detail)" :disabled="!!busy" variant="outline" @click="act(detail,'cancel')">取消采集 / 检查</t-button>
-            <t-button v-if="detail.kind!=='ctxdb_sync' && canRetry(detail)" :disabled="!!busy" @click="act(detail,'retry')">{{detail.entry==='file'?'重新检查':'重试采集'}}</t-button>
-            <t-button v-if="detail.submit_available" :loading="busy===detail.task_id" :disabled="!!busy" @click="act(detail,'submit')">补交全库当前资料</t-button>
-            <t-button v-if="detailSubmission && canCancel(detailSubmission)" :disabled="!!busy" variant="outline" @click="act(detailSubmission,'cancel')">取消后续提交</t-button>
-            <t-button v-if="detailSubmission && canRetry(detailSubmission)" :disabled="!!busy" @click="act(detailSubmission,'retry-sync')">重试资料提交</t-button>
+            <t-popconfirm v-if="detail.kind!=='ctxdb_sync' && canCancel(detail)" content="确认取消采集 / 检查？仅停止后续处理，不撤回已投递文档。" @confirm="act(detail,'cancel')"><t-button :disabled="!!busy" variant="outline">取消采集 / 检查</t-button></t-popconfirm>
+            <t-tooltip v-if="detail.kind!=='ctxdb_sync' && canRetry(detail)" content="以来源当前内容重新执行，会生成新的任务批次"><t-button :disabled="!!busy" @click="act(detail,'retry')">{{detail.entry==='file'?'重新检查':'重试采集'}}</t-button></t-tooltip>
+            <t-tooltip v-if="detail.submit_available" content="将该知识库当前全部资料重新提交，不只本次采集内容"><t-button :loading="busy===detail.task_id" :disabled="!!busy" @click="act(detail,'submit')">补交全库当前资料</t-button></t-tooltip>
+            <t-popconfirm v-if="detailSubmission && canCancel(detailSubmission)" content="确认取消后续提交？仅停止后续处理，不撤回已投递文档。" @confirm="act(detailSubmission,'cancel')"><t-button :disabled="!!busy" variant="outline">取消后续提交</t-button></t-popconfirm>
+            <t-tooltip v-if="detailSubmission && canRetry(detailSubmission)" content="重新提交该知识库的资料快照"><t-button :disabled="!!busy" @click="act(detailSubmission,'retry-sync')">重试资料提交</t-button></t-tooltip>
           </t-space>
           <t-alert v-if="detail.metrics?.video_references" theme="warning" :message="`${detail.metrics.video_references} 条仅保存视频链接和封面，视频内容尚未采集或解析。`" />
           <t-alert v-if="detail.failure_details_error" theme="warning" :message="detail.failure_details_error" />
@@ -261,9 +306,14 @@ small,.hint,.log-line span { color: var(--td-text-color-secondary); font-size: v
 .task-progress { max-width: 200px; margin-top: 8px; }
 .detail-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .detail-heading h3 { margin: 0; font-size: var(--app-text-xl); }
-.task-stages { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; margin: 24px 0; }
-.task-stages section { border-top: 2px solid var(--td-component-stroke); padding-top: 12px; }
+.task-stages { margin: 24px 0; }
 .task-stages p { margin: 6px 0; }
+.task-stages :deep(.t-steps-item) { flex: 1; }
+.row-operations { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.detail-back { margin-bottom: 8px; }
+.material-workspace :deep(.t-table tbody tr) { cursor: pointer; }
+.material-workspace :deep(.t-table tbody tr:focus-visible) { outline: 2px solid var(--td-brand-color); outline-offset: -2px; }
+.material-workspace :deep(.task-row-needs-action) { background: color-mix(in srgb, var(--td-error-color) 5%, transparent); }
 .detail-message { overflow-wrap: anywhere; }
 .detail-actions { margin: 4px 0 20px; }
 .task-extra { margin-top: 24px; }
@@ -274,7 +324,6 @@ small,.hint,.log-line span { color: var(--td-text-color-secondary); font-size: v
 @media(max-width:760px) {
   .workspace-navigation { align-items: stretch; flex-direction: column; gap: 12px; padding-bottom: 12px; }
   .scope-filter .t-select__wrap { width: min(230px,65vw); }
-  .task-stages { grid-template-columns: 1fr; }
   .task-pagination { align-items: flex-start; flex-direction: column; }
   .task-pagination :deep(.t-pagination) { max-width: 100%; flex-wrap: wrap; }
 }

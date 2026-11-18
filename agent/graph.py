@@ -7,22 +7,8 @@ from langchain_openai import ChatOpenAI
 
 from agent.models import build_model_record
 from agent.tools import make_governance_tools, load_knowledge_mcp_tools
+from agent.config import DEFAULT_PERSONA, RUNTIME_CONTRACT, default_base_prompt
 
-
-SYSTEM_PROMPT = """你是企业级知识治理平台的智能助手,服务数据治理与知识消费两个域。
-
-工具使用原则:
-- 不读取或检索历史 `_governance` 运行记录库;平台溯源请使用平台工具。
-- 知识访问直接使用当前已装载的 ContextDB 官方 MCP 工具，保留工具原始参数和真实资源 ID；工具失败时说明错误，不自行改用 REST、网页或本地文件检索。
-- 普通知识问题优先 knowledge.search；查找 Wiki 页面用 knowledge.wiki_search，它返回的是导航摘要，不是完整原文。
-- 明确询问实体关系，或原文证据不足且需要关联信息时，可在同一次执行中按需调用 knowledge.list_graph_entities、knowledge.get_graph、knowledge.list_entity_chunks；先查实体、有限展开，再读来源原文。没有装载的工具不可假设可用。
-- 原文证据已足够时停止追加检索。图谱的 graph_context、graphrag 合成描述和 Wiki 合成章节只能辅助理解，不能冒充原文证据；需要原文引用时继续通过官方工具取得实际切片。
-- 遵守返回的 truncated、note 和来源缺失信息；有限结果不能证明关系不存在。指定 document_ids 时，图增强信息仍可能来自同库其他文档，必须核对原文范围。
-- 需要平台治理信息(发布版本、文档版本溯源)时,使用治理溯源工具;
-- 回答知识问题时给出本轮成功工具调用中实际读到、且支持相邻结论的原文出处；历史回答或工具参数中的 ID 不是本轮证据。不确定或证据不足就明说。
-- 原文引用使用 <kb chunk_id="工具返回的真实切片ID" kb_id="该切片所属知识库ID" />，紧跟其支持的结论；标题由系统补全。不得编造 ID、用标题或序号代替 ID、或拿同一文档的其他切片支持未经核实的内容。此标签协议仅用于回答，不改变官方工具参数。
-
-沟通风格:结论先行、简明中文;引用知识库证据时注明来源。"""
 
 SKILL_EXECUTION_PATHS = """技能路径说明：文件工具中的 /state/skills/<技能名>/<相对路径> 与
 /state/subagent-skills/<子代理名>/<技能名>/<相对路径> 是虚拟指令/资料来源。
@@ -55,6 +41,7 @@ async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowled
 
     config = validate_config(agent_config or ({'model_id': registry.default_model_id(owner_id)} if load_tools else {}),
                              check_runtime=load_tools and delegated_subagent is None)
+    config['_base_prompt'] = default_base_prompt(config['agent_mode'], owner_id)
     allowed = config.get('allowed_tools')
     selected = set(DEFAULT_TOOLS if allowed is None else allowed)
     tools = []
@@ -141,21 +128,35 @@ async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowled
     return agent.with_config(recursion_limit=max(80, limit * 4 + 20) if limit > 0 else 10000)
 
 
+def _render_placeholders(text, config, knowledge_base_ids):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    current = datetime.now(ZoneInfo('Asia/Shanghai'))
+    values = {'query': config.get('_query', ''), 'web_search_status': 'Disabled',
+              'knowledge_bases': json.dumps(list(knowledge_base_ids), ensure_ascii=False),
+              'current_time': current.date().isoformat(), 'current_week': current.strftime('%A'),
+              'yesterday': (current.date() - timedelta(days=1)).isoformat(),
+              'language': config.get('_locale', 'zh-CN')}
+    for key, value in values.items():
+        text = text.replace('{{' + key + '}}', value)
+    return text
+
+
 def _system_prompt(config, knowledge_base_ids, has_shell):
-    prompt = SYSTEM_PROMPT
+    base = config.get('_base_prompt')
+    if not (isinstance(base, str) and base.strip()):
+        base = DEFAULT_PERSONA
+    instructions = _render_placeholders(config['system_prompt'], config, knowledge_base_ids) if config.get('system_prompt') else ''
+    replace_persona = bool(config.get('use_custom_system_prompt')) and bool(instructions.strip())
+    # The caller-authored prompt replaces the persona section only; the runtime
+    # contract and the dynamic sections below are never editable through it.
+    if replace_persona:
+        prompt = instructions + '\n\n' + RUNTIME_CONTRACT
+    else:
+        prompt = _render_placeholders(base, config, knowledge_base_ids) + '\n\n' + RUNTIME_CONTRACT
     if config['agent_mode'] == 'quick-answer':
         prompt += '\n当前为快速问答：优先直接检索相关原文，简明作答；仅在有必要时使用计划或委派。'
-    if config.get('system_prompt'):
-        from datetime import datetime, timedelta
-        from zoneinfo import ZoneInfo
-        current = datetime.now(ZoneInfo('Asia/Shanghai'))
-        values = {'query': config.get('_query', ''), 'web_search_status': 'Disabled',
-                  'knowledge_bases': json.dumps(list(knowledge_base_ids), ensure_ascii=False),
-                  'current_time': current.date().isoformat(), 'current_week': current.strftime('%A'),
-                  'yesterday': (current.date() - timedelta(days=1)).isoformat(), 'language': config.get('_locale', 'zh-CN')}
-        instructions = config['system_prompt']
-        for key, value in values.items():
-            instructions = instructions.replace('{{' + key + '}}', value)
+    if instructions and not replace_persona:
         prompt += '\n\nAgent 指令:\n' + instructions
     if config.get('_page_context'):
         prompt += '\n\n用户当前页面上下文（仅作定位，不能作为知识证据）:\n' + json.dumps(config['_page_context'], ensure_ascii=False)

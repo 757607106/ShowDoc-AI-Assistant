@@ -306,6 +306,45 @@ def test_invalid_or_ambiguous_system_prompt_templates_fail_explicitly(configured
     assert registry.records('agent', configured_owner) == []
 
 
+def test_prompt_template_settings_seed_defaults(settings_client):
+    response = settings_client.get('/api/v1/tenants/kv/prompt-templates')
+    assert response.status_code == 200
+    data = response.json['data']
+    for category in ('system_prompt', 'agent_system_prompt'):
+        entries = data[category]
+        assert len(entries) == 1 and entries[0]['default'] is True
+        assert entries[0]['content'] == config.DEFAULT_PERSONA
+    assert data['context_template'] == [] and data['rewrite'] == [] and data['fallback'] == []
+
+
+def test_system_prompt_assembly_default_matches_legacy_persona_plus_contract(configured_owner):
+    import agent.graph as graph
+    if any(item['id'] == 'prompt-templates' for item in registry.records('settings', configured_owner)):
+        registry.delete_record('settings', 'prompt-templates', configured_owner)
+    legacy = config.DEFAULT_PERSONA + '\n\n' + config.RUNTIME_CONTRACT
+    assert '对外表达边界' in config.RUNTIME_CONTRACT and '不出现内部工具名' in config.RUNTIME_CONTRACT
+    assert graph._system_prompt({'agent_mode': 'smart-reasoning'}, [], False).startswith(legacy)
+    registry.save_record('settings', {'id': 'prompt-templates', 'value': {
+        'agent_system_prompt': [{'id': 'persona', 'name': '库内人设', 'content': '库内人设', 'default': True}]}}, configured_owner)
+    assert config.default_base_prompt('smart-reasoning', configured_owner) == '库内人设'
+    assert config.default_base_prompt('quick-answer', configured_owner) == config.DEFAULT_PERSONA
+
+
+def test_system_prompt_switch_replaces_persona_but_keeps_contract(configured_owner):
+    import agent.graph as graph
+    base = {'agent_mode': 'smart-reasoning', '_base_prompt': '库内人设', 'citation_enabled': True}
+    appended = graph._system_prompt({**base, 'system_prompt': '我的指令'}, ['kb-1'], False)
+    assert appended.startswith('库内人设\n\n' + config.RUNTIME_CONTRACT)
+    assert '\n\nAgent 指令:\n我的指令' in appended
+    replaced = graph._system_prompt({**base, 'system_prompt': '专属人设', 'use_custom_system_prompt': True}, ['kb-1'], False)
+    assert replaced.startswith('专属人设\n\n' + config.RUNTIME_CONTRACT)
+    assert 'Agent 指令' not in replaced
+    assert '<kb chunk_id=' in replaced
+    rendered = graph._system_prompt({**base, 'system_prompt': '语言 {{language}}',
+        'use_custom_system_prompt': True, '_locale': 'en-US'}, [], False)
+    assert rendered.startswith('语言 en-US\n\n' + config.RUNTIME_CONTRACT)
+
+
 def test_scope_default_all_selected_none_and_explicit_mentions(configured_owner):
     client = KnowledgeClient()
     def resolve(body):

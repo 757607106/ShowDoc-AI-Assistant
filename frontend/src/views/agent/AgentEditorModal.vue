@@ -195,6 +195,14 @@
                 </t-tooltip>
                 <span class="placeholder-hint">{{ $t('agentEditor.placeholders.hint') }}</span>
               </div>
+              <div class="persona-replace">
+                <label class="persona-replace__label">
+                  <t-switch v-model="formData.config.use_custom_system_prompt"
+                    :aria-label="$t('agentEditor.desc.useCustomSystemPrompt')" />
+                  <span>{{ $t('agentEditor.desc.useCustomSystemPrompt') }}</span>
+                </label>
+                <p class="desc">{{ $t('agentEditor.desc.useCustomSystemPromptDesc') }}</p>
+              </div>
             </div>
             <div class="setting-control setting-control-full" style="position: relative;">
               <!-- Agent模式：统一提示词（使用 {{web_search_status}} 占位符动态控制行为） -->
@@ -1993,6 +2001,7 @@ const defaultFormData = {
     // 基础设置
     agent_mode: 'smart-reasoning' as 'quick-answer' | 'smart-reasoning',
     system_prompt: '',
+    use_custom_system_prompt: false,
     context_template: '',
     // 模型设置
     model_id: '',
@@ -5253,6 +5262,21 @@ const handleSave = async () => {
 }
 
 // 占位符标签组样式
+.persona-replace {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  .persona-replace__label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--app-text-sm);
+    cursor: pointer;
+  }
+}
+
 .placeholder-tags {
   margin-top: 6px;
   display: flex;

@@ -601,7 +601,8 @@ onUnmounted(() => {
   &.is-docked {
     flex-shrink: 0;
     height: 100%;
-    border-left: 1px solid var(--td-component-stroke);
+    border-radius: var(--app-radius-xl);
+    overflow: hidden;
   }
 
   // Above document/model drawers (2100/2300), below confirmation dialogs (2500).

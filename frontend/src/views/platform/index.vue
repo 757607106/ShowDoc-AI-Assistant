@@ -259,8 +259,8 @@ onUnmounted(() => {
     height: 100%;
     min-width: 600px;
     min-height: 0;
-    /* 统一整页背景，让左侧菜单与右侧内容区视觉连贯 */
-    background: var(--td-bg-color-container);
+    /* 灰底衬托右侧内容区的圆角外轮廓，布局仍为一体贴合、无额外缝隙 */
+    background: var(--td-bg-color-page);
 }
 
 /* 右侧路由区：占满剩余宽度与整列高度，并把 min-height:0 传给子页面以便内部 flex 滚动 */
@@ -271,6 +271,8 @@ onUnmounted(() => {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    background: var(--td-bg-color-container);
+    border-radius: var(--app-radius-xl);
 }
 
 .upload-mask {

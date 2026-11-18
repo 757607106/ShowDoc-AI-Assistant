@@ -554,13 +554,14 @@ def settings(key):
         _require_model_admin()
         value = registry.save_workspace_defaults(g.user['id'], _body())
         return jsonify(success=True, data=value, message='Default settings updated successfully')
+    from agent.config import default_prompt_templates
     defaults = {'retrieval-config': {'top_k': 10, 'similarity_threshold': 0.6, 'vector_weight': 0.7, 'query_rewrite': True},
         'web-search-config': {'enabled': False}, 'skill-installer-model': {'model_id': ''},
         'memory-config': {'enabled': False, 'write_mode': 'explicit_only', 'extract_model_id': '',
             'max_items': 0, 'extract_delay_seconds': 0, 'extract_min_interval_seconds': 0,
             'extract_instructions': '', 'interest_threshold': 0, 'retrieval_conditioning': False,
             'embedding_model_id': '', 'vector_recall': False},
-        'prompt-templates': {'system_prompt': [], 'agent_system_prompt': [], 'context_template': [], 'rewrite': [], 'fallback': []}}
+        'prompt-templates': default_prompt_templates()}
     if key not in defaults:
         raise StoreError('配置不存在', 404)
     if key == 'memory-config':

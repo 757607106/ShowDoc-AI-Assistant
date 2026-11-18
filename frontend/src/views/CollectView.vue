@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { MessagePlugin } from 'tdesign-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/api/backend'
 import { getSpaces } from '@/api/knowledgeSpaces'
 import { bindBase, getBasePermissions, knowledgeAccess, knowledgeModeLabel, listBases, uploadDocumentFile, type BasePermissionProfile } from '@/api/contextdb'
 import { CONTEXTDB_REVIEW_FORMAT_NOTICE } from '@/utils/contextdbReviewSupport'
+import { formatFileSize } from '@/utils/files'
 import { directoryPreview } from './importDirectories'
 import ImportDirectoryLinks from './ImportDirectoryLinks.vue'
 import KbUploadSourceDropdown from './knowledge/components/KbUploadSourceDropdown.vue'
@@ -28,10 +30,22 @@ const taskIds = ref<string[]>([]), directCount = ref(0)
 const directory = ref<{root_name:string;source_key:string;preview_complete?:boolean}|null>(null), rootName = ref('')
 const importRoots = ref<unknown>([]), taskReadError = ref('')
 const previewPages = computed(() => selection.value === 'selected' ? pages.value.filter(page => selectedIds.value.includes(String(page.page_id))) : pages.value)
-const crawlReady = computed(() => !!directory.value && !!rootName.value.trim() && !listing.value && (selection.value !== 'selected' || selectedIds.value.length > 0))
 const previewTree = computed(() => directory.value ? directoryPreview(rootName.value.trim(), previewPages.value) : [])
 let pollTimer: number | undefined
 let taskRequest = 0
+const previewButton = ref(), rootInput = ref(), dragOver = ref(false)
+let jumpAfterLaunch = ''
+function guide(message: string, target?: any) {
+  MessagePlugin.warning(message)
+  const el = target?.$el ?? target
+  el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+}
+function dropFiles(event: DragEvent) {
+  dragOver.value = false
+  if (launching.value) return
+  const dropped = Array.from(event.dataTransfer?.files || [])
+  if (dropped.length) selectFiles([...files.value, ...dropped])
+}
 const space = computed(() => spaces.value.find(item => item.id === spaceScope.value))
 const editable = computed(() => !!space.value && knowledgeAccess(space.value, profile.value, auth.hasRole('contributor')).write)
 let requestId = 0
@@ -137,20 +151,25 @@ function announceCreated(knowledgeBaseId:string, id?:string) {
   emit('created', {task_ids:[...taskIds.value],scope:taskScope.value,knowledge_base_id:knowledgeBaseId,direct_count:directCount.value})
 }
 async function launch() {
-  if (launching.value || !space.value || !editable.value) return
-  const knowledgeBaseId = spaceScope.value, launchMode = mode.value, source = entryKey.value
-  launching.value = true; error.value = ''
+  if (launching.value) return
+  if (!space.value) return guide('请先选择知识库')
+  if (!editable.value) return guide('当前知识库无写入权限，请切换其他知识库')
+  const launchMode = mode.value
+  if (launchMode === 'file' && !files.value.length) return guide('请先选择文件，或将文件拖到来源文件区域')
+  if (launchMode === 'crawl') {
+    if (selection.value === 'selected' && !selectedIds.value.length) return guide('请选择要采集的文档')
+    if (!directory.value) return guide('请先读取目录预览，确认保存位置', previewButton.value)
+    if (!rootName.value.trim()) return guide('请输入导入目录名称', rootInput.value)
+  }
+  const knowledgeBaseId = spaceScope.value, source = entryKey.value
+  let params: any
+  try { params = launchMode === 'crawl' ? crawlerParams() : undefined }
+  catch (err: any) { return guide(err.message) }
+  launching.value = true; error.value = ''; jumpAfterLaunch = ''
   try {
-    const params = launchMode === 'crawl' ? crawlerParams() : undefined
     const selected = [...selectedIds.value], root = rootName.value.trim(), selectOnly = selection.value === 'selected'
-    if (launchMode === 'crawl') {
-      if (selectOnly && !selected.length) throw new Error('请选择要采集的文档')
-      if (!directory.value) throw new Error('请先读取目录预览，确认保存位置')
-      if (!root) throw new Error('请输入导入目录名称')
-    }
     taskScope.value = (await bindBase(knowledgeBaseId)).space.scope
     if (launchMode === 'file') {
-      if (!files.value.length) throw new Error('请先选择文件')
       const remaining = [...files.value], limit = 100 * 1024 * 1024
       while (remaining.length) {
         const first = remaining[0]!
@@ -167,14 +186,19 @@ async function launch() {
           announceCreated(knowledgeBaseId, data.task_id)
         }
       }
+      if (taskIds.value.length === 1 && directCount.value === 0) jumpAfterLaunch = taskIds.value[0]
     } else {
       const payload: any = { ...params, knowledge_base_id: knowledgeBaseId, import_root_name: root }
       if (selectOnly) payload.selected_ids = selected
       const data = await api.startTask(source, payload)
       announceCreated(knowledgeBaseId, data.task_id)
+      jumpAfterLaunch = data.task_id
     }
   } catch (err: any) { error.value = `${err.message}${launchMode==='file'?'。已成功的文件不会重复提交；请先核对官方文档，再决定是否重试剩余文件。':''}` }
-  finally { launching.value = false }
+  finally {
+    launching.value = false
+    if (jumpAfterLaunch) { const id = jumpAfterLaunch; jumpAfterLaunch = ''; showTasks(id) }
+  }
 }
 watch(launching, value => emit('busy-change', value), {flush:'sync'})
 watch([() => route.query.kb_id, () => route.query.space, () => route.query.mode, () => route.query.url], load, { immediate: true })
@@ -198,6 +222,7 @@ watch([spaceScope, entryKey, url, projectId, userToken, keyword, crawlMode, maxP
       <t-form label-width="120px" :label-align="embedded ? 'top' : 'right'" class="collection-form" @submit.prevent>
         <t-form-item label="知识库" required>
           <t-select v-model="spaceScope" :disabled="launching" placeholder="选择资料所属知识库" :options="spaces.map(item => ({label: item.name, value: item.id, disabled: !knowledgeAccess(item,profile,auth.hasRole('contributor')).write}))" />
+          <p v-if="space && !editable" class="hint">当前知识库无写入权限，请切换其他知识库。</p>
         </t-form-item>
         <t-form-item v-if="space" label="生成内容">
           <t-space break-line><t-tag theme="primary" variant="light">{{knowledgeModeLabel(space)}}</t-tag><t-tag>{{space.review_enabled?'知识评审已开启':'知识评审已关闭'}}</t-tag></t-space>
@@ -221,7 +246,7 @@ watch([spaceScope, entryKey, url, projectId, userToken, keyword, crawlMode, maxP
             <t-form-item label="标题关键词"><t-input v-model="keyword" :disabled="launching" clearable /></t-form-item>
           </template>
           <t-form-item label="采集文档"><t-radio-group v-model="selection" :disabled="launching"><t-radio-button value="all">全部文档</t-radio-button><t-radio-button value="selected">选择文档</t-radio-button></t-radio-group></t-form-item>
-          <t-form-item label="目录预览"><t-button variant="outline" :loading="listing" :disabled="launching" @click="loadPages">{{directory ? '重新读取目录' : '读取目录预览'}}</t-button></t-form-item>
+          <t-form-item label="目录预览"><t-button ref="previewButton" :variant="directory || listing ? 'outline' : 'base'" :loading="listing" :disabled="launching" @click="loadPages">{{directory ? '重新读取目录' : '读取目录预览'}}</t-button></t-form-item>
           <t-form-item v-if="listError" label=""><t-alert theme="error" :message="listError" /></t-form-item>
           <t-form-item v-if="selection === 'selected'" label="文档" required>
             <div class="document-selection">
@@ -230,7 +255,7 @@ watch([spaceScope, entryKey, url, projectId, userToken, keyword, crawlMode, maxP
           </t-form-item>
           <t-form-item v-if="directory" label="保存到" required>
             <div class="import-preview">
-              <div class="import-location"><t-icon name="folder" /><span>{{space?.name}}</span><t-icon name="chevron-right" /><t-input v-model="rootName" :disabled="launching" :maxlength="200" aria-label="导入目录名称" placeholder="导入目录名称" /></div>
+              <div class="import-location"><t-icon name="folder" /><span>{{space?.name}}</span><t-icon name="chevron-right" /><t-input ref="rootInput" v-model="rootName" :disabled="launching" :maxlength="200" aria-label="导入目录名称" placeholder="导入目录名称" /></div>
               <p class="hint">以来源名称创建一级目录，保留原始子目录；根页面直接保存在此目录下。已选 {{previewPages.length}} 份文档。</p>
               <t-alert v-if="directory.preview_complete === false" theme="info" message="网站链接尚未全部发现，当前显示已发现的目录；采集时会继续发现页面并保留其目录。" />
               <t-tree :data="previewTree" expand-all class="import-directory-tree" />
@@ -238,14 +263,15 @@ watch([spaceScope, entryKey, url, projectId, userToken, keyword, crawlMode, maxP
           </t-form-item>
         </template>
         <t-form-item v-else label="来源文件">
-          <div :inert="launching">
+          <div :inert="launching" class="file-source" :class="{'file-drag-active':dragOver}" @dragover.prevent="dragOver=true" @dragleave="dragOver=false" @drop.prevent="dropFiles">
             <KbUploadSourceDropdown trigger-label="选择文件" @files="selectFiles" @url="selectUrl" />
-            <p class="hint">最多 50 个文件；普通批次保留采集归档，超过 100 MB 的单文件直接保存到 ContextDB。</p>
-            <ul v-if="files.length" class="file-list"><li v-for="(file, index) in files" :key="index">{{ file.name }} <t-button size="small" variant="text" :disabled="launching" :aria-label="'移除 '+file.name" @click="files.splice(index, 1)">移除</t-button></li></ul>
+            <p class="hint">最多 50 个文件，可拖拽到此处；普通批次保留采集归档，超过 100 MB 的单文件直接保存到 ContextDB。</p>
+            <p v-if="files.length" class="hint">已选 {{files.length}} / 50 个文件 · 共 {{formatFileSize(files.reduce((sum,file)=>sum+file.size,0))}}</p>
+            <ul v-if="files.length" class="file-list"><li v-for="(file, index) in files" :key="index"><span class="file-name">{{ file.name }}</span><span class="file-size">{{formatFileSize(file.size)}}</span><t-tag v-if="file.size>100*1024*1024" size="small" variant="light">直接入库</t-tag><t-button size="small" variant="text" :disabled="launching" :aria-label="'移除 '+file.name" @click="files.splice(index, 1)">移除</t-button></li></ul>
           </div>
         </t-form-item>
         <t-form-item><t-space break-line>
-          <t-button theme="primary" :loading="launching" :disabled="!editable || !space || (mode === 'file' && !files.length) || (mode === 'crawl' && !crawlReady)" @click="launch">{{ mode === 'file' ? '上传到知识库' : '采集到知识库' }}</t-button>
+          <t-button theme="primary" :loading="launching" :disabled="launching" @click="launch">{{ mode === 'file' ? '上传到知识库' : '采集到知识库' }}</t-button>
           <t-button variant="outline" :disabled="launching" @click="showTasks()">查看任务</t-button>
         </t-space></t-form-item>
       </t-form>
@@ -270,6 +296,11 @@ watch([spaceScope, entryKey, url, projectId, userToken, keyword, crawlMode, maxP
 .collection-embedded .import-location .t-input__wrap { min-width: 0; }
 .import-directory-tree { max-height: 320px; overflow: auto; border: 1px solid var(--td-component-stroke); border-radius: var(--app-radius-md); padding: 12px; }
 .hint { color: var(--td-text-color-secondary); font-size: var(--app-text-sm); }
-.file-list { padding-left: 20px; max-height: 240px; overflow: auto; overflow-wrap: anywhere; }
+.file-list { padding-left: 0; list-style: none; max-height: 240px; overflow: auto; overflow-wrap: anywhere; }
+.file-list li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.file-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.file-size { flex: none; color: var(--td-text-color-secondary); font-size: var(--app-text-sm); }
+.file-source { border-radius: var(--app-radius-md); transition: outline-color .15s; outline: 2px dashed transparent; outline-offset: 6px; }
+.file-drag-active { outline-color: var(--td-brand-color); }
 .document-selection { display: grid; gap: 12px; width: 100%; }
 </style>

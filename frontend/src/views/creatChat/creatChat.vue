@@ -333,6 +333,9 @@ async function openProjectDir() {
     width: 100%;
     max-width: 960px;
     gap: 24px;
+    /* 窄内容区时输入框两侧保留留白，不贴面板边缘 */
+    padding: 0 24px;
+    box-sizing: border-box;
 
     :deep(.answers-input) {
         position: static;

@@ -1296,14 +1296,29 @@ const resizeSidebar = (delta: number, keyboard: boolean) => {
     overflow: visible;
     display: flex;
     flex-direction: column;
-    border-right: 1px solid var(--td-component-stroke);
-    box-shadow: 1px 0 0 rgba(0, 0, 0, 0.02);
+    /* 仅外侧两角圆润：内侧两角保持直角并与内容区贴合，避免双侧圆角形成灰底缺口；
+       不加右边线与投影，灰侧栏与白色内容区直接相接 */
+    border-radius: var(--app-radius-xl) 0 0 var(--app-radius-xl);
     transition: width 0.25s ease, min-width 0.25s ease;
     position: relative;
 
     // macOS Wails 桌面：红绿灯位于 HiddenInset 标题栏区域，需让出顶部空间
     html.wails-desktop & {
         padding-top: 30px;
+    }
+
+    /* 侧栏底色向右延伸至内容区左圆角之后：圆角弧外透出的是侧栏同色灰，
+       而非页面底色，交界处上下两端不会出现异色缺口 */
+    &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: calc(-1 * var(--app-radius-xl));
+        width: var(--app-radius-xl);
+        height: 100%;
+        background: var(--td-bg-color-sidebar);
+        z-index: -1;
+        pointer-events: none;
     }
 
     &--resizing {
