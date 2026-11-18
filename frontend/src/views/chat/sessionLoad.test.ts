@@ -86,7 +86,6 @@ function fixture(
     SESSION_MUTATION_EVENT: 'mutation',
     backgroundPoller: { dispose() {} },
     clearComposerApproval() {},
-    loadFollowUpSuggestions() {},
     findLastMessage: (predicate: (row: any) => boolean) => [...rows].reverse().find(predicate),
     persistedAssistantId: (row: any) => row.id,
     startStream: async (request: any) => {
@@ -127,6 +126,7 @@ function fixture(
     block('const getmsgList = ', '// 发送消息') +
     after +
     block('const handleSessionMutation = ', 'onBeforeMount(') +
+    block("let sendDraft = '';", '// 处理停止生成事件') +
     block('const sendMsg = ', '    const reasoningEffort = ') +
     'recordSend(value); };\n' +
     block('const clearData = ', '</script>') +
@@ -148,6 +148,26 @@ function fixture(
     update: () => update({}, {}, () => {}),
   }
 }
+
+test('existing-session send failures restore only their own draft, including stream errors', () => {
+  const helper = block("let sendDraft = '';", '// 处理停止生成事件')
+  const restored: any[] = []
+  const inputFieldRef = ref({ restoreDraft: (...args: any[]) => restored.push(args) })
+  const recovery = new Function('inputFieldRef', `${helper}\nreturn {
+    start: (draft, images, attachments) => { sendDraft = draft; sendImages = images; sendAttachments = attachments },
+    restore: restoreSendDraft,
+  }`)(inputFieldRef)
+  recovery.start('first draft', ['image'], ['attachment'])
+  recovery.restore('older request')
+  assert.deepEqual(restored, [])
+  recovery.restore('first draft')
+  assert.deepEqual(restored, [['first draft', ['image'], ['attachment']]])
+
+  const send = block('const sendMsg =', '// Quietly recover')
+  assert.equal(send.match(/restoreSendDraft\(value\)/g)?.length, 5)
+  const errors = block('watch(error,', 'onChunk(')
+  assert.match(errors, /restoreSendDraft\(sendDraft\)/)
+})
 
 test('returning to A ignores detail and composer settings from its previous visit', async () => {
   const held = deferred()

@@ -4,6 +4,7 @@ import json
 import os
 import time
 import uuid
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -69,7 +70,7 @@ class Store:
         from governance.database import initialize
         initialize()
 
-    def _list(self, condition, *, sort_by=None, sort_order=None, limit=None, offset=0):
+    def _list(self, condition, *, sort_by=None, sort_order=None, limit=None, offset=0, _connection=None):
         from governance.database import connection
         from psycopg.types.json import Jsonb
         condition = dict(condition)
@@ -85,7 +86,7 @@ class Store:
         if offset:
             query += ' OFFSET %s'
             params.append(int(offset))
-        with connection() as conn:
+        with nullcontext(_connection) if _connection is not None else connection() as conn:
             return [self._record(row) for row in conn.execute(query, params)]
 
     @staticmethod
@@ -93,8 +94,8 @@ class Store:
         return {'id': row['id'], 'name': row['name'], 'metadata': row['metadata'],
                 'created_at': row['created_at'].isoformat(), 'updated_at': row['updated_at'].isoformat()}
 
-    def _find(self, kind, **condition):
-        records = self._list({'type': kind, **condition}, limit=1)
+    def _find(self, kind, _connection=None, **condition):
+        records = self._list({'type': kind, **condition}, limit=1, _connection=_connection)
         return records[0] if records else None
 
     def _body(self, document_id, *, cache_key=None, updated_at=None):
@@ -125,7 +126,7 @@ class Store:
             if metadata is not None:
                 self._update_metadata_in(conn, document_id, metadata, row)
 
-    def _create(self, kind, key, payload, metadata):
+    def _create(self, kind, key, payload, metadata, *, _connection=None):
         from governance.database import connection
         from psycopg.types.json import Jsonb
         from psycopg.errors import UniqueViolation
@@ -141,7 +142,7 @@ class Store:
             temporary.replace(path)
             payload = {'_capture_path': str(path)}
         try:
-            with connection() as conn:
+            with nullcontext(_connection) if _connection is not None else connection() as conn:
                 row = conn.execute(
                     'INSERT INTO runtime_records(id, owner_id, kind, record_key, name, payload, metadata) '
                     'VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *',
@@ -164,9 +165,9 @@ class Store:
         conn.execute('UPDATE runtime_records SET metadata = %s, updated_at = now() WHERE id = %s',
                      (Jsonb(metadata), document_id))
 
-    def _update_metadata(self, metadata, *, document_id):
+    def _update_metadata(self, metadata, *, document_id, _connection=None):
         from governance.database import connection
-        with connection() as conn:
+        with nullcontext(_connection) if _connection is not None else connection() as conn:
             row = conn.execute('SELECT owner_id, metadata FROM runtime_records WHERE id = %s FOR UPDATE', (document_id,)).fetchone()
             if row is None or (self.owner_id is not None and row['owner_id'] != self.owner_id):
                 raise StoreError('平台记录不存在', 404)
@@ -444,8 +445,8 @@ class Store:
 
     # ---------- 语料与版本 ----------
 
-    def _scope_doc(self, scope):
-        return self._find('scope', scope=scope)
+    def _scope_doc(self, scope, *, _connection=None):
+        return self._find('scope', scope=scope, _connection=_connection)
 
     def _scope_generation(self, scope_doc):
         if not scope_doc:
@@ -456,16 +457,22 @@ class Store:
             return 0
 
     def ingest(self, job, documents, sources, chunks):
+        from governance.database import connection
+        with connection() as conn:
+            return self._ingest(job, documents, sources, chunks, _connection=conn)
+
+    def _ingest(self, job, documents, sources, chunks, *, _connection):
         scope = job['scope']
         changed = False
         document_chunks = {}
         for chunk in chunks:
             document_chunks.setdefault(str(chunk.get('document_id')), []).append(chunk)
         self.guard_attempt()
-        scope_doc = self._scope_doc(scope)
+        scope_doc = self._scope_doc(scope, _connection=_connection)
         if scope_doc is None:
             scope_doc = self._create('scope', scope, {'scope': scope},
-                                     {'type': 'scope', 'scope': scope, 'generation': 0})
+                                     {'type': 'scope', 'scope': scope, 'generation': 0},
+                                     _connection=_connection)
         created_version_ids = []
         for record in documents:
             record = dict(record)
@@ -489,7 +496,7 @@ class Store:
             source = sources.get(str(record['id']), {})
             record['source_format'] = source.get('source_format') or record.get('source_format', '')
             legacy_id = digest([self.owner_id, job['source_key'], str(record['id'])])
-            legacy_doc = self._find('doc', doc_id=legacy_id, scope=scope)
+            legacy_doc = self._find('doc', doc_id=legacy_id, scope=scope, _connection=_connection)
             # Reuse existing IDs; new captures must not share versions across business spaces.
             doc_id = job.get('document_id') or (legacy_id if legacy_doc else
                 digest([self.owner_id, scope, job['source_key'], str(record['id'])]))
@@ -507,8 +514,8 @@ class Store:
                 'chunks': document_chunks.get(str(record['id']), []),
                 'revision_of': job.get('version_id'), 'revision_reason': job.get('revision_reason', ''),
             }
-            existing_version = self._find('version', version_id=version_id)
-            old_doc_record = self._find('doc', doc_id=doc_id)
+            existing_version = self._find('version', version_id=version_id, _connection=_connection)
+            old_doc_record = self._find('doc', doc_id=doc_id, _connection=_connection)
             if job.get('document_id') and old_doc_record and old_doc_record['metadata'].get('current_version') not in {job['version_id'], version_id}:
                 raise StoreError('修订基于旧版本,请在当前文档上重新修订')
             changed = changed or old_doc_record is None or old_doc_record['metadata'].get('current_version') != version_id
@@ -521,37 +528,39 @@ class Store:
                     'category': self._meta_text(record.get('category', ''), 100),
                     'source_format': self._meta_text(record.get('source_format', ''), 40),
                 }
-                self._create('version', version_id, payload, version_metadata)
+                self._create('version', version_id, payload, version_metadata, _connection=_connection)
                 created_version_ids.append(version_id)
             else:
                 version_metadata = dict(existing_version['metadata'])
                 version_metadata['is_current'] = True
-                self._update_metadata(version_metadata, document_id=existing_version['id'])
+                self._update_metadata(version_metadata, document_id=existing_version['id'], _connection=_connection)
             if previous_current and previous_current != version_id:
-                previous_doc = self._find('version', version_id=previous_current)
+                previous_doc = self._find('version', version_id=previous_current, _connection=_connection)
                 if previous_doc is not None:
                     previous_metadata = dict(previous_doc['metadata'])
                     previous_metadata['is_current'] = False
-                    self._update_metadata(previous_metadata, document_id=previous_doc['id'])
+                    self._update_metadata(previous_metadata, document_id=previous_doc['id'], _connection=_connection)
             doc_metadata = {
                 'type': 'doc', 'doc_id': doc_id, 'scope': scope,
                 'current_version': version_id,
                 'title': self._meta_text(record.get('title', ''), 200),
             }
             if old_doc_record is None:
-                self._create('doc', doc_id, {'doc_id': doc_id}, doc_metadata)
+                self._create('doc', doc_id, {'doc_id': doc_id}, doc_metadata, _connection=_connection)
             else:
-                self._update_metadata(doc_metadata, document_id=old_doc_record['id'])
-            if self._find('jobdoc', jobdoc_id=f"{job['task_id']}-{version_id}") is None:
-                self._create('jobdoc', f"{job['task_id']}-{version_id}",
+                self._update_metadata(doc_metadata, document_id=old_doc_record['id'], _connection=_connection)
+            jobdoc_id = f"{job['task_id']}-{version_id}"
+            if self._find('jobdoc', jobdoc_id=jobdoc_id, _connection=_connection) is None:
+                self._create('jobdoc', jobdoc_id,
                              {'job_id': job['task_id'], 'version_id': version_id},
-                             {'type': 'jobdoc', 'jobdoc_id': f"{job['task_id']}-{version_id}",
-                              'job_id': job['task_id'], 'version_id': version_id})
+                             {'type': 'jobdoc', 'jobdoc_id': jobdoc_id,
+                              'job_id': job['task_id'], 'version_id': version_id},
+                             _connection=_connection)
         if changed:
             generation = self._scope_generation(scope_doc) + 1
             scope_metadata = dict(scope_doc['metadata'])
             scope_metadata['generation'] = generation
-            self._update_metadata(scope_metadata, document_id=scope_doc['id'])
+            self._update_metadata(scope_metadata, document_id=scope_doc['id'], _connection=_connection)
         return changed
 
     def list_documents(self, job_id=None):

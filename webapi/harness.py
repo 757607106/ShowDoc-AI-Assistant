@@ -22,6 +22,7 @@ from agent.config import apply_image_model, resolve_request
 from agent.graph import build_agent
 from agent.harness_config import prepare_harness_files
 from agent.sandbox import backend_for_session, seed_checkpoint_attachments, upload_harness_files, upload_skill_files
+from agent.time_travel import ancestry
 from governance.database import connection
 from governance.store import StoreError
 from integrations.contextdb import ContextDBError
@@ -260,6 +261,7 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                     _active_backends[selected['id']] = backend
                 config = {'configurable': {'thread_id': selected['id']}}
                 state = await graph.aget_state(config, subgraphs=True)
+                resume_context = None
                 if backend is not None:
                     await seed_checkpoint_attachments(backend, user['id'], selected['id'], state.values.get('files', {}))
                 if resume_protocol:
@@ -284,6 +286,10 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                         raise StoreError('审批已失效，请重新加载当前会话', 409)
                     from webapi.weknora_prompts import validate_native_resume
                     validate_native_resume(state, resume)
+                    pending_oauth = {item.id for item in state.interrupts
+                                     if isinstance(item.value, dict) and item.value.get('kind') == 'mcp_oauth'}
+                    if pending_oauth:
+                        resume_context = {'pending_oauth': pending_oauth}
                     inputs = Command(resume=resume)
                     if resume_protocol:
                         from webapi.weknora_prompts import cards, _receipt
@@ -344,7 +350,7 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                             yield _event('message', projection.event('tool_call', data={
                                 'tool_call_id': call['id'], 'tool_name': tool_display_name(call['name']), 'arguments': call['args']}))
                 modes = ['messages', 'updates', 'values'] + (['tasks'] if projection else [])
-                output = graph.astream(inputs, config, stream_mode=modes,
+                output = graph.astream(inputs, config, context=resume_context, stream_mode=modes,
                                        subgraphs=True, version='v2', durability='sync')
                 structured_written = False
                 try:
@@ -378,7 +384,7 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                     if traces.nodes:
                         yield _event('message', projection.event('collaboration_status', data=traces.collaboration()))
                     from webapi.weknora_artifacts import collect
-                    artifacts = await collect(graph, config, user['id'], selected['id'])
+                    artifacts = collect([snapshot async for snapshot in ancestry(graph, state)], user['id'], selected['id'])
                     artifact_meta = [metadata for metadata, _ in artifacts.get(projection.identifier, [])]
                     if not selected['title'] and not (request.url.path.startswith('/api/v1/knowledge-chat/')
                                                       and context.get('disable_title') is True):
@@ -474,34 +480,32 @@ async def read_snapshot(user, selected):
 
 
 async def read_weknora_history(user, selected):
-    from webapi.weknora_adapter import history
+    from webapi.weknora_adapter import history, structured_outputs
+    from webapi.weknora_artifacts import collect
     from webapi.weknora_prompts import cards, _receipt
-    state = await read_snapshot(user, selected)
-    if state is None:
+    owner, sid = user['id'], selected['id']
+    resolved = selected['agent_config']
+    if not resolved.get('agent_config'):
         return []
-    rows = history(state, selected['id'], selected['agent_config'].get('knowledge_base_ids', []), owner_id=user['id'])
-    if any(getattr(message, 'additional_kwargs', {}).get('harness', {}).get('structured_output')
-           for message in state.values.get('messages', [])):
-        from webapi.weknora_adapter import structured_outputs
-        async with async_checkpointer() as saver:
-            graph = await _graph(saver, user, selected, selected['agent_config'], load_tools=False)
-            outputs = await structured_outputs(graph, state.config, saver)
+    async with async_checkpointer() as saver:
+        graph = await _graph(saver, user, selected, resolved, load_tools=False)
+        state = await graph.aget_state({'configurable': {'thread_id': sid}}, subgraphs=True)
+        rows = history(state, sid, resolved.get('knowledge_base_ids', []), owner_id=owner)
+        snapshots = [snapshot async for snapshot in ancestry(graph, state)]
+        messages = state.values.get('messages', [])
+        outputs = await structured_outputs(snapshots, saver) if any(
+            getattr(message, 'additional_kwargs', {}).get('harness', {}).get('structured_output')
+            for message in messages) else {}
+        groups = await weknora_traces.children(saver, graph, state, sid, messages, owner_id=owner)
+        artifacts = collect(snapshots, owner, sid)
         for row in rows:
-            if row['id'] in outputs:
-                row['structured_response'] = outputs[row['id']]
-    if any(call.get('name') == 'task' for message in state.values.get('messages', [])
-           for call in getattr(message, 'tool_calls', [])):
-        async with async_checkpointer() as saver:
-            graph = await _graph(saver, user, selected, selected['agent_config'], load_tools=False)
-            groups = await weknora_traces.children(saver, graph, state, selected['id'], owner_id=user['id'])
-        for row in rows:
-            if row['id'] in groups:
-                row['collaboration_status'] = weknora_traces.snapshot(row['id'], groups[row['id']])
-    from webapi.weknora_artifacts import read
-    artifacts = await read(user, selected)
-    for row in rows:
-        if row['role'] == 'assistant':
-            row['artifacts'] = [metadata for metadata, _ in artifacts.get(row['id'], [])]
+            identifier = row['id']
+            if identifier in outputs:
+                row['structured_response'] = outputs[identifier]
+            if identifier in groups:
+                row['collaboration_status'] = weknora_traces.snapshot(identifier, groups[identifier])
+            if row['role'] == 'assistant':
+                row['artifacts'] = [metadata for metadata, _ in artifacts.get(identifier, [])]
     if rows and state.interrupts:
         pending = cards(state, selected['id'])
         receipt = await anyio.to_thread.run_sync(lambda: _receipt(user['id'], selected['id'], state))
@@ -535,12 +539,13 @@ async def continue_weknora(request):
             receipt = await anyio.to_thread.run_sync(lambda: _receipt(user['id'], selected['id'], state))
             if pending and all(item['id'] in receipt['responses'] for item in pending):
                 return await stream(request, weknora=True, resume_protocol=True, pending_id=pending[-1]['id'])
-        rows = await read_weknora_history(user, selected)
+        from webapi.weknora_adapter import StreamProjection, history
+        rows = history(state, selected['id'], selected['agent_config'].get('knowledge_base_ids', []),
+                       owner_id=user['id']) if state is not None else []
         target = next((row for row in rows if row['id'] == request.query_params.get('message_id')
                        and row['role'] == 'assistant'), None)
         if target is None:
             raise StoreError('消息不存在', 404)
-        from webapi.weknora_adapter import StreamProjection
         projection = StreamProjection(selected['id'], target['id'], owner_id=user['id'])
         async def events():
             yield _event('message', projection.event('agent_query'))
@@ -566,13 +571,15 @@ async def _child(request, *, subscribe=False):
     node = live.nodes.get(namespace) if live else None
     queue = live.subscribe(namespace) if subscribe and node and node['status'] == 'running' else None
     try:
-        state = await read_snapshot(user, selected)
-        if state is None:
+        resolved = selected['agent_config']
+        if not resolved.get('agent_config'):
             raise StoreError('子图视图不存在', 404)
         async with async_checkpointer() as saver:
-            graph = await _graph(saver, user, selected, selected['agent_config'], load_tools=False)
-            _, _, task, rows = await weknora_traces.read_child(saver, graph, state, parent, namespace, call_id, owner_id=user['id'])
-            children = await weknora_traces.children(saver, graph, state, parent, namespace, owner_id=user['id'])
+            graph = await _graph(saver, user, selected, resolved, load_tools=False)
+            state = await graph.aget_state({'configurable': {'thread_id': parent}}, subgraphs=True)
+            _, _, task, rows, messages = await weknora_traces.read_child(
+                saver, graph, state, parent, namespace, call_id, owner_id=user['id'])
+            children = await weknora_traces.children(saver, graph, state, parent, messages, namespace, owner_id=user['id'])
         for row in rows:
             if row['id'] in children:
                 row['collaboration_status'] = weknora_traces.snapshot(row['id'], children[row['id']])

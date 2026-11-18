@@ -235,6 +235,15 @@ defineExpose({
   attachments,
   triggerFileSelect,
   addFiles,
+  restore: (files: AttachmentFile[]) => {
+    attachments.value = files;
+    emitFiles();
+    for (const attachment of attachments.value) {
+      if (attachment.documentId && attachment.status !== 'ready' && attachment.status !== 'failed') {
+        scheduleStatusPoll(attachment);
+      }
+    }
+  },
   clear: () => {
     pollTimers.forEach(timer => clearTimeout(timer));
     pollTimers.clear();

@@ -122,7 +122,7 @@ async def read_child(saver, graph, root_state, parent, namespace, call_id, *, ow
     node = live.nodes.get(namespace) if live else None
     if node and node['call_id'] == call_id:
         rows = _rows(node['messages'], node['view'], node['status'], node['scope'], owner_id=owner_id)
-        return node['view'], node['group_id'], task_view(node['view'], node['name'], node['status'], rows, call_id), rows
+        return node['view'], node['group_id'], task_view(node['view'], node['name'], node['status'], rows, call_id), rows, node['messages']
     saved = await saver.aget_tuple({'configurable': {'thread_id': parent, 'checkpoint_ns': namespace}})
     if saved is None:
         raise StoreError('子图视图不存在', 404)
@@ -165,23 +165,34 @@ async def read_child(saver, graph, root_state, parent, namespace, call_id, *, ow
     if status not in ('succeeded', 'failed') and node is None and await anyio.to_thread.run_sync(lambda: _request_busy(parent)):
         raise StoreError('父请求在另一 API 进程执行，当前进程无法订阅其实时子图；请使用单 worker 或会话粘连', 409)
     rows = _rows(messages, view, status, _scope(root_origin.values.get('messages', [])), owner_id=owner_id)
-    return view, group_id, task_view(view, name, status, rows, call_id), rows
+    return view, group_id, task_view(view, name, status, rows, call_id), rows, messages
 
 
-async def children(saver, graph, root_state, parent, parent_namespace='', *, owner_id=None):
-    """Read each native namespace once, retaining no second trace history."""
-    latest = {}
-    async for saved in saver.alist({'configurable': {'thread_id': parent}}):
-        namespace = saved.config['configurable'].get('checkpoint_ns', '')
-        if namespace and namespace.rpartition('|')[0] == parent_namespace and namespace not in latest:
-            latest[namespace] = saved
+async def children(saver, graph, root_state, parent, messages, parent_namespace='', *, owner_id=None):
+    messages = [message_dict(message) for message in messages]
+    calls = [call['id'] for message in messages for call in message.get('tool_calls', []) if call.get('name') == 'task']
+    if not calls:
+        return {}
+    call_ids = set(calls)
+    namespaces = {}
+    for message in messages:
+        artifact = message.get('artifact')
+        call_id = message.get('tool_call_id')
+        if message.get('name') == 'task' and call_id in call_ids and isinstance(artifact, dict):
+            namespace = artifact.get('checkpoint_ns')
+            if isinstance(namespace, str) and namespace and namespace.rpartition('|')[0] == parent_namespace:
+                namespaces[namespace] = call_id
+    if len(namespaces) < len(calls):
+        # Paused and older task calls may have no result with a checkpoint namespace.
+        async for saved in saver.alist({'configurable': {'thread_id': parent}}):
+            namespace = saved.config['configurable'].get('checkpoint_ns', '')
+            call_id = saved.metadata.get('lc_subagent_tool_call_id')
+            if namespace and namespace.rpartition('|')[0] == parent_namespace and call_id in call_ids:
+                namespaces.setdefault(namespace, call_id)
     groups = {}
-    for namespace, saved in latest.items():
-        call_id = saved.metadata.get('lc_subagent_tool_call_id')
-        if not call_id:
-            continue
+    for namespace, call_id in namespaces.items():
         try:
-            _, group_id, task, _ = await read_child(saver, graph, root_state, parent, namespace, call_id, owner_id=owner_id)
+            _, group_id, task, _, _ = await read_child(saver, graph, root_state, parent, namespace, call_id, owner_id=owner_id)
         except StoreError as exc:
             if exc.status == 404:
                 continue

@@ -2,12 +2,11 @@
 from pathlib import PurePosixPath
 
 from agent.artifacts import artifact_key, deleted_for, download
+from agent.time_travel import ancestry
 from webapi.weknora_adapter import assistant_id, media_files, message_dict
 
 
-async def collect(graph, config, owner_id, session_id):
-    from agent.time_travel import ancestry
-    snapshots = [state async for state in ancestry(graph, config)]
+def collect(snapshots, owner_id, session_id):
     turns, previous = {}, {}
     deleted = deleted_for(owner_id, session_id)
     for state in reversed(snapshots):
@@ -18,7 +17,9 @@ async def collect(graph, config, owner_id, session_id):
         identifier = assistant_id(users[-1])
         files = {path: item for path, item in {**media_files(state.values.get('messages', [])),
                                               **state.values.get('files', {})}.items()
-                 if not path.startswith(('/attachments/', '/skills/', '/subagent-skills/')) and path != '/AGENTS.md'}
+                 if not path.startswith(('/attachments/', '/skills/', '/subagent-skills/',
+                     '/conversation_history/', '/large_tool_results/', '/workspace/conversation_history/',
+                     '/workspace/large_tool_results/')) and path != '/AGENTS.md'}
         recorded = turns.setdefault(identifier, {})
         for path, item in files.items():
             if item == previous.get(path):
@@ -49,7 +50,8 @@ async def read(user, selected):
         return {}
     async with async_checkpointer() as saver:
         graph = await _graph(saver, user, selected, resolved, load_tools=False)
-        return await collect(graph, {'configurable': {'thread_id': selected['id']}}, user['id'], selected['id'])
+        head = await graph.aget_state({'configurable': {'thread_id': selected['id']}})
+        return collect([state async for state in ancestry(graph, head)], user['id'], selected['id'])
 
 
 async def delete(user, selected, message_id, index, *, all_versions=False):
@@ -69,7 +71,7 @@ async def delete(user, selected, message_id, index, *, all_versions=False):
         state = await graph.aget_state(config)
         if state.next or state.interrupts:
             raise StoreError('会话尚未完成，请先完成或取消当前请求', 409)
-        turns = await collect(graph, config, owner, sid)
+        turns = collect([snapshot async for snapshot in ancestry(graph, state)], owner, sid)
         target = next(((meta, item) for meta, item in turns.get(message_id, []) if meta['index'] == index), None)
         if target is None:
             raise StoreError('文件不存在或已删除', 404)

@@ -4,9 +4,8 @@ from langgraph.graph import END
 from governance.store import StoreError
 
 
-async def ancestry(graph, config):
+async def ancestry(graph, state):
     # shortcut: walk the native parent chain; paginate if long-thread reads become slow.
-    state = await graph.aget_state(config)
     while state.config.get('configurable', {}).get('checkpoint_id'):
         yield state
         if not state.parent_config:
@@ -16,10 +15,10 @@ async def ancestry(graph, config):
 
 async def select(graph, session_id, message_id, *, rewind=False):
     from webapi.weknora_adapter import history
-    states = [state async for state in ancestry(graph, {'configurable': {'thread_id': session_id}})]
+    head = await graph.aget_state({'configurable': {'thread_id': session_id}})
+    states = [state async for state in ancestry(graph, head)]
     if not states:
         raise StoreError('会话没有可用检查点', 409)
-    head = states[0]
     if head.next or head.interrupts:
         raise StoreError('会话尚未完成，请先完成或取消当前请求', 409)
     rows = history(head, session_id)

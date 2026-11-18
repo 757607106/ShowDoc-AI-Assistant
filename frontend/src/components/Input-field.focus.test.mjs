@@ -65,6 +65,56 @@ for (const mode of ['normal', 'embedded']) {
   })
 }
 
+test('failed sends restore text, images and attachments without overwriting a newer draft', () => {
+  const code = source.slice(source.indexOf('defineExpose({'), source.indexOf('</script>'))
+  let exposed
+  const query = { value: '' }, uploadedImages = { value: [] }, uploadedAttachments = { value: [] }
+  const restoredAttachments = []
+  const image = { name: 'evidence.png' }, attachment = { id: 'attachment-a' }
+  vm.runInNewContext(ts.transpile(code), {
+    query, uploadedImages, uploadedAttachments,
+    attachmentUploadRef: { value: { restore: files => restoredAttachments.push(files) } },
+    URL: { createObjectURL: file => `blob:${file.name}` },
+    defineExpose: api => { exposed = api },
+    focusInput() {},
+  })
+  exposed.restoreDraft('original question', [image], [attachment])
+  assert.equal(query.value, 'original question')
+  assert.equal(uploadedImages.value[0].file, image)
+  assert.equal(uploadedImages.value[0].preview, 'blob:evidence.png')
+  assert.equal(uploadedAttachments.value[0], attachment)
+  assert.equal(restoredAttachments[0][0], attachment)
+  exposed.restoreDraft('must not replace this')
+  assert.equal(query.value, 'original question')
+  assert.equal(restoredAttachments.length, 1)
+  query.value = ''
+  uploadedImages.value = []
+  uploadedAttachments.value = [{ id: 'newer-attachment' }]
+  exposed.restoreDraft('older request', [], [attachment])
+  assert.equal(query.value, '')
+  assert.equal(uploadedAttachments.value[0].id, 'newer-attachment')
+  assert.equal(restoredAttachments.length, 1)
+})
+
+test('attachment restore preserves files and resumes only unfinished polls', () => {
+  const uploadSource = readFileSync(new URL('./AttachmentUpload.vue', import.meta.url), 'utf8')
+  const code = uploadSource.slice(uploadSource.indexOf('defineExpose({'), uploadSource.indexOf('</script>'))
+  const attachments = { value: [] }, emitted = [], polls = []
+  let exposed
+  vm.runInNewContext(ts.transpile(code), {
+    attachments,
+    triggerFileSelect() {}, addFiles() {},
+    emitFiles: () => emitted.push(attachments.value),
+    scheduleStatusPoll: attachment => polls.push(attachment),
+    defineExpose: api => { exposed = api },
+  })
+  const pending = { documentId: 'pending', status: 'processing' }, ready = { documentId: 'ready', status: 'ready' }
+  exposed.restore([pending, ready])
+  assert.equal(attachments.value.length, 2)
+  assert.equal(emitted.length, 1)
+  assert.deepEqual(polls, [pending])
+})
+
 test('a queued focus does not focus a textarea removed during navigation', async () => {
   let resolveTick, connected = true, focused = false
   const focus = vm.runInNewContext(`${focusCode}\nfocusInput`, {

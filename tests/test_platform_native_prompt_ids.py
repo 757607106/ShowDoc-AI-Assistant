@@ -139,6 +139,7 @@ def legacy_snapshot(requests, calls):
                                       AIMessage(content='', tool_calls=calls)]},
         created_at='2026-11-17T00:00:00+00:00', next=('tools',),
         config={'configurable': {'checkpoint_id': 'legacy-checkpoint'}},
+        parent_config=None,
     )
 
 
@@ -169,13 +170,14 @@ def test_ambiguous_legacy_questions_ignore_stale_receipt_ids_in_binding_and_refr
     weknora_prompts.bind_card_ids(owner, sid, state, pending, calls)
     assert [item['tool_call_id'] for item in pending] == [None, None]
 
-    async def snapshot(*args):
+    async def snapshot(*args, **kwargs):
         return state
-    async def artifacts(*args):
-        return {}
-    monkeypatch.setattr(api, 'read_snapshot', snapshot)
-    monkeypatch.setattr('webapi.weknora_artifacts.read', artifacts)
-    rows = asyncio.run(api.read_weknora_history({'id': owner}, sessions.get_session(sid, owner)))
+    async def graph(*args, **kwargs):
+        return SimpleNamespace(aget_state=snapshot)
+    monkeypatch.setattr(api, '_graph', graph)
+    selected = sessions.get_session(sid, owner)
+    selected['agent_config']['agent_config'] = {'access_level': 'confirm'}
+    rows = asyncio.run(api.read_weknora_history({'id': owner}, selected))
     assert [item['tool_call_id'] for item in rows[-1]['delegated_prompts']] == [None, None]
     assert all(item['status'] == 'suspended' for item in rows[-1]['delegated_prompts'])
 

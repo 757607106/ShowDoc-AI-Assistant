@@ -1950,7 +1950,7 @@ export default {
       rewriteSystemPrompt: '用于问题改写的系统提示词（留空使用默认）',
       rewriteUserPrompt: '用于问题改写的用户提示词模板（留空使用默认）',
       selectTools: '选择 Agent 可以使用的工具',
-      maxIterations: '限制 Agent 单次任务的推理步数。选「不限制」时会一直跑到模型自然结束或你手动停止。',
+      maxIterations: '限制主 Agent 单轮模型调用次数。',
       kbScope: '选择智能体可访问的知识库范围',
       webSearch: '启用后智能体可以搜索互联网获取信息',
       webSearchProvider: '为此智能体指定搜索引擎，留空则使用默认搜索引擎',
@@ -3863,7 +3863,7 @@ export default {
   },
   modelSettings: {
     title: '模型配置',
-    description: '管理不同类型的 AI 模型，支持 Ollama 本地模型和远程 API',
+    description: '管理当前账号的远程 AI 模型与 API 配置',
     copySuffix: ' 副本',
     builtinTag: '内置',
     confirmDelete: '确定删除模型「{name}」吗？',
@@ -3886,7 +3886,6 @@ export default {
         chat_model: '对话模型',
         rerank_model: '重排序模型',
         query_understand_model: '问题理解模型',
-        follow_up_model: '追问模型',
         unknown: '其他模型配置'
       }
     ,
@@ -5214,8 +5213,6 @@ export default {
   },
   chat: {
     suggestedQuestions: '你可以这样问我',
-    followUpQuestions: '继续问',
-    followUpQuestionsLoading: '加载推荐问题',
     refreshSuggestedQuestions: '换一批',
     thinking: '思考中...',
     thinkingAlt: '正在思考',
@@ -8203,7 +8200,7 @@ export default {
       rerankModelDesc: '用于对知识库检索结果进行重排序，提高回答准确性',
       rerankModelPlaceholder: '请选择 ReRank 模型',
       rerankModelOptionalHint: '当前作用域内暂无 RAG 类型知识库，可不填；后续若加入 RAG 知识库，将自动使用空间默认重排模型，仍建议显式配置。',
-      maxIterations: '最大迭代次数',
+      maxIterations: '主 Agent 单轮模型调用上限',
       maxIterationsLimit: '限制',
       maxIterationsUnlimited: '不限制',
       allowedTools: '允许的工具',

@@ -32,11 +32,12 @@ def test_readonly_never_provisions_execution_backend(monkeypatch):
 
 def test_cancelled_request_closes_sdk_client_without_destroying_environment(monkeypatch):
     calls = []
+    directories = []
     @contextmanager
     def connected(*args, **kwargs):
         calls.append('connect')
         try:
-            yield SimpleNamespace(id='native-sandbox')
+            yield SimpleNamespace(id='native-sandbox', files=SimpleNamespace(create_directories=directories.extend))
         finally:
             calls.append('close')
     monkeypatch.setattr(sandbox, 'connected_session', connected)
@@ -48,6 +49,7 @@ def test_cancelled_request_closes_sdk_client_without_destroying_environment(monk
                 await anyio.sleep(0)
     anyio.run(check)
     assert calls == ['connect', 'close']
+    assert [(entry.path, entry.mode) for entry in directories] == [('/workspace', 755)]
 
 
 def test_sdk_client_closes_if_handle_transaction_commit_fails(monkeypatch):

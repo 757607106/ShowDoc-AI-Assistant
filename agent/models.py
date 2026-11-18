@@ -188,6 +188,16 @@ def describe_model(saved):
     return {**saved, 'parameters': params, 'capabilities': caps}
 
 
+def completion_budget(capabilities, config):
+    budget = config.get('max_completion_tokens') or (2048 if config.get('agent_mode') == 'quick-answer' else 24576)
+    if capabilities.get('max_output_tokens'):
+        budget = min(budget, capabilities['max_output_tokens'])
+    window = capabilities.get('context_window')
+    if window and budget >= int(window * 0.95):
+        raise StoreError('max_completion_tokens：输出预算过大，请为 Agent 输入预留上下文空间', 400)
+    return budget
+
+
 def build_model_record(saved, config):
     validate_model_runtime(saved)
     if saved['type'] not in ('KnowledgeQA', 'VLLM'):
@@ -207,9 +217,7 @@ def build_model_record(saved, config):
         if config.get('reasoning_effort') or enabled:
             raise StoreError('所选模型不支持此思考强度', 400)
         effort = ''  # Inherited false cannot disable an always-on model.
-    budget = config.get('max_completion_tokens') or (2048 if config.get('agent_mode') == 'quick-answer' else 24576)
-    if caps.get('max_output_tokens'):
-        budget = min(budget, caps['max_output_tokens'])
+    budget = completion_budget(caps, config)
     kwargs = {}
     if caps['reasoning'] and effort:
         if provider == 'dashscope':

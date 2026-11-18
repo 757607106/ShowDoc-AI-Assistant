@@ -315,13 +315,13 @@ def test_external_read_approval_can_be_read_without_tool_discovery(build, monkey
     asyncio.run(exercise())
 
 
-def test_stdio_discovery_is_blocked_before_starting_a_process(build, monkeypatch):
+def test_stdio_discovery_is_blocked_before_starting_a_process(monkeypatch):
     monkeypatch.setattr(registry, 'records', lambda *args: [{'id': 'local', 'enabled': True, 'transport_type': 'stdio'}])
     async def forbidden(*args):
         pytest.fail('stdio discovery must not launch a process')
-    monkeypatch.setattr(registry, 'mcp_tools', forbidden)
+    monkeypatch.setattr('langchain_mcp_adapters.client.MultiServerMCPClient.get_tools', forbidden)
     with pytest.raises(StoreError) as error:
-        asyncio.run(build(Model(responses=[AIMessage(content='done')]), mcp_selection_mode='selected', mcp_services=['local']))
+        asyncio.run(registry.mcp_tools('owner', {'mcp_selection_mode': 'selected', 'mcp_services': ['local']}))
     assert error.value.status == 501
 
 

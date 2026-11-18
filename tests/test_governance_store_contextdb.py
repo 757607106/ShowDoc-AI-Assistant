@@ -3,6 +3,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from governance.store import Store, StoreError, now
@@ -98,6 +100,56 @@ def test_ingest_and_version_flips():
     current = store.list_documents()
     assert len(current) == 1 and store.get_document(current[0]['version_id'])['content'] == '正文A v2'
     assert store.get_document(version_id)['is_current'] is False
+
+
+def test_ingest_rolls_back_all_records_and_retries_after_midway_failure(monkeypatch):
+    from governance.store import data_dir
+    store, _ = make_store()
+    job = store.create_job('file', {}, scope='atomic')
+    documents = [{'id': 's1', 'title': '文档', 'category': '', 'content': 'v1', 'metadata': {}}]
+    sources = {'s1': {'source_sha256': 'sha-v1'}}
+    assert store.ingest(job, documents, sources, []) is True
+    original_version = store.list_documents()[0]['version_id']
+    original_generation = _generation(store, 'atomic')
+    snapshots_before = set(data_dir().rglob('*.json'))
+
+    update_metadata = store._update_metadata
+    should_fail = True
+
+    def fail_scope_generation(metadata, *, document_id, _connection=None):
+        if should_fail and metadata.get('type') == 'scope' and metadata.get('generation', 0) > original_generation:
+            raise RuntimeError('injected failure before ingest commit')
+        return update_metadata(metadata, document_id=document_id, _connection=_connection)
+
+    monkeypatch.setattr(store, '_update_metadata', fail_scope_generation)
+    revised = [{**documents[0], 'content': 'v2'}]
+    revised_sources = {'s1': {'source_sha256': 'sha-v2'}}
+    with pytest.raises(RuntimeError, match='injected failure'):
+        store.ingest(job, revised, revised_sources, [])
+
+    current = store.list_documents()
+    assert len(current) == 1 and current[0]['version_id'] == original_version
+    assert store.get_document(original_version)['content'] == 'v1'
+    assert _generation(store, 'atomic') == original_generation
+    assert len(store._list({'type': 'version'})) == 1
+    assert len(store._list({'type': 'jobdoc', 'job_id': job['task_id']})) == 1
+    # A rolled-back insert may leave an orphan snapshot, but no committed row may reference a missing file.
+    new_snapshots = set(data_dir().rglob('*.json')) - snapshots_before
+    assert len(new_snapshots) == 1 and all(path.is_file() for path in new_snapshots)
+    for version in store._list({'type': 'version'}):
+        store._body(version['id'])
+
+    should_fail = False
+    assert store.ingest(job, revised, revised_sources, []) is True
+    assert _generation(store, 'atomic') == original_generation + 1
+    current = store.list_documents()
+    assert len(current) == 1 and current[0]['version_id'] != original_version
+    assert store.get_document(current[0]['version_id'])['content'] == 'v2'
+    assert store.get_document(original_version)['is_current'] is False
+    assert len(store._list({'type': 'version'})) == 2
+    assert len(store._list({'type': 'jobdoc', 'job_id': job['task_id']})) == 2
+    for version in store._list({'type': 'version'}):
+        store._body(version['id'])
 
 
 def test_same_source_in_different_spaces_keeps_independent_versions_and_legacy_ids():

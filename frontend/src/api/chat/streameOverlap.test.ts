@@ -158,15 +158,14 @@ test('stop during reconnect backoff prevents the old parent from attaching again
   assert.equal(stream.error.value, null)
 })
 
-test('EOF without complete attaches to the original message rather than declaring completion', async () => {
+for (const url of ['/api/v1/agent-chat', '/api/v1/knowledge-chat']) test(`EOF on ${url} reopens the original message`, async () => {
   let stream!: ReturnType<typeof useStream>
   await renderToString(createSSRApp({ setup() { stream = useStream(); return () => null } }))
   const base = transport.calls.length
-  const run = stream.startStream({ session_id: 'parent', query: 'work', method: 'POST', url: '/api/v1/agent-chat' })
+  const run = stream.startStream({ session_id: 'parent', query: 'work', method: 'POST', url })
   const post = await nextCall(base + 1)
   post.options.onmessage({ data: JSON.stringify({ response_type: 'agent_query', assistant_message_id: 'answer-1' }) })
-  try { post.options.onclose(); assert.fail('an incomplete EOF must request recovery') }
-  catch (error) { post.reject(error) }
+  assert.throws(() => post.options.onclose(), error => { post.reject(error); return true })
   await new Promise(r => setTimeout(r, 1050))
   const resumed = await nextCall(base + 2)
   assert.equal((resumed.options as any).method, 'GET')
@@ -175,6 +174,19 @@ test('EOF without complete attaches to the original message rather than declarin
   resumed.resolve()
   await run
   assert.equal(stream.error.value, null)
+})
+
+test('EOF before a native POST identifies the assistant reports an error', async () => {
+  let stream!: ReturnType<typeof useStream>
+  await renderToString(createSSRApp({ setup() { stream = useStream(); return () => null } }))
+  const base = transport.calls.length
+  const run = stream.startStream({ session_id: 'parent', query: 'work', method: 'POST', url: '/api/v1/knowledge-chat' })
+  const post = await nextCall(base + 1)
+  assert.throws(() => post.options.onclose(), error => { post.reject(error); return true })
+  await run
+  assert.match(String(stream.error.value), /streamFailed/)
+  assert.equal(stream.isStreaming.value, false)
+  assert.equal(transport.calls.length, base + 1)
 })
 
 test('a new stream supersedes an old reconnect without being stopped or receiving old output', async () => {

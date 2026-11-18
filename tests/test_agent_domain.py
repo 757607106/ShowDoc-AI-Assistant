@@ -2,14 +2,18 @@
 import asyncio
 import json
 import os
+from contextlib import contextmanager
 from types import SimpleNamespace
 
+import psycopg
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 
 from agent.checkpointer import make_checkpointer
 from agent import sessions
+from governance.database import connection
+from governance.store import StoreError
 
 
 def test_checkpoint_survives_new_connection():
@@ -38,6 +42,74 @@ def test_sessions_lifecycle_and_ownership(authenticated_client):
         sessions.get_session(sid,'another-user')
     assert http.delete(f'/api/agent/sessions/{sid}').status_code==200
     assert http.delete(f'/api/agent/sessions/{sid}').status_code==404
+
+
+def test_delete_failure_after_checkpoint_is_hidden_and_retryable(authenticated_client, monkeypatch):
+    owner = os.environ['TEST_PLATFORM_USER']
+    sid = authenticated_client.post('/api/v1/sessions', json={}).json['data']['id']
+    builder = StateGraph(MessagesState)
+    builder.add_node('answer', lambda state: {'messages': [AIMessage('Answer')]})
+    builder.add_edge(START, 'answer'); builder.add_edge('answer', END)
+    config = {'configurable': {'thread_id': sid}}
+    with make_checkpointer() as saver:
+        builder.compile(checkpointer=saver).invoke({'messages': [HumanMessage('Question')]}, config)
+    assert len(sessions.read_messages(sid, owner_id=owner)) == 2
+
+    failures = []
+
+    class FailFinalDelete:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def execute(self, query, params=None):
+            if str(query).lstrip().startswith('DELETE FROM agent_sessions'):
+                failures.append(sid)
+                raise psycopg.OperationalError('injected platform delete failure')
+            return self.connection.execute(query, params)
+
+    @contextmanager
+    def fail_final_delete():
+        with connection() as conn:
+            yield FailFinalDelete(conn)
+
+    monkeypatch.setattr(sessions, 'connection', fail_final_delete)
+    with pytest.raises(psycopg.OperationalError, match='injected platform delete failure'):
+        sessions.delete_session(sid, owner)
+    assert failures == [sid]
+
+    with connection() as conn:
+        saved = conn.execute('SELECT agent_config FROM agent_sessions WHERE id=%s', (sid,)).fetchone()['agent_config']
+    assert saved['_deleting'] is True
+    with make_checkpointer() as saver:
+        assert saver.get_tuple(config) is None
+    assert sid not in {item['id'] for item in sessions.list_sessions(owner)}
+    for operation in (lambda: sessions.get_session(sid, owner), lambda: sessions.read_messages(sid, owner_id=owner)):
+        with pytest.raises(StoreError) as error:
+            operation()
+        assert error.value.status == 404
+    assert authenticated_client.get(f'/api/v1/sessions/{sid}').status_code == 404
+
+    monkeypatch.setattr(sessions, 'connection', connection)
+    response = authenticated_client.delete('/api/v1/sessions/batch', json={'delete_all': True})
+    assert response.status_code == 200, response.text
+    with connection() as conn:
+        assert conn.execute('SELECT 1 FROM agent_sessions WHERE id=%s', (sid,)).fetchone() is None
+    assert authenticated_client.delete(f'/api/v1/sessions/{sid}').status_code == 404
+
+
+def test_async_cleanup_auth_accepts_a_parent_pending_deletion(authenticated_client, monkeypatch):
+    from agent import async_runtime, registry
+
+    owner = os.environ['TEST_PLATFORM_USER']
+    sid = authenticated_client.post('/api/v1/sessions', json={}).json['data']['id']
+    grant = {'id': 'grant', 'owner_id': owner, 'parent_session_id': sid, 'subagent_name': 'worker'}
+    with connection() as conn:
+        conn.execute("UPDATE agent_sessions SET agent_config=jsonb_set(agent_config,'{_deleting}','true'::jsonb) WHERE id=%s", (sid,))
+    monkeypatch.setattr(registry, 'record', lambda kind, key, current_owner: grant)
+    monkeypatch.setattr(async_runtime, '_serializer', lambda: SimpleNamespace(
+        loads=lambda token, max_age: {'owner_id': owner, 'grant_id': grant['id']}))
+    user, authorized = async_runtime.principal('existing-server-token')
+    assert user['id'] == owner and authorized is grant
 
 
 def test_build_model_preserves_explicit_model_selection(monkeypatch):

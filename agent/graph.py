@@ -40,7 +40,7 @@ def build_model(agent_config=None, owner_id=None):
 
 async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowledge_base_ids=(),
                       agent_config=None, knowledge_ids=(), tag_scopes=(), session_id=None,
-                      load_tools=True, store=None, agent_id=None, backend=None, native_extension=None,
+                      load_tools=True, store=None, agent_id=None, backend=None,
                       delegated_subagent=None, additional_middleware=()):
     """Configure the official harness; the caller owns its invocation and lifetime."""
     from deepagents import create_deep_agent
@@ -62,12 +62,6 @@ async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowled
             knowledge_base_ids=knowledge_base_ids, agent_config={**config, 'access_level': 'read_only'}))
         tools.extend(tool for tool in make_governance_tools(api_key, owner_id, 'viewer')
                      if tool.name in selected)
-        mode = config['mcp_selection_mode']
-        if mode != 'none':
-            services = [service for service in await asyncio.to_thread(registry.records, 'mcp', owner_id)
-                        if service.get('enabled') and (mode == 'all' or service['id'] in config['mcp_services'])]
-            if any(service['transport_type'] == 'stdio' for service in services):
-                raise StoreError('当前 Harness 仅支持远程 MCP；本地进程工具已停用', 501)
         tools.extend(tool for tool in await registry.mcp_tools(owner_id, config)
                      if (tool.metadata or {}).get('readOnlyHint') is True)
     if 'ask_user' in selected:
@@ -102,8 +96,9 @@ async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowled
     middleware = [TodoListMiddleware(), *additional_middleware]
     if backend is not None:
         middleware.append(_execution_skills(runtime_backend, skills))
-        from agent.sandbox import SandboxArtifacts
-        middleware.append(SandboxArtifacts(backend))
+        from agent.sandbox import ManagedOpenSandboxBackend, SandboxArtifacts
+        if isinstance(backend, ManagedOpenSandboxBackend):
+            middleware.append(SandboxArtifacts(backend))
     if limit > 0:
         middleware.append(ModelCallLimitMiddleware(run_limit=limit, exit_behavior='end'))
     prompt = _system_prompt(config, knowledge_base_ids, backend is not None)
@@ -134,21 +129,12 @@ async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowled
     subagents.extend(specification(child, owner_id=owner_id, session_id=session_id, agent_id=agent_id,
         config=config, knowledge_base_ids=knowledge_base_ids, knowledge_ids=knowledge_ids, tag_scopes=tag_scopes,
         persist=load_tools) for child in config['subagents'] if child.get('execution_mode') == 'async')
-    from agent.native_extensions import native_options
-    options = native_options(native_extension, {'owner_id': owner_id, 'agent_id': agent_id, 'role': role,
-        'access_level': config['access_level'], 'tools': tuple(tools), 'backend': runtime_backend,
-        'permissions': tuple(permissions), 'interrupt_on': copy.deepcopy(interrupts),
-        'skills': tuple(skills), 'memory': tuple(memory), 'checkpointer': checkpointer, 'store': store})
-    middleware.extend(options.pop('middleware', []))
-    subagents.extend(options.pop('subagents', []))
-    response_format = options.pop('response_format', config['response_format'])
-    options.setdefault('name', agent_id)
     agent = create_deep_agent(
         model=model, tools=tools, system_prompt=prompt,
         checkpointer=checkpointer, backend=runtime_backend, store=store,
         skills=skills, memory=memory, middleware=middleware,
         interrupt_on=interrupts, permissions=permissions,
-        subagents=subagents, response_format=response_format, **options,
+        subagents=subagents, response_format=config['response_format'], name=agent_id,
     )
     # Main-graph steps are limited; delegation, summarization and retries can make extra provider calls.
     return agent.with_config(recursion_limit=max(80, limit * 4 + 20) if limit > 0 else 10000)
@@ -274,9 +260,10 @@ def _subagents(config, tools, model, backend, has_shell, owner_id, knowledge_bas
         inherited_interrupts = _build_interrupt_on_from_permissions(permissions, backend)
         inherited_interrupts.update(parent_interrupts)
         child_config = {**config, 'system_prompt': child.get('system_prompt', config.get('system_prompt', ''))}
-        if child.get('model_id'):
-            child_config['model_id'] = child['model_id']
-        selected_model = build_model(child_config, owner_id) if child.get('model_id') and load_tools else model
+        selected_model = model
+        if load_tools and child.get('model_id') and child['model_id'] != config['model_id']:
+            child_config.update(model_id=child['model_id'], thinking=False, reasoning_effort='')
+            selected_model = build_model(child_config, owner_id)
         spec = {'name': child['name'], 'description': child['description'], 'model': selected_model,
             'system_prompt': _system_prompt(child_config, knowledge_base_ids, has_shell and child_access != 'read_only'),
             'tools': child_tools, 'skills': sources, 'permissions': permissions,

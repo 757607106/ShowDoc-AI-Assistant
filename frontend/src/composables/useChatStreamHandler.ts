@@ -103,6 +103,13 @@ export function pendingPromptEvents(prompt: unknown): ChatMessage[] {
       tool_call_id: p.tool_call_id, requested_at: requestedAt, suspendable: true,
       ...state, answered: resolved, response: p.response }]
   }
+  if (p.kind === 'mcp_oauth') {
+    return [{ type: 'mcp_oauth_required', pending_id: p.id,
+      service_id: request.service_id, service_name: request.service_name,
+      mcp_tool_name: request.mcp_tool_name, timeout_seconds: request.timeout_seconds,
+      tool_call_id: p.tool_call_id, requested_at: requestedAt, ...state,
+      authorized: response.authorized, canceled: response.decision === 'cancel' || state.canceled }]
+  }
   if (p.kind === 'ask_user') {
     return [{
       type: 'agent_prompt_required',

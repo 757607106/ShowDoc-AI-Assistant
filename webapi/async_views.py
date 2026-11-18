@@ -49,7 +49,7 @@ async def context(owner_id, parent, work_id):
 
 
 async def read(owner_id, parent, work_id):
-    row, _, grant, task, state = await context(owner_id, parent, work_id)
+    row, client, grant, task, state = await context(owner_id, parent, work_id)
     view = weknora_traces.locator(parent, NAMESPACE, work_id)
     native = snapshot(state)
     rows = history(native, view, grant['knowledge_base_ids'], owner_id=owner_id)
@@ -64,7 +64,7 @@ async def read(owner_id, parent, work_id):
             current['structured_response'] = native.values['structured_response']
         if row['state'] not in ('pending', 'running') and (
                 native.values.get('files') or media_files(native.values.get('messages', []))):
-            versions = await artifacts(owner_id, view)
+            versions = await _artifact_versions(owner_id, view, client, task['thread_id'], state)
             for message in rows:
                 if message['role'] == 'assistant':
                     message['artifacts'] = [meta for meta, _ in versions.get(message['id'], [])]
@@ -74,15 +74,19 @@ async def read(owner_id, parent, work_id):
 
 async def artifacts(owner_id, view):
     """Reuse native artifact versioning over the service's official checkpoint reads."""
-    from langchain_core.messages import convert_to_messages
-    from webapi.weknora_artifacts import collect
     parent, namespace, work_id = weknora_traces.decode(view)
     if namespace != NAMESPACE:
         raise StoreError('产物视图不存在', 404)
-    _, client, _, task, _ = await context(owner_id, parent, work_id)
-    async def read_state(config):
-        checkpoint_id = config.get('configurable', {}).get('checkpoint_id')
-        state = await client.threads.get_state(task['thread_id'], checkpoint_id=checkpoint_id)
+    _, client, _, task, state = await context(owner_id, parent, work_id)
+    return await _artifact_versions(owner_id, view, client, task['thread_id'], state)
+
+
+async def _artifact_versions(owner_id, view, client, thread_id, head):
+    from langchain_core.messages import convert_to_messages
+    from agent.time_travel import ancestry
+    from webapi.weknora_artifacts import collect
+
+    def view_state(state):
         value = snapshot(state)
         value.values = {**value.values, 'messages': convert_to_messages(value.values.get('messages', []))}
         identifier = (state.get('checkpoint') or {}).get('checkpoint_id')
@@ -90,4 +94,8 @@ async def artifacts(owner_id, view):
         value.config = {'configurable': {'thread_id': view, **({'checkpoint_id': identifier} if identifier else {})}}
         value.parent_config = {'configurable': {'thread_id': view, 'checkpoint_id': previous}} if previous else None
         return value
-    return await collect(SimpleNamespace(aget_state=read_state), {'configurable': {'thread_id': view}}, owner_id, view)
+    async def read_state(config):
+        return view_state(await client.threads.get_state(thread_id, checkpoint_id=config['configurable']['checkpoint_id']))
+
+    snapshots = [state async for state in ancestry(SimpleNamespace(aget_state=read_state), view_state(head))]
+    return collect(snapshots, owner_id, view)

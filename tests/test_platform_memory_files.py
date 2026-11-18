@@ -220,7 +220,8 @@ def test_confirm_mode_requires_native_approval_before_execute(monkeypatch, decis
             waiting = await agent.ainvoke({'messages': [{'role': 'user', 'content': 'Run shell'}]}, selected)
             assert waiting['__interrupt__'][0].value['action_requests'][0]['name'] == 'execute'
             assert executions == []
-            await agent.ainvoke(Command(resume={waiting['__interrupt__'][0].id: {
+            result = await agent.ainvoke(Command(resume={waiting['__interrupt__'][0].id: {
                 'decisions': [{'type': decision}]}}), selected)
-            assert executions == (['echo checked'] if decision == 'approve' else [])
+            assert executions == (['echo checked'] if decision == 'approve' else []), [
+                (message.type, message.name, message.content) for message in result['messages']]
     asyncio.run(exercise())

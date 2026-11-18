@@ -12,7 +12,6 @@ export const KNOWN_MODEL_USAGE_BINDINGS = [
   'chat_model',
   'rerank_model',
   'query_understand_model',
-  'follow_up_model',
   'extract_model',
 ] as const
 
@@ -129,7 +128,7 @@ export type ModelUsageResourceKind = 'knowledge_base' | 'agent'
 
 export type KnowledgeBaseModelUsageSection = 'models' | 'multimodal' | 'asr' | 'advanced'
 
-export type AgentModelUsageSection = 'model' | 'multimodal' | 'suggestions' | 'native'
+export type AgentModelUsageSection = 'model' | 'multimodal' | 'native'
 
 const knowledgeBaseUsageSections: Partial<Record<KnownModelUsageBinding, KnowledgeBaseModelUsageSection>> = {
   embedding_model: 'models',
@@ -148,7 +147,6 @@ const agentUsageSections: Partial<Record<KnownModelUsageBinding, AgentModelUsage
   query_understand_model: 'model',
   vlm_model: 'multimodal',
   asr_model: 'multimodal',
-  follow_up_model: 'suggestions',
 }
 
 export function modelUsageKnowledgeBaseSection(

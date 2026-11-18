@@ -1948,7 +1948,7 @@ export default {
       rewriteSystemPrompt: 'Системный промпт для перефразирования вопросов (пустое = по умолчанию)',
       rewriteUserPrompt: 'Шаблон пользовательского промпта для перефразирования (пустое = по умолчанию)',
       selectTools: 'Выберите инструменты, доступные агенту',
-      maxIterations: 'Ограничивает число шагов рассуждения за одну задачу. «Без ограничения» — цикл идёт, пока модель не остановится сама или вы не остановите её.',
+      maxIterations: 'Ограничивает число вызовов модели основным агентом за один ход.',
       kbScope: 'Выберите область баз знаний, доступных агенту',
       webSearch: 'При включении агент может искать информацию в интернете',
       webSearchProvider: 'Укажите поисковый движок для этого агента. Если оставить пустым, будет использоваться движок по умолчанию',
@@ -3861,7 +3861,7 @@ export default {
   },
   modelSettings: {
     title: 'Настройки моделей',
-    description: 'Управление типами AI‑моделей: локальные (Ollama) и удалённые API',
+    description: 'Управление удалёнными AI‑моделями и API‑настройками текущего аккаунта',
     copySuffix: ' копия',
     builtinTag: 'Встроенная',
     confirmDelete: 'Удалить модель «{name}»?',
@@ -3884,7 +3884,6 @@ export default {
         chat_model: 'Диалоговая модель',
         rerank_model: 'Модель реранжирования',
         query_understand_model: 'Модель понимания запроса',
-        follow_up_model: 'Модель уточняющих вопросов',
         unknown: 'Другая настройка модели'
       }
     ,
@@ -5212,8 +5211,6 @@ export default {
   },
   chat: {
     suggestedQuestions: 'Вы можете спросить меня',
-    followUpQuestions: 'Спрашивайте дальше',
-    followUpQuestionsLoading: 'Загрузка рекомендуемых вопросов',
     refreshSuggestedQuestions: 'Ещё',
     thinking: 'Думаю...',
     thinkingAlt: 'Обдумывание...',
@@ -8202,7 +8199,7 @@ export default {
       rerankModelDesc: 'Used to rerank knowledge base retrieval results for better accuracy',
       rerankModelPlaceholder: 'Select ReRank Model',
       rerankModelOptionalHint: 'В текущей области нет RAG-базы знаний, поэтому поле необязательное. Если RAG-база будет добавлена позже, будет использоваться модель ReRank по умолчанию для пространства; всё же рекомендуется настроить её явно.',
-      maxIterations: 'Max Iterations',
+      maxIterations: 'Лимит вызовов модели основным агентом',
       maxIterationsLimit: 'Лимит',
       maxIterationsUnlimited: 'Без ограничения',
       allowedTools: 'Allowed Tools',

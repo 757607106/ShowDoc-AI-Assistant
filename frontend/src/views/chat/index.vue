@@ -128,7 +128,6 @@
                                 <botmsg :content="session.content" :session="session" :session-id="session_id"
                                     :user-query="getUserQuery(index)" @scroll-bottom="scrollToBottom"
                                     :isFirstEnter="isFirstEnter" :embeddedMode="embeddedMode"
-                                    :follow-up-loading="Boolean(session.suggestionLoading && !session.suggestionSet?.questions?.length)"
                                     :can-fork="!embeddedMode && forkAffordanceOf(session.id).canFork"
                                     :can-rewind="canRewindMessage(session.id)"
                                     :can-ask-assistant="!embeddedMode"
@@ -137,14 +136,6 @@
                                     @ask-assistant="handleAskAssistant"
                                     @render-complete-change="(ready) => handleAnswerRenderComplete(session, ready)">
                                 </botmsg>
-                                <FollowUpSuggestions v-if="!isAutomationSession && session.answerFullyRendered && !session.steerForked && !session.suggestionsDismissed"
-                                    :suggestion-set="session.suggestionSet"
-                                    :loading="session.suggestionLoading"
-                                    :allow-regenerate="session.suggestionSet?.allow_regenerate"
-                                    @select="(item) => handleFollowUpSelect(session, item)"
-                                    @regenerate="loadFollowUpSuggestions(session, true, true)"
-                                    @impression="(set) => recordSuggestionEvent(session, set, 'impression')"
-                                    @dismiss="(set) => dismissSuggestions(session, set)" />
                             </div>
                         </div>
                         <div v-if="showGlobalTypingIndicator" class="chat-global-wait" role="status"
@@ -263,7 +254,6 @@ import { useChatScrollFollow } from '@/composables/useChatScrollFollow';
 import { clearCitationChunkCache } from '@/utils/citationChunkCache';
 import ChatReferencesDrawer from '@/components/ChatReferencesDrawer.vue';
 import ChatAttachmentPreviewDrawer from '@/components/ChatAttachmentPreviewDrawer.vue';
-import FollowUpSuggestions from '@/components/chat/FollowUpSuggestions.vue';
 import MessageTimestamp from '@/components/chat/MessageTimestamp.vue';
 import ChatQuestionMinimap from '@/components/chat/ChatQuestionMinimap.vue';
 import { shouldShowConversationTimestamp } from '@/utils/messageTimestamp';
@@ -273,11 +263,6 @@ import {
     notifySessionMutation,
     SESSION_MUTATION_EVENT,
 } from '@/components/sessionMutations';
-import {
-    ensureMessageSuggestions,
-    getMessageSuggestions,
-    recordMessageSuggestionEvent,
-} from '@/api/message-suggestion';
 import { provideChatReferencesDrawer } from '@/composables/useChatReferencesDrawer';
 import { provideChatAttachmentPreviewDrawer } from '@/composables/useChatAttachmentPreviewDrawer';
 import { useSessionActivityStore } from '@/stores/sessionActivity';
@@ -818,8 +803,6 @@ const suggestedQuestions = ref([]);
 const suggestedQuestionsLoading = ref(false);
 let suggestedQuestionsFetchId = 0; // 用于取消过时的请求
 let suggestedDebounceTimer = null;
-let pendingSuggestionAttribution = null;
-let pendingSuggestionKnowledgeBaseIds = [];
 
 const cancelSuggestedQuestionsFetch = () => {
     suggestedQuestionsFetchId++;
@@ -879,61 +862,8 @@ const handleSuggestedQuestionClick = (item) => {
     }
 };
 
-const resolveAssistantMessageId = (message) => message?.assistant_message_id || message?.id;
-
 const handleAnswerRenderComplete = (message, ready) => {
     message.answerFullyRendered = Boolean(ready);
-};
-
-const loadFollowUpSuggestions = async (message, ensure = false, regenerate = false) => {
-    if (isAutomationSession.value) return;
-    const messageId = resolveAssistantMessageId(message);
-    const targetSessionId = session_id.value;
-    if (!messageId || !targetSessionId || message.suggestionsDismissed) return;
-    if (isAwaitingInput(message)) return;
-    message.suggestionLoading = true;
-    try {
-        let response = ensure
-            ? await ensureMessageSuggestions(targetSessionId, messageId, regenerate)
-            : await getMessageSuggestions(targetSessionId, messageId);
-        let set = response?.data;
-        for (let attempt = 0; set?.status === 'generating' && attempt < 120; attempt++) {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            if (session_id.value !== targetSessionId || message.suggestionsDismissed) return;
-            response = await getMessageSuggestions(targetSessionId, messageId);
-            set = response?.data;
-        }
-        message.suggestionSet = set?.status === 'ready' ? set : null;
-    } catch (error) {
-        if (ensure) console.warn('[FollowUpSuggestions] Failed to generate:', error);
-        message.suggestionSet = null;
-    } finally {
-        message.suggestionLoading = false;
-    }
-};
-
-const recordSuggestionEvent = (message, set, eventType, questionId = '') => {
-    if (!set?.id) return;
-    void recordMessageSuggestionEvent(session_id.value, set.id, eventType, questionId).catch(() => undefined);
-};
-
-const handleFollowUpSelect = (message, item) => {
-    recordSuggestionEvent(message, message.suggestionSet, 'click', item.id);
-    pendingSuggestionAttribution = {
-        suggestion_set_id: message.suggestionSet.id,
-        question_id: item.id,
-    };
-    // Knowledge-backed follow-ups are generated from a specific KB. Keep that
-    // authorized retrieval anchor for the immediate next request; model-backed
-    // suggestions intentionally do not inherit transient @file/@tag/MCP/Skill scope.
-    pendingSuggestionKnowledgeBaseIds = [...new Set(item.knowledge_base_ids || [])];
-    if (inputFieldRef.value?.triggerSend) inputFieldRef.value.triggerSend(item.text);
-    else sendMsg(item.text);
-};
-
-const dismissSuggestions = (message, set) => {
-    message.suggestionsDismissed = true;
-    recordSuggestionEvent(message, set, 'dismiss');
 };
 
 // 防抖包装，切换知识库/文件时300ms内不重复请求
@@ -1092,11 +1022,6 @@ const {
     onAfterMsgList: async () => {
         const version = chatLoadVersion;
         activitySessionId.value = String(session_id.value);
-        for (const message of messagesList) {
-            if (message.role === 'assistant' && message.is_completed && message.suggestionSet === undefined) {
-                void loadFollowUpSuggestions(message, false);
-            }
-        }
         if (version !== chatLoadVersion) return;
         // Resume the trailing *assistant*, not simply the last row: a turn
         // that absorbed a mid-run message ends with the injected user bubble
@@ -1156,8 +1081,8 @@ const {
         attachStreamDebugToMessage(message);
         pendingStreamDebug.value = null;
     },
-    onTurnComplete: (message) => {
-        void loadFollowUpSuggestions(message, true);
+    onTurnComplete: () => {
+        clearSendDraft();
     },
 });
 
@@ -1225,9 +1150,26 @@ const getmsgList = (data, isScrollType = false, scrollHeight) => {
 }
 
 // 发送消息
+let sendDraft = '';
+let sendImages = [];
+let sendAttachments = [];
+const clearSendDraft = () => {
+    sendDraft = '';
+    sendImages = [];
+    sendAttachments = [];
+};
+const restoreSendDraft = (draft) => {
+    if (!draft || sendDraft !== draft) return;
+    const images = sendImages;
+    const attachments = sendAttachments;
+    clearSendDraft();
+    inputFieldRef.value?.restoreDraft(draft, images, attachments);
+};
+
 // 处理停止生成事件 - 立即清除 loading 状态
 const handleStopGeneration = () => {
     console.log('[Stop Generation] Immediately clearing loading state');
+    clearSendDraft();
     stopStream();
     loading.value = false;
     isReplying.value = false;
@@ -1239,18 +1181,44 @@ const handleStopGeneration = () => {
 const handleStopConfirmed = () => {
 };
 
-const handleStopFailed = () => {
+const handleStopFailed = async () => {
+    const messageId = currentAssistantMessageId.value;
+    const message = findLastMessage((item) =>
+        item.role === 'assistant' && persistedAssistantId(item) === messageId
+    );
+    if (!messageId || !message) {
+        loading.value = false;
+        isReplying.value = false;
+        currentAssistantMessageId.value = '';
+        return;
+    }
+    prepareResumedMessage(message, '');
     isReplying.value = true;
     loading.value = true;
+    await startStream({
+        session_id: session_id.value,
+        query: messageId,
+        method: 'GET',
+        url: '/api/v1/sessions/continue-stream',
+    });
 };
 
 const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = [], attachmentFiles = [], options = {}) => {
+    sendDraft = value;
+    sendImages = imageFiles;
+    sendAttachments = attachmentFiles;
     if (!props.embeddedMode && !currentSession.value) {
         const version = chatLoadVersion;
         await loadSessionAndHydrate(session_id.value);
-        if (version !== chatLoadVersion || !currentSession.value) return;
+        if (version !== chatLoadVersion || !currentSession.value) {
+            if (version === chatLoadVersion) restoreSendDraft(value);
+            return;
+        }
     }
-    if (composerLocked.value) return
+    if (composerLocked.value) {
+        restoreSendDraft(value);
+        return;
+    }
     const reasoningEffort = props.embeddedMode ? undefined : (useSettingsStoreInstance.reasoningEffortOverride || undefined);
     stopStream();
     prepareForNewOutgoingMessage();
@@ -1279,6 +1247,7 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
                 console.error('[Image] Failed to read images:', e);
                 loading.value = false;
                 isReplying.value = false;
+                restoreSendDraft(value);
                 return;
             }
             userImages.push({ url: dataURI });
@@ -1319,9 +1288,14 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
             await Promise.all(localAttachments
                 .filter(attachment => attachment.documentId)
                 .map(attachment => deleteTemporaryAttachment(session_id.value, attachment.documentId).catch(() => undefined)));
+            for (const attachment of localAttachments) {
+                attachment.documentId = undefined;
+                attachment.status = 'local';
+            }
             MessagePlugin.error(error?.message || t('chat.attachmentParseFailed'));
             loading.value = false;
             isReplying.value = false;
+            restoreSendDraft(value);
             return;
         }
     }
@@ -1363,6 +1337,7 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
             console.error('[Attachment] Failed to read attachments:', e);
             loading.value = false;
             isReplying.value = false;
+            restoreSendDraft(value);
             return;
         }
     }
@@ -1388,9 +1363,6 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
     const sidebarFileIds = props.embeddedMode ? [] : (useSettingsStoreInstance.settings.selectedFiles || []);
     const kbIdSet = new Set(sidebarKbIds);
     const fileIdSet = new Set(sidebarFileIds);
-    for (const kbId of pendingSuggestionKnowledgeBaseIds) {
-        if (kbId) kbIdSet.add(kbId);
-    }
     for (const item of mentionedItems || []) {
         if (!item?.id) continue;
         if (item.type === 'kb' && !kbIdSet.has(item.id)) {
@@ -1410,9 +1382,6 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
     const requestMcpServiceIds = agentEnabled ? mcpServiceIds : [];
     const requestSkillNames = agentEnabled ? skillNames : [];
 
-    const suggestionAttribution = pendingSuggestionAttribution;
-    pendingSuggestionAttribution = null;
-    pendingSuggestionKnowledgeBaseIds = [];
     await startStream({
         session_id: session_id.value,
         knowledge_base_ids: kbIds,
@@ -1431,7 +1400,6 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
         attachment_uploads: attachmentUploads.length > 0 ? attachmentUploads : undefined,
         attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
         query: value,
-        suggestion_attribution: suggestionAttribution || undefined,
         question_origin: options?.questionOrigin,
         page_context: agentEnabled ? (hostScope?.pageContext || undefined) : undefined,
         assistant_access: agentEnabled ? (hostScope?.assistantAccess || undefined) : undefined,
@@ -1561,6 +1529,7 @@ watch(error, (newError) => {
     MessagePlugin.error(newError);
     isReplying.value = false;
     loading.value = false;
+    restoreSendDraft(sendDraft);
     // 清空当前 assistant message ID
     currentAssistantMessageId.value = '';
 });
@@ -1661,6 +1630,7 @@ onMounted(async () => {
 })
 const clearData = () => {
     chatLoadVersion++;
+    clearSendDraft();
     if (!props.embeddedMode) sessionActivity.detach(activitySessionId.value);
     activitySessionId.value = '';
     stopStream();

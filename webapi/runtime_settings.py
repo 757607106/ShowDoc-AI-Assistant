@@ -19,8 +19,15 @@ def _body():
     return value
 
 
+def _require_model_admin():
+    if g.user['role'] != 'admin':
+        raise StoreError('模型配置仅限平台管理员管理', 403)
+
+
 @runtime_settings_bp.route('/api/v1/models', methods=['GET', 'POST'])
 def models():
+    if request.method == 'POST':
+        _require_model_admin()
     value = registry.public(registry.save_model(_body(), g.user['id'])) if request.method == 'POST' else registry.models(g.user['id'])
     return jsonify(success=True, data=value)
 
@@ -61,6 +68,8 @@ def resolve_model_catalog():
 
 @runtime_settings_bp.route('/api/v1/models/<model_id>', methods=['GET', 'PUT', 'PATCH', 'DELETE'])
 def model(model_id):
+    if request.method != 'GET':
+        _require_model_admin()
     if model_id == 'agent-main':
         if request.method != 'GET':
             raise StoreError('环境模型请通过服务器环境配置；可以复制为个人模型', 400)
@@ -90,6 +99,7 @@ def model(model_id):
 
 @runtime_settings_bp.route('/api/v1/models/<model_id>/copy', methods=['POST'])
 def copy_model(model_id):
+    _require_model_admin()
     value = registry.model_config(model_id, g.user['id'])
     value.pop('id', None)
     if model_id == 'agent-main':
@@ -312,6 +322,8 @@ def credentials(resource, resource_id, field=None):
     kind = {'models': 'model', 'mcp-services': 'mcp', 'web-search-providers': 'web-search'}.get(resource)
     if not kind:
         raise StoreError('配置类型无效', 404)
+    if kind == 'model':
+        _require_model_admin()
     value = registry.record(kind, resource_id, g.user['id'])
     if kind == 'web-search':
         unavailable()

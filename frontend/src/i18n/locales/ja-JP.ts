@@ -1748,7 +1748,7 @@ export default {
       rerankModelDesc: 'ナレッジベースの検索結果を並べ替えて精度を高めます',
       rerankModelPlaceholder: 'リランクモデルを選択',
       rerankModelOptionalHint: '現在の範囲にRAG型のナレッジベースがないため任意です。後からRAG型ナレッジベースを追加した場合は、ワークスペースのデフォルトリランクモデルが自動的に使用されます。明示的に設定することを推奨します。',
-      maxIterations: '最大反復回数',
+      maxIterations: 'メインエージェントのモデル呼び出し上限',
       maxIterationsLimit: '上限あり',
       maxIterationsUnlimited: '無制限',
       allowedTools: '許可するツール',
@@ -4436,8 +4436,6 @@ export default {
   },
   chat: {
     suggestedQuestions: 'こんな質問ができます',
-    followUpQuestions: '続けて質問',
-    followUpQuestionsLoading: '質問候補を読み込み中',
     refreshSuggestedQuestions: '別の候補',
     thinking: '思考中...',
     thinkingAlt: '思考中',
@@ -5877,7 +5875,7 @@ export default {
     },
     modelSettings: {
       title: 'モデル設定',
-      description: 'ローカルのOllamaやリモートAPIなど、さまざまな種類のAIモデルを管理します',
+      description: '現在のアカウントのリモートAIモデルとAPI設定を管理します',
       typeShort: {
         chat: 'チャット',
         embedding: '埋め込み',
@@ -5966,7 +5964,6 @@ export default {
           chat_model: 'チャットモデル',
           rerank_model: 'リランクモデル',
           query_understand_model: 'クエリ理解モデル',
-          follow_up_model: 'フォローアップモデル',
           unknown: 'その他のモデル設定'
         }
       ,
@@ -7943,7 +7940,7 @@ export default {
       rewriteSystemPrompt: '質問リライト用のシステムプロンプト（空欄でデフォルト）',
       rewriteUserPrompt: '質問リライト用のユーザプロンプトテンプレート（空欄でデフォルト）',
       selectTools: 'エージェントが使用できるツールを選択します',
-      maxIterations: '1つのタスクで実行できる推論ステップ数の上限。無制限にすると、モデルが自ら停止するか手動で停止するまで続行します。',
+      maxIterations: 'メインエージェントが1ターンにモデルを呼び出せる回数を制限します。',
       kbScope: 'エージェントがアクセスできるナレッジベースの範囲を選択します',
       webSearch: '有効にすると、エージェントがインターネットで情報を検索できます',
       webSearchProvider: 'このエージェントで使用する検索エンジンを指定します。空欄の場合はデフォルトを使用します。',

@@ -9,28 +9,6 @@ import type { AssistantAccessLevel } from "../assistant";
 // 'custom'       : 完全自定义（不应用预设）
 export type AgentType = 'rag-qa' | 'wiki-qa' | 'hybrid-rag-wiki' | 'data-analysis' | 'custom';
 
-export interface QuestionSuggestionConfig {
-  starters: {
-    enabled: boolean;
-    mode: 'curated' | 'knowledge' | 'hybrid';
-    items: string[];
-    count: number;
-  };
-  follow_ups: {
-    enabled: boolean;
-    mode: 'generated' | 'knowledge' | 'hybrid';
-    count: number;
-    model_id?: string;
-    additional_instruction?: string;
-    categories: Array<'clarify' | 'deepen' | 'action'>;
-    max_context_turns: number;
-    suppress_on_fallback: boolean;
-    suppress_when_answer_asks_question: boolean;
-    knowledge_fallback: boolean;
-    allow_regenerate: boolean;
-  };
-}
-
 export type AgentJSONSchema = Record<string, unknown>;
 export interface AgentFilePermission {
   operations: Array<'read' | 'write'>;
@@ -177,7 +155,6 @@ export interface CustomAgentConfig {
 
   // ===== 已废弃字段（保留兼容）=====
   welcome_message?: string;
-  question_suggestions?: QuestionSuggestionConfig;
 }
 
 // 智能体

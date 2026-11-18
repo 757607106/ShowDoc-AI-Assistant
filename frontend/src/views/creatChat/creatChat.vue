@@ -268,10 +268,12 @@ async function createNewSession(value: string, modelId: string, mentionedItems: 
             await navigateToSession(res.data.id, value, modelId, mentionedItems, imageFiles, attachmentFiles, options);
         } else {
             console.error('[createChat] Failed to create session');
+            inputFieldRef.value?.restoreDraft(value, imageFiles, attachmentFiles);
             MessagePlugin.error(t('createChat.messages.createFailed'));
         }
     } catch (error) {
         console.error('[createChat] Create session error:', error);
+        inputFieldRef.value?.restoreDraft(value, imageFiles, attachmentFiles);
         MessagePlugin.error(t('createChat.messages.createError'));
     }
 }
@@ -290,7 +292,7 @@ const navigateToSession = async (sessionId: string, value: string, modelId: stri
     usemenuStore.updataMenuChildren(obj);
     usemenuStore.changeIsFirstSession(true);
     usemenuStore.changeFirstQuery(value, mentionedItems, modelId, imageFiles, attachmentFiles, options.questionOrigin ?? null);
-    router.push(`/platform/chat/${sessionId}`);
+    await router.push(`/platform/chat/${sessionId}`);
 }
 
 const handleKBEditorSuccess = (kbId: string) => {

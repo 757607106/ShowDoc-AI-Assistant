@@ -196,7 +196,10 @@ def provider():
         worker.join(timeout=5)
 
 
-def test_native_http_overflow_summarizes_without_replacing_raw_history(harness, provider):
+def test_native_http_overflow_summarizes_without_replacing_raw_history(harness, provider, monkeypatch):
+    from agent.time_travel import ancestry
+    from webapi.weknora_artifacts import collect
+    monkeypatch.setattr('webapi.weknora_artifacts.deleted_for', lambda *args: {})
     base, state = provider
     messages = []
     for i in range(10):
@@ -210,6 +213,9 @@ def test_native_http_overflow_summarizes_without_replacing_raw_history(harness, 
         assert result['messages'][-1].content == 'HTTP recovered'
         assert snapshot.values['_summarization_event']
         assert [m.content for m in snapshot.values['messages'][:-1]] == [m.content for m in messages]
+        assert any(path.startswith('/conversation_history/') for path in snapshot.values['files'])
+        artifacts = collect([state async for state in ancestry(agent, snapshot)], 'fixture-owner', 'overflow-history')
+        assert artifacts and not any(artifacts.values())
     asyncio.run(run())
     assert any(call['rejected'] for call in state['calls'])
     assert any(call['summary'] for call in state['calls'])

@@ -869,255 +869,6 @@
         </div>
       </div>
 
-      <!-- 多轮对话。两种模式都保留本组：Agent 模式在这里说明历史按上下文窗口
-           自动管理，并承载跨轮保留检索结果；开关由 EnsureDefaults 强制开启，
-           故只在普通模式展示。 -->
-      <div v-if="!IS_CONTEXTDB" v-show="currentSection === 'conversation'" class="section">
-        <div class="section-header">
-          <h2>{{ $t('agent.editor.conversationSettings') }}</h2>
-          <p class="section-description">{{ conversationSectionDesc }}</p>
-        </div>
-
-        <div class="settings-group">
-          <!-- 多轮对话开关（仅普通模式：Agent 模式由 EnsureDefaults 强制开启，
-               展示可关闭的开关只会被服务端改回去） -->
-          <div v-if="usesLocalRag" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.multiTurn') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.multiTurn') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-switch v-model="formData.config.multi_turn_enabled" />
-            </div>
-          </div>
-
-          <!-- 保留轮数（仅普通模式：Agent 模式按上下文窗口加载历史、超出时压缩成
-               摘要，见 session_agent_qa.go -> LoadAgentHistory，不读 history_turns） -->
-          <div v-if="usesLocalRag && formData.config.multi_turn_enabled" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.historyTurns') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.historyRounds') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-input-number v-model="formData.config.history_turns" :min="1" :max="100" theme="column" />
-            </div>
-          </div>
-
-          <!-- 跨轮保留检索结果。只有 agent 链路读取该值（internal/agent/observe.go），
-               且改写的只是 KB/Wiki 这八个工具的历史结果，所以没有知识库时不展示。 -->
-          <div v-if="IS_CONTEXTDB" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.retainRetrievalHistory') }}</label>
-              <p class="desc">{{ $t('agent.editor.nativeRuntime.historyPolicy') }}</p>
-            </div>
-            <div class="setting-control"><code>{{ formData.config.retain_retrieval_history }}</code></div>
-          </div>
-          <div v-else-if="isAgentMode && hasKnowledgeBase" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.retainRetrievalHistory') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.retainRetrievalHistory') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-switch v-model="formData.config.retain_retrieval_history" />
-            </div>
-          </div>
-
-          <!-- 问题改写（仅多轮对话开启且普通模式时显示） -->
-          <div v-if="formData.config.multi_turn_enabled && usesLocalRag" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.enableRewrite') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.rewrite') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-switch v-model="formData.config.enable_rewrite" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 对话问题推荐 -->
-      <div v-if="!IS_CONTEXTDB" v-show="currentSection === 'suggestions'" class="section">
-        <div class="section-header">
-          <h2>{{ $t('agentEditor.questionSuggestions.title') }}</h2>
-          <p class="section-description">{{ $t('agentEditor.questionSuggestions.description') }}</p>
-        </div>
-
-        <t-tabs v-model="suggestionTab" class="suggestion-tabs">
-          <t-tab-panel value="starters"
-            :label="$t('agentEditor.questionSuggestions.startersTitle')" />
-          <t-tab-panel value="followUps"
-            :label="$t('agentEditor.questionSuggestions.followUpsTitle')" />
-        </t-tabs>
-
-        <div v-show="suggestionTab === 'starters'" class="settings-group">
-          <div class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agentEditor.questionSuggestions.enableStarters') }}</label>
-              <p class="desc">{{ $t('agentEditor.questionSuggestions.enableStartersDesc') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-switch v-model="formData.config.question_suggestions.starters.enabled"
-                :aria-label="$t('agentEditor.questionSuggestions.enableStarters')" />
-            </div>
-          </div>
-
-          <div v-if="formData.config.question_suggestions.starters.enabled" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agentEditor.questionSuggestions.sourceMode') }}</label>
-            </div>
-            <div class="setting-control">
-              <t-select v-model="formData.config.question_suggestions.starters.mode"
-                :options="starterSuggestionModeOptions" />
-            </div>
-          </div>
-
-          <div v-if="formData.config.question_suggestions.starters.enabled" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agentEditor.questionSuggestions.count') }}</label>
-            </div>
-            <div class="setting-control">
-              <t-input-number v-model="formData.config.question_suggestions.starters.count"
-                :min="1" :max="8" theme="column" />
-            </div>
-          </div>
-
-          <div
-            v-if="formData.config.question_suggestions.starters.enabled && ['curated', 'hybrid'].includes(formData.config.question_suggestions.starters.mode)"
-            class="setting-row setting-row-vertical">
-            <div class="setting-info">
-              <div class="setting-info-header setting-info-header--inline">
-                <label>{{ $t('agentEditor.questionSuggestions.curatedItems') }}</label>
-                <span class="curated-items-count">
-                  {{ formData.config.question_suggestions.starters.items.length }}/8
-                </span>
-              </div>
-              <p class="desc">{{ $t('agentEditor.questionSuggestions.curatedItemsDesc') }}</p>
-            </div>
-            <div class="setting-control setting-control-full">
-              <div class="suggested-prompts-list">
-                <div v-for="(_prompt, index) in formData.config.question_suggestions.starters.items"
-                  :key="index" class="prompt-item">
-                  <t-input v-model="formData.config.question_suggestions.starters.items[index]"
-                    :maxlength="200" />
-                  <t-button variant="text" theme="danger" shape="square"
-                    :aria-label="$t('common.delete')" @click="removeStarterSuggestion(Number(index))">
-                    <t-icon name="delete" />
-                  </t-button>
-                </div>
-                <t-button variant="dashed"
-                  :disabled="formData.config.question_suggestions.starters.items.length >= 8"
-                  @click="addStarterSuggestion">
-                  <template #icon><t-icon name="add" /></template>
-                  {{ $t('agentEditor.questionSuggestions.addItem') }}
-                </t-button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div v-show="suggestionTab === 'followUps'" class="settings-group">
-          <div class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agentEditor.questionSuggestions.enableFollowUps') }}</label>
-              <p class="desc">{{ $t('agentEditor.questionSuggestions.enableFollowUpsDesc') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-switch v-model="formData.config.question_suggestions.follow_ups.enabled"
-                :aria-label="$t('agentEditor.questionSuggestions.enableFollowUps')" />
-            </div>
-          </div>
-
-          <template v-if="formData.config.question_suggestions.follow_ups.enabled">
-            <div class="setting-row">
-              <div class="setting-info">
-                <label>{{ $t('agentEditor.questionSuggestions.sourceMode') }}</label>
-              </div>
-              <div class="setting-control">
-                <t-select v-model="formData.config.question_suggestions.follow_ups.mode"
-                  :options="followUpSuggestionModeOptions" />
-              </div>
-            </div>
-
-            <div class="setting-row">
-              <div class="setting-info">
-                <label>{{ $t('agentEditor.questionSuggestions.count') }}</label>
-              </div>
-              <div class="setting-control">
-                <t-input-number v-model="formData.config.question_suggestions.follow_ups.count"
-                  :min="1" :max="5" theme="column" />
-              </div>
-            </div>
-
-            <div v-if="formData.config.question_suggestions.follow_ups.mode !== 'knowledge'"
-              class="setting-row">
-              <div class="setting-info">
-                <label>{{ $t('agentEditor.questionSuggestions.model') }}</label>
-                <p class="desc">{{ $t('agentEditor.questionSuggestions.modelDesc') }}</p>
-              </div>
-              <div class="setting-control">
-                <ModelSelector model-type="KnowledgeQA"
-                  :selected-model-id="formData.config.question_suggestions.follow_ups.model_id"
-                  :all-models="allModels"
-                  clearable
-                  @update:selected-model-id="(val: string) => formData.config.question_suggestions.follow_ups.model_id = val"
-                  @add-model="handleAddModel('summary')" />
-              </div>
-            </div>
-
-            <div class="suggestion-advanced-divider">
-              <span>{{ $t('agentEditor.questionSuggestions.advancedSettings') }}</span>
-            </div>
-
-            <div class="setting-row">
-              <div class="setting-info">
-                <label>{{ $t('agentEditor.questionSuggestions.contextTurns') }}</label>
-              </div>
-              <div class="setting-control">
-                <t-input-number
-                  v-model="formData.config.question_suggestions.follow_ups.max_context_turns"
-                  :min="1" :max="5" theme="column" />
-              </div>
-            </div>
-
-            <div class="setting-row setting-row-vertical">
-              <div class="setting-info">
-                <label>{{ $t('agentEditor.questionSuggestions.categories') }}</label>
-              </div>
-              <div class="setting-control setting-control-full">
-                <t-checkbox-group v-model="formData.config.question_suggestions.follow_ups.categories"
-                  :options="followUpCategoryOptions" />
-              </div>
-            </div>
-
-            <div class="setting-row setting-row-vertical">
-              <div class="setting-info">
-                <label>{{ $t('agentEditor.questionSuggestions.instruction') }}</label>
-              </div>
-              <div class="setting-control setting-control-full">
-                <t-textarea
-                  v-model="formData.config.question_suggestions.follow_ups.additional_instruction"
-                  :placeholder="$t('agentEditor.questionSuggestions.instructionPlaceholder')"
-                  :maxlength="2000" :autosize="{ minRows: 3, maxRows: 8 }" />
-              </div>
-            </div>
-
-            <div class="setting-row setting-row-vertical">
-              <div class="setting-info">
-                <label>{{ $t('agentEditor.questionSuggestions.displayRules') }}</label>
-              </div>
-              <div class="setting-control setting-control-full">
-                <div class="suggestion-checkboxes">
-                  <t-checkbox v-model="formData.config.question_suggestions.follow_ups.suppress_on_fallback">{{ $t('agentEditor.questionSuggestions.suppressFallback') }}</t-checkbox>
-                  <t-checkbox v-model="formData.config.question_suggestions.follow_ups.suppress_when_answer_asks_question">{{ $t('agentEditor.questionSuggestions.suppressQuestion') }}</t-checkbox>
-                  <t-checkbox v-model="formData.config.question_suggestions.follow_ups.knowledge_fallback">{{ $t('agentEditor.questionSuggestions.knowledgeFallback') }}</t-checkbox>
-                  <t-checkbox v-model="formData.config.question_suggestions.follow_ups.allow_regenerate">{{ $t('agentEditor.questionSuggestions.allowRegenerate') }}</t-checkbox>
-                </div>
-              </div>
-            </div>
-          </template>
-        </div>
-      </div>
-
       <!-- 工具配置（仅 Agent 模式） -->
       <div v-show="currentSection === 'tools' && (IS_CONTEXTDB || isAgentMode)" class="section">
         <div class="section-header">
@@ -1462,222 +1213,6 @@
         </div>
       </div>
 
-      <!-- 网络搜索配置 -->
-      <div v-if="!IS_CONTEXTDB" v-show="currentSection === 'websearch'" class="section">
-        <div class="section-header">
-          <h2>{{ $t('agent.editor.webSearchConfig') }}</h2>
-          <p class="section-description">{{ $t('agent.editor.webSearchConfigDesc') }}</p>
-        </div>
-
-        <div class="settings-group">
-          <!-- 网络搜索 -->
-          <div class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.webSearch') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.webSearch') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-switch v-model="formData.config.web_search_enabled" />
-            </div>
-          </div>
-
-          <!-- 网络搜索最大结果数 -->
-          <div v-if="formData.config.web_search_enabled" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.webSearchProvider') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.webSearchProvider') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-select v-model="formData.config.web_search_provider_id" clearable
-                :placeholder="$t('agent.editor.webSearchProviderPlaceholder')" style="width: 240px;">
-                <t-option v-for="p in webSearchProviderList" :key="p.id" :value="p.id" :label="p.name">
-                  <span>{{ p.name }}</span>
-                  <t-tag v-if="p.is_default" theme="primary" size="small" style="margin-left: 6px;">{{
-                    $t('common.default')
-                    }}</t-tag>
-                </t-option>
-              </t-select>
-            </div>
-          </div>
-
-          <!-- 网络搜索最大结果数 -->
-          <div v-if="formData.config.web_search_enabled" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.webSearchMaxResults') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.webSearchMaxResults') }}</p>
-            </div>
-            <div class="setting-control">
-              <div class="slider-wrapper">
-                <t-slider v-model="formData.config.web_search_max_results" :min="1" :max="10" />
-                <span class="slider-value">{{ formData.config.web_search_max_results }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 自动抓取页面内容 -->
-          <div v-if="formData.config.web_search_enabled" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.webFetchEnabled') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.webFetchEnabled') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-switch v-model="formData.config.web_fetch_enabled" />
-            </div>
-          </div>
-
-          <!-- 抓取页面数 -->
-          <div v-if="formData.config.web_search_enabled && formData.config.web_fetch_enabled"
-            class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.webFetchTopN') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.webFetchTopN') }}</p>
-            </div>
-            <div class="setting-control">
-              <div class="slider-wrapper">
-                <t-slider v-model="formData.config.web_fetch_top_n" :min="1" :max="10" />
-                <span class="slider-value">{{ formData.config.web_fetch_top_n }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 检索策略（仅普通模式且有知识库能力时显示；Agent 模式的 search_knowledge
-           使用全局检索配置，这里的设置对它不生效） -->
-      <div v-show="currentSection === 'retrieval' && hasKnowledgeBase && usesLocalRag" class="section">
-        <div class="section-header">
-          <h2>{{ $t('agent.editor.retrievalStrategy') }}</h2>
-          <p class="section-description">{{ $t('agentEditor.desc.retrievalSection') }}</p>
-        </div>
-
-        <div class="settings-group">
-          <!-- 查询扩展（仅普通模式） -->
-          <div v-if="!isAgentMode" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.enableQueryExpansion') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.queryExpansion') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-switch v-model="formData.config.enable_query_expansion" />
-            </div>
-          </div>
-
-          <!-- 向量召回TopK -->
-          <div class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.embeddingTopK') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.embeddingTopK') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-input-number v-model="formData.config.embedding_top_k" :min="1" :max="50" theme="column" />
-            </div>
-          </div>
-
-          <!-- 关键词阈值 -->
-          <div class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.keywordThreshold') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.keywordThreshold') }}</p>
-            </div>
-            <div class="setting-control">
-              <div class="slider-wrapper">
-                <t-slider v-model="formData.config.keyword_threshold" :min="0" :max="1" :step="0.01" />
-                <span class="slider-value">{{ formData.config.keyword_threshold?.toFixed(2) }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 向量阈值 -->
-          <div class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.vectorThreshold') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.vectorThreshold') }}</p>
-            </div>
-            <div class="setting-control">
-              <div class="slider-wrapper">
-                <t-slider v-model="formData.config.vector_threshold" :min="0" :max="1" :step="0.01" />
-                <span class="slider-value">{{ formData.config.vector_threshold?.toFixed(2) }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 重排TopK（仅在配置了 Rerank 模型时展示） -->
-          <div v-if="formData.config.rerank_model_id" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.rerankTopK') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.rerankTopK') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-input-number v-model="formData.config.rerank_top_k" :min="1" :max="20" theme="column" />
-            </div>
-          </div>
-
-          <!-- 重排阈值（仅在配置了 Rerank 模型时展示） -->
-          <div v-if="formData.config.rerank_model_id" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agent.editor.rerankThreshold') }}</label>
-              <p class="desc">{{ $t('agentEditor.desc.rerankThreshold') }}</p>
-            </div>
-            <div class="setting-control">
-              <div class="slider-wrapper">
-                <t-slider v-model="formData.config.rerank_threshold" :min="-10" :max="10" :step="0.01" />
-                <span class="slider-value">{{ formData.config.rerank_threshold?.toFixed(1) }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- FAQ 优先策略（关联 FAQ 类型知识库时显示） -->
-          <div v-if="hasFaqKnowledgeBase" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agentEditor.faq.enableLabel') }}</label>
-              <p class="desc">{{ $t('agentEditor.faq.enableDesc') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-switch v-model="formData.config.faq_priority_enabled" />
-            </div>
-          </div>
-
-          <div v-if="hasFaqKnowledgeBase && formData.config.faq_priority_enabled" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agentEditor.faq.thresholdLabel') }}</label>
-              <p class="desc">{{ $t('agentEditor.faq.thresholdDesc') }}</p>
-            </div>
-            <div class="setting-control">
-              <div class="slider-wrapper">
-                <t-slider v-model="formData.config.faq_direct_answer_threshold" :min="0.7" :max="1"
-                  :step="0.05" />
-                <span class="slider-value">{{ formData.config.faq_direct_answer_threshold?.toFixed(2)
-                  }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="hasFaqKnowledgeBase && formData.config.faq_priority_enabled" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agentEditor.faq.boostLabel') }}</label>
-              <p class="desc">{{ $t('agentEditor.faq.boostDesc') }}</p>
-            </div>
-            <div class="setting-control">
-              <div class="slider-wrapper">
-                <t-slider v-model="formData.config.faq_score_boost" :min="1" :max="2" :step="0.1" />
-                <span class="slider-value">{{ formData.config.faq_score_boost?.toFixed(1) }}x</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 表格数据分析（仅普通模式，命中 CSV/Excel 时会多一次 LLM 调用生成 SQL） -->
-          <div v-if="!isAgentMode" class="setting-row">
-            <div class="setting-info">
-              <label>{{ $t('agentEditor.dataAnalysis.enableLabel') }}</label>
-              <p class="desc">{{ $t('agentEditor.dataAnalysis.enableDesc') }}</p>
-            </div>
-            <div class="setting-control">
-              <t-switch v-model="formData.config.data_analysis_enabled" />
-            </div>
-          </div>
-        </div>
-      </div>
-
     </div>
 
     <template #footer-note>
@@ -1862,7 +1397,6 @@ function resolveEditorSection(section?: string | null): string {
 const currentSection = ref(resolveEditorSection(props.initialSection));
 // Refines the agent AgentList publishes; on its own it names no page.
 useAssistantPageContext(() => props.visible && props.mode === 'edit' ? { section: currentSection.value } : null);
-const suggestionTab = ref<'starters' | 'followUps'>('starters');
 const contentWrapperRef = ref<HTMLElement | null>(null);
 const highlightedField = ref<AgentNotReadyReasonKey | null>(null);
 let highlightClearTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2407,9 +1941,7 @@ const navItems = computed(() => {
     { key: 'prompts', icon: 'file-paste', label: t('agent.editor.promptsConfig'), badge: promptNavItems.value.length > 1 ? promptNavItems.value.length : undefined },
     { key: 'model', icon: 'control-platform', label: t('agent.editor.modelConfig') },
   ];
-  if (!IS_CONTEXTDB) items.push({ key: 'suggestions', icon: 'help-circle', label: t('agentEditor.questionSuggestions.navLabel') });
   // 多轮对话（两种模式都需要：Agent 模式在这里说明历史自动管理、保留检索结果）
-  if (!IS_CONTEXTDB) items.push({ key: 'conversation', icon: 'chat', label: t('agent.editor.conversationSettings') });
   // 知识库与检索
   items.push({ key: 'knowledge', icon: 'folder', label: t('agent.editor.knowledgeConfig') });
   // 检索策略只作用于普通模式的问答流程；Agent 模式的检索工具不读这些设置，
@@ -2417,7 +1949,6 @@ const navItems = computed(() => {
   if (hasKnowledgeBase.value && usesLocalRag.value) {
     items.push({ key: 'retrieval', icon: 'search', label: t('agent.editor.retrievalStrategy') });
   }
-  if (!IS_CONTEXTDB) items.push({ key: 'websearch', icon: 'internet', label: t('agent.editor.webSearchConfig') });
   items.push({ key: 'multimodal', icon: 'attach', label: t('agentEditor.imageUpload.navLabel') });
   // Agent 模式能力
   if (IS_CONTEXTDB || isAgentMode.value) {
@@ -2438,12 +1969,12 @@ const navGroups = computed(() => {
     {
       key: 'basic',
       label: t('agentEditor.navGroups.basic'),
-      items: pickItems(['basic', 'prompts', 'model', 'conversation', 'suggestions']),
+      items: pickItems(['basic', 'prompts', 'model']),
     },
     {
       key: 'knowledge',
       label: t('agentEditor.navGroups.knowledge'),
-      items: pickItems(['knowledge', 'retrieval', 'websearch']),
+      items: pickItems(['knowledge']),
     },
     {
       key: 'capability',
@@ -2542,27 +2073,6 @@ const defaultFormData = {
     fallback_strategy: 'model' as 'fixed' | 'model',
     fallback_response: '',
     fallback_prompt: '',
-    question_suggestions: {
-      starters: {
-        enabled: true,
-        mode: 'hybrid' as 'curated' | 'knowledge' | 'hybrid',
-        items: [] as string[],
-        count: 6,
-      },
-      follow_ups: {
-        enabled: false,
-        mode: 'hybrid' as 'generated' | 'knowledge' | 'hybrid',
-        count: 3,
-        model_id: '',
-        additional_instruction: '',
-        categories: ['clarify', 'deepen', 'action'] as Array<'clarify' | 'deepen' | 'action'>,
-        max_context_turns: 2,
-        suppress_on_fallback: true,
-        suppress_when_answer_asks_question: true,
-        knowledge_fallback: true,
-        allow_regenerate: false,
-      },
-    },
     // 已废弃字段（保留兼容）
     welcome_message: '',
   }
@@ -2572,31 +2082,6 @@ const formData = ref(JSON.parse(JSON.stringify(defaultFormData)));
 const nativeConfigError = ref<NativeConfigIssue | null>(null);
 const nativeConfigDraft = ref('');
 const updateNativeFields = (fields: CustomAgent['config']) => Object.assign(formData.value.config, fields);
-
-const starterSuggestionModeOptions = computed(() => [
-  { value: 'curated', label: t('agentEditor.questionSuggestions.modeCurated') },
-  { value: 'knowledge', label: t('agentEditor.questionSuggestions.modeKnowledge') },
-  { value: 'hybrid', label: t('agentEditor.questionSuggestions.modeHybrid') },
-]);
-const followUpSuggestionModeOptions = computed(() => [
-  { value: 'generated', label: t('agentEditor.questionSuggestions.modeGenerated') },
-  { value: 'knowledge', label: t('agentEditor.questionSuggestions.modeKnowledge') },
-  { value: 'hybrid', label: t('agentEditor.questionSuggestions.modeHybrid') },
-]);
-const followUpCategoryOptions = computed(() => [
-  { value: 'clarify', label: t('agentEditor.questionSuggestions.categoryClarify') },
-  { value: 'deepen', label: t('agentEditor.questionSuggestions.categoryDeepen') },
-  { value: 'action', label: t('agentEditor.questionSuggestions.categoryAction') },
-]);
-
-const addStarterSuggestion = () => {
-  const items = formData.value.config.question_suggestions.starters.items;
-  if (items.length < 8) items.push('');
-};
-
-const removeStarterSuggestion = (index: number) => {
-  formData.value.config.question_suggestions.starters.items.splice(index, 1);
-};
 
 const applyDefaultModelsIfEmpty = () => {
   if (props.mode !== 'create' || !formData.value) return
@@ -2766,16 +2251,6 @@ const activePromptAnchor = ref('system');
 
 const hasAnyIntentCustomized = computed(() =>
   intentPromptTemplates.value.some((item) => isIntentCustomized(item.id)),
-);
-
-// Agent 模式下本组只剩「保留轮数」（以及有知识库时的检索保留），
-// 默认文案里的「问题改写」并不展示，故按模式分开。
-const conversationSectionDesc = computed(() =>
-  IS_CONTEXTDB
-    ? t('agent.editor.nativeRuntime.historyPolicy')
-    : isAgentMode.value
-    ? t('agentEditor.desc.conversationSectionAgent')
-    : t('agentEditor.desc.conversationSection'),
 );
 
 const showRewritePrompts = computed(() =>
@@ -3286,19 +2761,6 @@ watch(() => props.visible, async (val) => {
       agentData.config.reasoning_effort = levelFromLegacy(agentData.config.thinking, agentData.config.reasoning_effort);
       agentData.config.thinking = levelEnablesThinking(agentData.config.reasoning_effort);
 
-      if (!IS_CONTEXTDB) agentData.config.question_suggestions = {
-        starters: {
-          ...defaultFormData.config.question_suggestions.starters,
-          ...(agentData.config.question_suggestions?.starters || {}),
-          items: agentData.config.question_suggestions?.starters?.items || [],
-        },
-        follow_ups: {
-          ...defaultFormData.config.question_suggestions.follow_ups,
-          ...(agentData.config.question_suggestions?.follow_ups || {}),
-          categories: agentData.config.question_suggestions?.follow_ups?.categories
-            || [...defaultFormData.config.question_suggestions.follow_ups.categories],
-        },
-      };
       // 确保数组字段存在
       if (!agentData.config.knowledge_bases) agentData.config.knowledge_bases = [];
       // 旧配置里可能还带着已合并的工具名（knowledge_search / grep_chunks /
@@ -4685,7 +4147,7 @@ const handleSave = async () => {
     currentSection.value = 'basic';
     return;
   }
-  if (IS_CONTEXTDB && (runtimeChanges.value.length || runtimeIssues.value.length)) {
+  if (IS_CONTEXTDB && runtimeChanges.value.length) {
     MessagePlugin.error(t('agent.editor.nativeRuntime.resolveBeforeSave'));
     currentSection.value = 'basic';
     return;
@@ -4754,11 +4216,6 @@ const handleSave = async () => {
 
   // ReRank 模型按运行范围按需使用：知识库范围为 none，或未启用
   // search_knowledge 时不需要；其余情况由对话入口在使用前给出明确提示。
-
-  if (!IS_CONTEXTDB) formData.value.config.question_suggestions.starters.items =
-    formData.value.config.question_suggestions.starters.items
-      .map((p: string) => p.trim())
-      .filter(Boolean);
 
   if (!IS_CONTEXTDB && (!formData.value.config.intent_prompts || Object.keys(formData.value.config.intent_prompts).length === 0)) {
     delete formData.value.config.intent_prompts;
@@ -5309,93 +4766,6 @@ const handleSave = async () => {
   font-variant-numeric: tabular-nums;
   font-size: var(--app-text-sm);
   color: var(--td-text-color-placeholder);
-}
-
-// 推荐问题列表
-.suggested-prompts-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-}
-
-.prompt-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  :deep(.t-input) {
-    flex: 1;
-  }
-}
-
-// 开场 / 回答后推荐用顶部 tab 区分（参照模型管理），避免整块包围框
-.suggestion-tabs {
-  margin-bottom: 4px;
-
-  :deep(.t-tabs__nav-item) {
-    font-size: var(--app-text-base);
-  }
-
-  :deep(.t-tabs__operations) {
-    display: none;
-  }
-
-  // 只用 tab 作导航，内容自行渲染在下方
-  :deep(.t-tabs__content) {
-    display: none;
-  }
-}
-
-.suggestion-advanced-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 0 2px;
-  color: var(--td-text-color-placeholder);
-  font-size: var(--app-text-sm);
-  line-height: 18px;
-
-  &::before,
-  &::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--td-component-stroke);
-  }
-
-  span {
-    flex-shrink: 0;
-    color: var(--td-text-color-secondary);
-    font-weight: 500;
-  }
-}
-
-// 计数徽标紧贴标签，避免在整宽行里被 space-between 甩开
-// 需与基础 `.setting-info .setting-info-header`（space-between）同等特异性才能覆盖
-.setting-info-header.setting-info-header--inline {
-  justify-content: flex-start;
-  gap: 8px;
-}
-
-.curated-items-count {
-  flex-shrink: 0;
-  padding: 0 8px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  border-radius: var(--app-radius-lg);
-  background: var(--td-bg-color-secondarycontainer);
-  font-size: var(--app-text-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--td-text-color-secondary);
-}
-
-.suggestion-checkboxes {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
 }
 
 // ===== 工具配置：overview 面板 =====

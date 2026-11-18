@@ -282,12 +282,9 @@ def session_clear(session_id):
 @agent_bp.route('/api/v1/sessions/batch', methods=['DELETE'])
 def sessions_delete_batch():
     body = _json_body()
-    ids = [s['id'] for s in agent_sessions.list_sessions()] if body.get('delete_all') is True else body.get('ids')
+    ids = [s['id'] for s in agent_sessions.list_sessions(_include_deleting=True)] if body.get('delete_all') is True else body.get('ids')
     if not isinstance(ids,list) or len(ids)>500 or any(not isinstance(sid,str) for sid in ids):
         raise StoreError('请提供不超过 500 个会话 ID', 400)
-    for sid in ids:
-        if agent_sessions.get_session(sid)['agent_config'].get('runtime') != 'deepagents':
-            unavailable()
     for sid in ids:
         agent_sessions.delete_session(sid)
     return jsonify(success=True)

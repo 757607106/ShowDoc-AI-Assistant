@@ -83,11 +83,11 @@
         </div>
         <template v-if="serviceId">
           <div class="tool-cell">
-            <t-switch :value="policy(tool.name).enabled" size="small" :disabled="loading || !!policyError || !!busy.get(tool.name)" :loading="busy.get(tool.name) === 'enabled'"
+            <t-switch :value="policy(tool.name).enabled" size="small" :disabled="tool.readOnlyHint !== true || loading || !!policyError || !!busy.get(tool.name)" :loading="busy.get(tool.name) === 'enabled'"
               :aria-label="`${tool.name} ${t('mcpMetadata.enabled')}`" @change="(value: boolean) => savePolicy(tool.name, 'enabled', value)" />
           </div>
           <div class="tool-cell">
-            <t-switch :value="policy(tool.name).require_approval" size="small" :disabled="loading || !!policyError || !!busy.get(tool.name)" :loading="busy.get(tool.name) === 'require_approval'"
+            <t-switch :value="policy(tool.name).require_approval" size="small" :disabled="tool.readOnlyHint !== true || loading || !!policyError || !!busy.get(tool.name)" :loading="busy.get(tool.name) === 'require_approval'"
               :aria-label="`${tool.name} ${t('mcpMetadata.approval')}`" @change="(value: boolean) => savePolicy(tool.name, 'require_approval', value)" />
           </div>
         </template>

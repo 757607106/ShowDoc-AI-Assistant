@@ -127,7 +127,12 @@ def test_native_structured_output_reaches_sse_and_each_history_turn_without_stal
     config.pop('response_format')
     final = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': 'Plain'}))
     assert 'structured_response' not in final[-1]['data']
+    from unittest.mock import AsyncMock
+    from webapi import harness as api
+    build = AsyncMock(wraps=api._graph)
+    monkeypatch.setattr(api, '_graph', build)
     history = client.get(f'/api/v1/messages/{sid}/load').json()['data']
+    build.assert_awaited_once()
     answers = [row for row in history if row['role'] == 'assistant']
     assert [row.get('structured_response') for row in answers] == [{'answer': 42}, {'answer': 43}, None]
     assert answers[-1]['content'] == 'ordinary text'

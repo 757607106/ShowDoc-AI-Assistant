@@ -712,11 +712,16 @@
       "reason": "Existing ContextDB source navigation preserves document-scoped chunk IDs, original/display filenames and source resources when opening a reference preview.",
       "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
+    "src/components/AttachmentUpload.vue": {
+      "source": "4a00a3fe1e5d1ec73dd2f054019f9a2894e55f41345940bf989279b0ee539e17",
+      "reason": "Failed sends restore the original attachment objects and resume only unfinished document polls, preserving retry behavior without creating a second upload state store.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
     "src/components/Input-field.vue": {
-      "template": "257b41847caa32e86587ee0181b59e896230241722464aa9d857811348e36cbd",
+      "template": "f864af81acc82525e167d18f4dde7b7b771bf52f386a9012aee0d00a505cf5cc",
       "styles": "b7ed9e19e2e2f5a08f1d8d875d69d50e9549e2f9332295174b361bb89132e286",
-      "source": "be95275a3a4c6650f9c7043063cbab2cabb2c685a01b82b76f1151ecae1faa3a",
-      "reason": "The retired browser execution control, subscription and steering queue/emits/shortcuts are removed. Send/stop, attachment drafts, ContextDB knowledge mentions and AssistantPanel embeddedMode remain. Removed-control styles are explicitly reviewed; existing effective model limit labels retain unknown values instead of fabricated defaults.",
+      "source": "7b3cd3f037a3c927200dc4096710fe0f365b7eb2289d9e4d6bc49500f2e9a5d6",
+      "reason": "The retired browser execution control, subscription and steering queue/emits/shortcuts are removed. Send/stop, attachment drafts, ContextDB knowledge mentions and AssistantPanel embeddedMode remain. Failed sends restore text, images and attachments without overwriting newer input, and stop is disabled until its assistant message ID arrives. Removed-control styles are explicitly reviewed; existing effective model limit labels retain unknown values instead of fabricated defaults.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
     "src/components/ModelSelector.vue": {
@@ -732,16 +737,21 @@
       "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/views/agent/AgentEditorModal.vue": {
-      "template": "574a940ba9c5e44ab2d9ff48e93207d8263ee12c7080d28670fc187ea014ffd6",
-      "styles": "71d04a6bca65ea1e432fb0a9011dc8e8320092cd212c36eb958f8247ac0f4ef9",
-      "source": "b2a3c27c59e2984a81f0ab74988c23d8b81f0b8722b4923d350fc8cf4ee52e55",
-      "reason": "Native Agent presets expose declared professional subagents, structured output, file permissions and HITL, while retaining ContextDB resource scope and explicit legacy adoption. Skills select real catalog names without installation jobs or implicit shell activation; unsupported Go RAG and WeKnora business controls are removed. Newly selected skills exclude disabled directories; unavailable saved selections stay visible for explicit correction instead of being silently removed. Async subagent selection requires the explicit deployment capability, preserves unavailable saved choices and rejects unsupported asynchronous settings before saving. Retired sharing mounts, channel-count API requests, integration navigation and their exclusive styles are removed; old sharing/channel sections resolve to basic Agent settings.",
+      "template": "a00e83ac670d657497d1d8aa4ee2f8b77c84eb9b43d22a646aa79e9326fcc2d1",
+      "styles": "7c0028ca71e00d9d885cd3efd16cc6f17c1d026404acce17e574cc449b8b0d6d",
+      "source": "535978c91190e866de7b0cd80fcf6875a387086b415c95b2c3923e357eb52ee5",
+      "reason": "Native Agent presets expose declared professional subagents, structured output, file permissions and HITL, while retaining ContextDB resource scope and explicit legacy adoption. Skills select real catalog names without installation jobs or implicit shell activation; unsupported Go RAG and WeKnora business controls are removed. Newly selected skills exclude disabled directories; unavailable saved selections stay visible for explicit correction instead of being silently removed. Async subagent selection requires the explicit deployment capability, preserves unavailable saved choices and rejects unsupported asynchronous settings before saving. Retired sharing, conversation, question-suggestion, retrieval and web-search sections and their exclusive styles are removed; old deep links resolve to basic Agent settings.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
     "src/views/chat/components/AgentStreamDisplay.vue": {
-      "template": "e84bf1163ad576fce86960314bf30040065cbbf63a3ad090c22aa4278eaa875c",
-      "source": "14ed9d50e67f7218cf2a5b2524b8d84830183af5bb98526b7726c3cb030a62bb",
-      "reason": "Existing exact ContextDB citations remain; native interrupt cards and tool approval allowed_decisions now render for main and delegated streams with the original pending IDs.",
+      "template": "aa65b8d46b0c0297736777bf2213a10698dc23e3adb41c1e2b571cc99b190fc5",
+      "source": "91a61eb6bca062ef931256b47e6b17794fadea235a3fc90fa7c85094e1a5ca79",
+      "reason": "Existing exact ContextDB citations remain; native interrupt cards and tool approval allowed_decisions render for main and delegated streams with the original pending IDs. Retired follow-up loading indicators and props are removed.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/McpOAuthCard.vue": {
+      "source": "d350926bc2d12d77bd6bb2607cd931f969525de9fc1a11ce4b1f10cea65b6e4f",
+      "reason": "Authorization and cancellation resume the existing native interrupt through the conversation stream when its responses are ready.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
     "src/views/chat/components/ChatArtifactsPanel.vue": {
@@ -750,9 +760,9 @@
       "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/views/chat/components/botmsg.vue": {
-      "template": "77be1478cb882f1c0bd526996d8ed1d0127249daf4e5b1a3abda68a9eba227fc",
-      "source": "d4f71ad797e06f0d81102716b504918fe5cae38f76624e6b97136cc9f30e3b59",
-      "reason": "Existing exact ContextDB citations remain; native structured_response is displayed directly from checkpoint/SSE state as JSON rather than inferred from answer text.",
+      "template": "6fe3151f3b7b6c1651ea0858bb91e31e7f9dbe75ebe22ab4cffde8faffb1406e",
+      "source": "c957d2080e9e6369dfe22e29bcf62639848a1d7d8b7b2f02681994633d9fcb1e",
+      "reason": "Existing exact ContextDB citations remain; native structured_response is displayed directly from checkpoint/SSE state as JSON rather than inferred from answer text. Retired follow-up loading indicators and props are removed.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
     "src/views/chat/components/docInfo.vue": {
@@ -810,9 +820,14 @@
       "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/views/chat/index.vue": {
-      "template": "2841ea42d79a37a78908110c7ed84a31c46c494f41176cfe44aa67186594a4ae",
-      "source": "f20e614f30bfecc4e37070511331495650a2c15c9534592d82c67b4d20a46dc7",
-      "reason": "Retired steering controllers, queue writes and browser execution controls/previews/request fields are removed, while persisted message identity and historical steering rows remain readable. Existing native async background results and completed outputs remain viewable; owner/session generations isolate polling and cancellation, and historical shell tasks remain read-only.",
+      "template": "785789755ba1d8b3222fbe818a338425ce2e8db5fee91d878b84483b12472abd",
+      "source": "bf4b48227edeacb85436bbb16159b9f76a637dfa8eb2796d6a8907ac37f8f2de",
+      "reason": "Retired steering controllers, queue writes, browser execution controls and after-answer follow-up generation/events/attribution are removed, while persisted message identity and historical steering rows remain readable. Failed sends restore their own text, images and attachments; deleted temporary documents return to local retry state. Failed stop requests reconnect to the persisted assistant stream or settle without a local assistant. Existing native async background results and completed outputs remain viewable; owner/session generations isolate polling and cancellation, and historical shell tasks remain read-only.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/creatChat/creatChat.vue": {
+      "source": "d7e5c67233f68b2d9aa3c8b3b6b3fa62a47b8d7cb6ae4ffd8e0cb81059e3e3f4",
+      "reason": "Failed session creation or navigation restores the cleared text, images and attachments so the first question and its files are not lost.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
     "src/views/chat/components/tool-results/WeKnoraGraphQueryResults.vue": {
@@ -820,6 +835,18 @@
       "source": "63e3c5574174185e5c8782a575afb0b2dc2dab7fb1b3aec8477ad368b22f4617",
       "reason": "Existing ContextDB graph results resolve display filenames and pass complete chunks to document-aware content rendering; the official relocated graph component remains separately tracked.",
       "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/views/settings/components/McpServiceDialog.vue": {
+      "template": "b2de15b76266b410bc8eccd5cd77e88cbb29f83f59ec59dce40236307293e4f7",
+      "source": "0df363dc7862ac447f7cbe2de212409c40d7990562f59f86a674a3fa317f63d4",
+      "reason": "Only the adapter-supported HTTP timeout remains editable and is submitted as advanced_config.timeout. Unsupported retry count and retry delay controls, draft state and legacy hydration are removed instead of pretending they affect MCP execution.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/settings/components/McpToolsList.vue": {
+      "template": "f994ff5aea411a0d75462c70c15c94bd88f67000b0db738dc57069ca69d801a0",
+      "source": "f7458510f4318501d5dfdcb53aa0e7a14ac3ec2b147f89154e74f67a05191116",
+      "reason": "Disable tool toggles when the MCP server has not explicitly declared the tool read-only.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
     "src/views/settings/ModelSettings.vue": {
       "template": "21daa842e4a695d436f382a2ec79c12e3ffcf3afe1174f45905fdcbb96454774",
@@ -889,9 +916,14 @@
       "reason": "File memory uses the current owner and Agent AGENTS.md endpoints, preserves the effective personal switch, supports read/edit/clear, guards unsaved changes and stale account responses, and explains native new-session cache semantics.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
+    "src/components/css/chat-message-shared.less": {
+      "source": "6c86a694f26c18f8688968a92adf7ee7f2c4ada4f7c73a833b6031bccd27f363",
+      "reason": "Retired follow-up toolbar loading styles and shimmer transitions are removed with their only consumers.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
     "src/api/model/modelUsage.ts": {
-      "source": "cb6d5bcd0049904ec016cae62b985ff55b6c9311bceedd55dcfb3a4dd8594eed",
-      "reason": "Professional subagent model bindings resolve to the existing chat-model usage label so referenced models cannot appear unbound in the UI.",
+      "source": "1988f330ed144a603b948ee252411f7c62876f2788b486bbeddd55d7d2caa33d",
+      "reason": "Professional subagent model bindings resolve to the existing chat-model usage label. Retired after-answer follow-up bindings and suggestion-section navigation are removed.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
     "src/config/toolbox.ts": {
@@ -936,6 +968,11 @@
     }
   },
   "dispositions": {
+    "src/components/chat/FollowUpSuggestions.vue": {
+      "status": "retired",
+      "reason": "DeepAgents has no native after-answer follow-up capability. The card, generation polling, events and attribution are removed rather than emitting a guaranteed failing request after every answer.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
     "src/components/SandboxConfigEditorDrawer.vue": {
       "status": "retired",
       "reason": "The multi-provider sandbox editor is removed with its sole retired SandboxSettings consumer. Actual execution backend health and deployment configuration remain in the native runtime settings.",

@@ -588,13 +588,6 @@
                 </t-tooltip>
                 <ChatRequestInfoButton v-if="showRequestInfo && isConversationDone" :session="session"
                   :session-id="sessionId" />
-                <transition name="follow-up-toolbar-loading">
-                  <span v-if="!embeddedMode && followUpLoading" class="answer-toolbar__follow-up-loading" role="status"
-                    aria-live="polite">
-                    <t-icon name="lightbulb" />
-                    <span class="answer-toolbar__follow-up-label">{{ t('chat.followUpQuestionsLoading') }}</span>
-                  </span>
-                </transition>
               </div>
             </div>
 
@@ -1247,7 +1240,6 @@ const props = defineProps<{
   embedSessionSig?: string;
   embedVisitorId?: string;
   ragMode?: boolean;
-  followUpLoading?: boolean;
   canFork?: boolean;
   canRewind?: boolean;
   // The main chat draws the approval above the composer. Embed and skill

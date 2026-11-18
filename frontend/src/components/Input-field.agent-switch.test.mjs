@@ -71,6 +71,7 @@ test('one composer action switches between stop and send', () => {
   assert.doesNotMatch(inputField, /setSteerDelivery/)
   assert.match(controls, /v-if="isReplying"/)
   assert.match(controls, /handleStop/)
+  assert.match(controls, /stop-btn" :disabled="!assistantMessageId"/)
   assert.match(controls, /v-else[\s\S]*createSession\(query\)[\s\S]*send-btn/)
   assert.match(controls, /<t-icon name="arrow-up"/)
   assert.doesNotMatch(controls, /steer-inject-btn|<t-icon[^>]*'time'/)

@@ -42,19 +42,22 @@ def _public(row):
             'last_request_state': last}
 
 
-def get_session(session_id, owner_id=None):
+def get_session(session_id, owner_id=None, *, _include_deleting=False):
     with connection() as conn:
-        row = conn.execute('SELECT * FROM agent_sessions WHERE id=%s AND owner_id=%s', (session_id, _owner(owner_id))).fetchone()
+        row = conn.execute("""SELECT * FROM agent_sessions WHERE id=%s AND owner_id=%s
+            AND (%s OR coalesce(agent_config->>'_deleting','false')<>'true')""",
+                           (session_id, _owner(owner_id), _include_deleting)).fetchone()
     if row is None:
         raise StoreError('会话不存在', 404)
     return row
 
 
-def list_sessions(owner_id=None, source=None):
+def list_sessions(owner_id=None, source=None, *, _include_deleting=False):
     with connection() as conn:
         rows = conn.execute("""SELECT * FROM agent_sessions WHERE owner_id=%s AND parent_session_id IS NULL
             AND coalesce(agent_config->>'_skill_install','false')<>'true'
-            ORDER BY pinned_at DESC NULLS LAST,updated_at DESC,id""", (_owner(owner_id),)).fetchall()
+            AND (%s OR coalesce(agent_config->>'_deleting','false')<>'true')
+            ORDER BY pinned_at DESC NULLS LAST,updated_at DESC,id""", (_owner(owner_id), _include_deleting)).fetchall()
     values = [_public(row) for row in rows]
     return [row for row in values if source is None or row['source'] == source]
 
@@ -89,23 +92,23 @@ def touch_session(session_id, title=None, owner_id=None):
 
 
 @contextmanager
-def _mutation(session_id, owner_id):
-    get_session(session_id, owner_id)
+def _mutation(session_id, owner_id, *, _for_delete=False):
+    get_session(session_id, owner_id, _include_deleting=_for_delete)
     from agent.checkpointer import database_url
     with psycopg.connect(database_url(), autocommit=True) as lock:
         acquired = lock.execute('SELECT pg_try_advisory_lock(hashtextextended(%s,0))', ('harness:' + session_id,)).fetchone()[0]
         if not acquired:
             raise StoreError('会话正在执行，请等待本次请求结束', 409)
-        row = get_session(session_id, owner_id)
-        if row['agent_config'].get('runtime') != 'deepagents':
+        row = get_session(session_id, owner_id, _include_deleting=_for_delete)
+        if not _for_delete and row['agent_config'].get('runtime') != 'deepagents':
             raise StoreError('旧会话已归档为只读，历史数据与资源保留', 410)
         yield row
 
 
 @contextmanager
-def _background_mutation(session_id, owner_id):
+def _background_mutation(session_id, owner_id, *, _for_delete=False):
     """Serialize child controls and cleanup without holding the parent's execution lock."""
-    get_session(session_id, owner_id)
+    get_session(session_id, owner_id, _include_deleting=_for_delete)
     from agent.checkpointer import database_url
     with psycopg.connect(database_url(), autocommit=True) as lock:
         lock.execute("SET lock_timeout='15s'")
@@ -113,8 +116,8 @@ def _background_mutation(session_id, owner_id):
             lock.execute('SELECT pg_advisory_lock(hashtextextended(%s,0))', ('async-control:' + session_id,))
         except psycopg.errors.LockNotAvailable as exc:
             raise StoreError('后台任务正在处理另一操作，请稍后重试', 409) from exc
-        row = get_session(session_id, owner_id)
-        if row['agent_config'].get('runtime') != 'deepagents':
+        row = get_session(session_id, owner_id, _include_deleting=_for_delete)
+        if not _for_delete and row['agent_config'].get('runtime') != 'deepagents':
             raise StoreError('旧会话已归档为只读，历史数据与资源保留', 410)
         yield row
 
@@ -129,8 +132,12 @@ def _clear_checkpoint(session_id, owner_id):
 
 
 def delete_session(session_id, owner_id=None):
-    with _mutation(session_id, owner_id) as row:
-        with _background_mutation(session_id, row['owner_id']):
+    with _mutation(session_id, owner_id, _for_delete=True) as row:
+        with _background_mutation(session_id, row['owner_id'], _for_delete=True):
+            # Persist the intent before irreversible cleanup so a later DELETE can finish it.
+            with connection() as conn:
+                conn.execute("""UPDATE agent_sessions SET agent_config=jsonb_set(agent_config,'{_deleting}','true'::jsonb)
+                    WHERE id=%s AND owner_id=%s""", (session_id, row['owner_id']))
             import asyncio
             from agent.async_work import cleanup
             asyncio.run(cleanup(row['owner_id'], session_id))

@@ -41,6 +41,7 @@ MAX_ARTIFACT_BYTES = 25 * 1024 * 1024
 class SandboxArtifacts(AgentMiddleware):
     """Commit workspace outputs with the native tool result, including before an interrupt."""
     archive_error = '工具已执行，但文件归档失败（文件可能仍在修改、超过 25 MiB 或沙箱不可用）；请勿重复执行原工具。'
+    _file_changing_tools = {'write_file', 'edit_file', 'delete', 'execute', 'task'}
 
     def __init__(self, backend):
         self.backend = backend
@@ -56,7 +57,8 @@ class SandboxArtifacts(AgentMiddleware):
         files = {entry.path: entry for entry in entries if entry.entry_type == 'file'
                 and entry.path.startswith('/workspace/') and str(PurePosixPath(entry.path)) == entry.path
                 and '..' not in PurePosixPath(entry.path).parts
-                and not entry.path.startswith(('/workspace/skills/', '/workspace/large_tool_results/'))}
+                and not entry.path.startswith(('/workspace/skills/', '/workspace/large_tool_results/',
+                                               '/workspace/conversation_history/'))}
         return files
 
     @staticmethod
@@ -127,7 +129,7 @@ class SandboxArtifacts(AgentMiddleware):
         return self._merge(request, result, files=files)
 
     def wrap_tool_call(self, request, handler):
-        if request.tool_call['name'] not in ('write_file', 'edit_file', 'execute', 'task'):
+        if request.tool_call['name'] not in self._file_changing_tools:
             return handler(request)
         try:
             before = self._snapshot()
@@ -143,7 +145,7 @@ class SandboxArtifacts(AgentMiddleware):
             return self._merge(request, result, error=self.archive_error)
 
     async def awrap_tool_call(self, request, handler):
-        if request.tool_call['name'] not in ('write_file', 'edit_file', 'execute', 'task'):
+        if request.tool_call['name'] not in self._file_changing_tools:
             return await handler(request)
         try:
             before = await self._asnapshot()
@@ -334,6 +336,7 @@ async def backend_for_session(session_id, owner_id, agent_config, role):
     manager = connected_session(owner_id, session_id, create=True)
     sandbox = await anyio.to_thread.run_sync(manager.__enter__)
     try:
+        await anyio.to_thread.run_sync(lambda: sandbox.files.create_directories([WriteEntry(path='/workspace', mode=755)]))
         backend = ManagedOpenSandboxBackend(sandbox=sandbox, timeout=180)
         try:
             yield backend

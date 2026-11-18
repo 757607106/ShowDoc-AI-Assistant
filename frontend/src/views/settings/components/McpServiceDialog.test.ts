@@ -125,6 +125,7 @@ test('connection save omits usage instructions so new services can sync tools fi
     assert.equal('usage_instructions' in body, false)
     assert.equal('description' in body, false)
     assert.equal(body.url, 'https://example.com/mcp')
+    assert.deepEqual({ ...body.advanced_config }, { timeout: 30 })
   } finally { f.close() }
 })
 

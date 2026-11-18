@@ -197,7 +197,7 @@ def validate_config(config, *, check_runtime=True):
     if check_runtime:
         issues = runtime_config_issues(value)
         if issues:
-            raise StoreError(issues[0]['message'], 501)
+            raise StoreError(issues[0]['message'], issues[0].get('status', 501))
     return value
 
 
@@ -216,6 +216,21 @@ def runtime_config_issues(value):
             '当前 Harness 使用原生 checkpoint 保留工具历史；尚未接入跨轮清理，请开启 retain_retrieval_history'})
     if value['sandbox_config_id'] not in ('state-backend', 'opensandbox-local'):
         issues.append({'field': 'sandbox_config_id', 'message': '当前 Harness 仅支持 state-backend 或 opensandbox-local'})
+    children = [(f'subagents[{index}].', child) for index, child in enumerate(value['subagents'])]
+    if value['sandbox_config_id'] == 'opensandbox-local' and value['access_level'] != 'read_only':
+        for prefix, agent in [('', value), *children]:
+            if agent.get('access_level') != 'read_only' and any(
+                    not path.startswith(('/state/', '/memories/'))
+                    for rule in agent.get('permissions', []) for path in rule['paths']):
+                field = prefix + 'permissions'
+                issues.append({'field': field, 'status': 400,
+                    'message': f'{field}：OpenSandbox 文件权限规则仅适用于虚拟挂载路径'})
+    for prefix, child in children:
+        selected = child.get('selected_skills')
+        mode = value['skills_selection_mode']
+        if selected and (mode == 'none' or mode == 'selected' and not set(selected) <= set(value['selected_skills'])):
+            field = prefix + 'selected_skills'
+            issues.append({'field': field, 'status': 400, 'message': f'{field}：子代理技能超出父 Agent 已授权范围'})
     for key in ('web_search_enabled', 'reflection_enabled'):
         if value.get(key) is True:
             issues.append({'field': key, 'message': f'{key} 尚未接入当前官方 Harness'})
@@ -445,11 +460,6 @@ def resolve_request(body, *, client, owner_id, role='viewer', session=None, has_
     config['_page_context'] = body.get('page_context')
     config['_query'] = body.get('query', '')
     config['_locale'] = body.get('_locale', 'zh-CN')
-    mode = config['mcp_selection_mode']
-    services = [item for item in registry.records('mcp', owner_id) if item.get('enabled') and
-        (mode == 'all' or (mode == 'selected' and item['id'] in config['mcp_services']))] if mode != 'none' else []
-    if mode == 'selected' and set(config['mcp_services']) - {item['id'] for item in services}:
-        raise StoreError('所选 MCP 服务不存在、已停用或无权访问', 403)
     result = {'agent_id': agent['id'], 'agent_config': config, 'knowledge_base_ids': kb_ids,
         'requested_knowledge_base_ids': requested_knowledge_base_ids,
         'knowledge_ids': document_ids, 'tag_scopes': tags, 'agent_enabled': config['agent_mode'] == 'smart-reasoning',

@@ -71,7 +71,7 @@ export function useStream() {
   let renderTimer: number | null = null
 
   // 启动流式请求
-  const startStream = async (params: { session_id: any; query: any; knowledge_base_ids?: string[]; knowledge_ids?: string[]; tag_ids?: string[]; agent_enabled?: boolean; agent_id?: string; agent_source_tenant_id?: string | number; web_search_enabled?: boolean; local_browser_enabled?: boolean; summary_model_id?: string; reasoning_effort?: string; mcp_service_ids?: string[]; skill_names?: string[]; mentioned_items?: Array<{id: string; name: string; type: string; kb_type?: string; kb_id?: string; kb_name?: string; service_id?: string; skill_name?: string}>; images?: Array<{data: string}>; attachment_uploads?: Array<{data: string; file_name: string; file_size: number}>; attachment_ids?: string[]; suggestion_attribution?: { suggestion_set_id: string; question_id: string }; question_origin?: { knowledge_base_id: string; knowledge_id?: string }; page_context?: PageContextPayload; assistant_access?: AssistantAccessLevel; method: string; url: string; resume_pending_id?: string; embed_token?: string; embed_session_sig?: string; embed_visitor_id?: string }) => {
+  const startStream = async (params: { session_id: any; query: any; knowledge_base_ids?: string[]; knowledge_ids?: string[]; tag_ids?: string[]; agent_enabled?: boolean; agent_id?: string; agent_source_tenant_id?: string | number; web_search_enabled?: boolean; local_browser_enabled?: boolean; summary_model_id?: string; reasoning_effort?: string; mcp_service_ids?: string[]; skill_names?: string[]; mentioned_items?: Array<{id: string; name: string; type: string; kb_type?: string; kb_id?: string; kb_name?: string; service_id?: string; skill_name?: string}>; images?: Array<{data: string}>; attachment_uploads?: Array<{data: string; file_name: string; file_size: number}>; attachment_ids?: string[]; question_origin?: { knowledge_base_id: string; knowledge_id?: string }; page_context?: PageContextPayload; assistant_access?: AssistantAccessLevel; method: string; url: string; resume_pending_id?: string; embed_token?: string; embed_session_sig?: string; embed_visitor_id?: string }) => {
     const myGeneration = ++streamGeneration
     const streamAbort = controller
     // 重置状态
@@ -113,9 +113,11 @@ export function useStream() {
     let receivedTerminal = false;
     let reconnectAttempts = 0;
     let streamMethod = params.method;
+    const nativePost = !embedToken && params.method === 'POST' &&
+      (params.url === '/api/v1/agent-chat' || params.url === '/api/v1/knowledge-chat');
     // Never repeat an accepted POST: recovery attaches to its persisted message.
     const canReconnect = () => !embedToken && receivedAssistantId && !receivedTerminal &&
-      (params.url === '/api/v1/agent-chat' || params.url === '/api/v1/sessions/continue-stream') &&
+      (nativePost || params.url === '/api/v1/sessions/continue-stream') &&
       myGeneration === streamGeneration && !streamAbort.signal.aborted;
 
 
@@ -191,9 +193,6 @@ export function useStream() {
 	  if (params.attachment_ids !== undefined && params.attachment_ids.length > 0) {
 		postBody.attachment_ids = params.attachment_ids;
 	  }
-      if (params.suggestion_attribution) {
-        postBody.suggestion_attribution = params.suggestion_attribution;
-      }
       if (params.question_origin) {
         postBody.question_origin = params.question_origin;
       }
@@ -299,8 +298,9 @@ export function useStream() {
           // POST may still be open waiting for the session title. Both share one
           // controller, so only the current stream may stop it; otherwise the
           // old connection closing cuts the follow-up off mid-answer.
-          if (canReconnect()) throw new Error('stream closed before the turn completed');
-          if (myGeneration === streamGeneration) stopStream();
+          if (myGeneration !== streamGeneration) return;
+          if (!receivedTerminal && (nativePost || canReconnect())) throw new Error(i18n.global.t('error.streamFailed'));
+          stopStream();
         },
           })]);
         } finally {

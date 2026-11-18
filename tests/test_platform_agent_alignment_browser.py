@@ -50,6 +50,78 @@ def alignment_page(browser_platform):
             browser.close()
 
 
+def test_failed_session_creation_restores_draft_and_local_attachment(browser_platform, alignment_page):
+    from playwright.sync_api import expect
+    platform, _, _, _ = browser_platform
+    page, _, _ = alignment_page
+    page.goto(platform + '/platform/creatChat')
+    scope = page.locator('.platform-route-outlet')
+    composer = scope.locator('.answers-input').get_by_role('textbox')
+    question = '接口失败后必须保留这条问题和本地附件'
+    composer.fill(question)
+    scope.locator('.answers-input input[type="file"]').nth(1).set_input_files({
+        'name': 'retry-note.txt', 'mimeType': 'text/plain', 'buffer': b'retry attachment'})
+    expect(scope.get_by_text('retry-note.txt', exact=True)).to_be_visible()
+
+    def reject_creation(route):
+        if route.request.method == 'POST':
+            route.fulfill(status=503, json={'success': False, 'message': 'fixture creation failure'})
+        else:
+            route.continue_()
+    page.route('**/api/v1/sessions', reject_creation)
+    composer.press('Enter')
+    expect(composer).to_have_value(question)
+    expect(scope.get_by_text('retry-note.txt', exact=True)).to_be_visible()
+    expect(page).to_have_url(re.compile(r'/platform/creatChat$'))
+
+
+def test_failed_stop_reattaches_to_native_stream(browser_platform, alignment_page):
+    from playwright.sync_api import expect
+    platform, model, tools, _ = browser_platform
+    page, _, requested = alignment_page
+    release = threading.Event()
+    started = threading.Event()
+
+    @tool
+    async def wait_after_stop_failure() -> str:
+        """Wait for the browser to reject stop and reattach to the native stream."""
+        started.set()
+        if not await asyncio.to_thread(release.wait, 45):
+            raise TimeoutError('Browser did not resume after the rejected stop')
+        return 'released'
+
+    tools.append(wait_after_stop_failure)
+    model.responses = [AIMessage(content='', tool_calls=[call('wait_after_stop_failure', {}, 'stop-failure-wait')]),
+                       AIMessage(content='停止失败后已通过原生续流完成')]
+    page.route('**/api/v1/sessions/*/stop', lambda route: route.fulfill(
+        status=503, json={'success': False, 'message': 'fixture stop failure'}))
+    try:
+        page.goto(platform + '/platform/creatChat')
+        scope = page.locator('.platform-route-outlet')
+        scope.locator('.agent-mode-btn').click()
+        page.locator('.agent-selector-dropdown').get_by_text('智能推理', exact=True).click()
+        composer = scope.locator('.answers-input').get_by_role('textbox')
+        composer.fill('验证停止失败后的原生恢复')
+        with page.expect_request(lambda request: request.method == 'POST' and '/agent-chat/' in request.url):
+            composer.press('Enter')
+        stop = scope.get_by_role('button', name='停止生成', exact=True)
+        expect(stop).to_be_visible(timeout=20000)
+        expect(stop).to_be_enabled()
+        assert started.wait(5), 'The native fixture tool did not start'
+        with page.expect_request(lambda request: request.method == 'GET'
+                                 and '/api/v1/sessions/continue-stream/' in request.url) as resumed:
+            stop.click()
+        assert 'message_id=' in resumed.value.url
+        release.set()
+        expect(scope).to_contain_text('调用 wait_after_stop_failure 失败', timeout=20000)
+        expect(stop).to_have_count(0)
+        expect(scope.get_by_role('button', name='发送', exact=True)).to_be_visible()
+        sends = [(method, path) for method, path in requested if method == 'POST' and '/agent-chat/' in path]
+        assert len(sends) == 1, sends
+    finally:
+        release.set()
+
+
 def test_quick_creation_and_explicit_legacy_repair_do_not_write_on_read_or_cancel(browser_platform, alignment_page):
     from playwright.sync_api import expect
     platform, _, _, _ = browser_platform
@@ -189,7 +261,7 @@ def test_unsupported_browser_and_steering_writes_have_no_requests_and_keep_runni
                        AIMessage(content='本轮能力入口验收已完成')]
     try:
         page.goto(platform + '/platform/toolbox/browserconnection')
-        expect(page.get_by_role('tablist', name='工具箱', exact=True)).to_be_visible()
+        expect(page.get_by_text('旧入口 browserconnection 不再提供', exact=False)).to_be_visible()
         expect(page.get_by_role('tab', name='浏览器连接', exact=True)).to_have_count(0)
         page.goto(platform + '/platform/creatChat')
         if embedded:

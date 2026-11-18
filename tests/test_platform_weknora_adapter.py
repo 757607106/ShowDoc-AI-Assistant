@@ -550,14 +550,12 @@ def test_artifact_delete_failure_is_reported_and_can_retry_cleanup(harness, monk
     assert client.get('/api/v1/artifacts').json()['data'] == []
 
 
-def test_native_followups_and_in_chat_oauth_are_explicitly_unavailable(harness):
+def test_native_followups_are_retired(harness):
     client, sid, *_ = harness
     first = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': '完成回答'}))
     identifier = first[0]['assistant_message_id']
     response = client.get(f'/api/v1/sessions/{sid}/messages/{identifier}/suggestions')
-    assert response.status_code == 501
-    response = client.post('/api/v1/agent/mcp-oauth-resolutions/pending', json={'decision': 'authorize'})
-    assert response.status_code == 501
+    assert response.status_code == 404
 
 
 def test_resume_replays_current_pending_tool_but_not_previous_completed_turn(harness):

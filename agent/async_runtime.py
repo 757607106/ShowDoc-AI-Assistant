@@ -55,7 +55,7 @@ def principal(token):
         grant = registry.record(GRANT_KIND, claims['grant_id'], claims['owner_id'])
     except (BadSignature, SignatureExpired, KeyError, TypeError, StoreError) as exc:
         raise StoreError('异步代理认证无效或已过期', 401) from exc
-    parent = sessions.get_session(grant['parent_session_id'], grant['owner_id'])
+    parent = sessions.get_session(grant['parent_session_id'], grant['owner_id'], _include_deleting=True)
     if parent['agent_config'].get('runtime') != 'deepagents':
         raise StoreError('父会话不允许异步执行', 403)
     with connection() as conn:

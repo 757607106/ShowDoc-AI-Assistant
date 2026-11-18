@@ -2856,6 +2856,13 @@ defineExpose({
    */
   prefill(text: string) {
     query.value = text;
+  },
+  restoreDraft(text: string, imageFiles: File[] = [], attachmentFiles: AttachmentFile[] = []) {
+    if (query.value || uploadedImages.value.length || uploadedAttachments.value.length) return;
+    query.value = text;
+    uploadedImages.value = imageFiles.map(file => ({ file, preview: URL.createObjectURL(file) }));
+    uploadedAttachments.value = attachmentFiles;
+    attachmentUploadRef.value?.restore(attachmentFiles);
   }
 });
 
@@ -3169,7 +3176,7 @@ defineExpose({
         <!-- 右侧控制：回复中显示停止，其余时间显示发送 -->
         <div class="control-right">
           <t-tooltip v-if="isReplying" :content="$t('input.stopGeneration')" placement="top">
-            <button type="button" @click="handleStop" class="control-btn stop-btn" :aria-label="$t('input.stopGeneration')">
+            <button type="button" @click="handleStop" class="control-btn stop-btn" :disabled="!assistantMessageId" :aria-label="$t('input.stopGeneration')">
               <t-icon name="stop" />
             </button>
           </t-tooltip>

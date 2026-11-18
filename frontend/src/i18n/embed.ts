@@ -87,8 +87,6 @@ const messages = {
       "newChat": "新对话",
       "suggestedQuestions": "你可以这样问我",
       "suggestedQuestionsLoading": "加载中...",
-      "followUpQuestions": "继续问",
-      "followUpQuestionsLoading": "加载推荐问题",
       "refreshSuggestedQuestions": "换一批",
       "inputPlaceholder": "请输入您的消息...",
       "send": "发送",
@@ -685,8 +683,6 @@ const messages = {
       "newChat": "新對話",
       "suggestedQuestions": "你可以這樣問我",
       "suggestedQuestionsLoading": "載入中...",
-      "followUpQuestions": "繼續問",
-      "followUpQuestionsLoading": "載入推薦問題",
       "refreshSuggestedQuestions": "換一批",
       "inputPlaceholder": "請輸入您的訊息...",
       "send": "傳送",
@@ -1283,8 +1279,6 @@ const messages = {
       "newChat": "新しいチャット",
       "suggestedQuestions": "こんな質問ができます",
       "suggestedQuestionsLoading": "読み込み中...",
-      "followUpQuestions": "続けて質問",
-      "followUpQuestionsLoading": "おすすめの質問を読み込み中",
       "refreshSuggestedQuestions": "別の質問",
       "inputPlaceholder": "メッセージを入力してください...",
       "send": "送信",
@@ -1881,8 +1875,6 @@ const messages = {
       "newChat": "New Chat",
       "suggestedQuestions": "You can ask me",
       "suggestedQuestionsLoading": "Loading...",
-      "followUpQuestions": "Keep asking",
-      "followUpQuestionsLoading": "Loading suggested questions",
       "refreshSuggestedQuestions": "More",
       "inputPlaceholder": "Enter your message...",
       "send": "Send",
@@ -2466,8 +2458,6 @@ const koEmbedPublish = {
   chat: {
     suggestedQuestions: '이렇게 물어보세요',
     suggestedQuestionsLoading: '로딩 중...',
-    followUpQuestions: '이어서 질문',
-    followUpQuestionsLoading: '추천 질문 로딩 중',
     thinkingAlt: '생각 중',
     conversationTime: {
       today: '오늘 {time}',
@@ -2615,8 +2605,6 @@ const ruEmbedPublish = {
   chat: {
     suggestedQuestions: 'Вы можете спросить так',
     suggestedQuestionsLoading: 'Загрузка...',
-    followUpQuestions: 'Спрашивайте дальше',
-    followUpQuestionsLoading: 'Загрузка рекомендуемых вопросов',
     thinkingAlt: 'Обдумывание...',
     conversationTime: {
       today: 'Сегодня {time}',

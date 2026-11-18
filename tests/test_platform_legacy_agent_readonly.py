@@ -52,7 +52,7 @@ def test_retired_execution_routes_are_gone_without_creating_runtime_records(auth
         ('POST', '/api/v1/sandbox-configs/docker/skills/install/reinstall'),
         ('POST', '/api/v1/sandbox-configs/docker/skills/install/stop'),
         ('POST', '/api/v1/sandbox-configs/docker/skills/install/guidance'),
-        ('DELETE', f'/api/v1/sessions/{sid}'), ('DELETE', f'/api/v1/sessions/{sid}/messages'),
+        ('DELETE', f'/api/v1/sessions/{sid}/messages'),
         ('PUT', f'/api/v1/sessions/{sid}'), ('POST', f'/api/v1/sessions/{sid}/pin'),
         ('POST', f'/api/v1/sessions/{sid}/generate_title'),
         ('DELETE', f'/api/v1/sessions/{sid}/messages/run/artifacts/0'),
@@ -70,6 +70,19 @@ def test_retired_execution_routes_are_gone_without_creating_runtime_records(auth
         for table in ('agent_runs', 'agent_run_events', 'agent_steers', 'runtime_records'):
             assert conn.execute(f'SELECT count(*) AS n FROM {table}').fetchone()['n'] == 0
         assert conn.execute('SELECT id FROM agent_sessions WHERE id=%s', (sid,)).fetchone()
+
+
+def test_legacy_sessions_can_be_deleted_without_starting_execution(authenticated_client, monkeypatch):
+    http = authenticated_client
+    owner = os.environ['TEST_PLATFORM_USER']
+    sid, batch_sid = legacy_session(owner), legacy_session(owner)
+    monkeypatch.setattr(subprocess, 'Popen', no_execution)
+    assert http.delete(f'/api/v1/sessions/{sid}').status_code == 200
+    assert http.get(f'/api/v1/sessions/{sid}').status_code == 404
+    response = http.delete('/api/v1/sessions/batch', json={'ids': [batch_sid]})
+    assert response.status_code == 200, response.json
+    with connection() as conn:
+        assert conn.execute('SELECT id FROM agent_sessions WHERE id=ANY(%s)', ([sid, batch_sid],)).fetchall() == []
 
 
 def test_history_and_extension_gets_are_read_only_even_for_interrupted_workers(authenticated_client, monkeypatch):

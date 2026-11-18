@@ -42,7 +42,7 @@
 
 <script setup lang="ts">
 import ChatTimelineIcon from '@/components/ChatTimelineIcon.vue'
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, inject, onMounted, onBeforeUnmount } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import {
@@ -61,6 +61,7 @@ import {
 } from '@/api/embed'
 import { markPromptSubmitted, promptSubmission, usePromptDock } from '@/composables/usePromptDock'
 import { isSubmitKey } from '@/utils/promptKeys'
+import { resumeSuspendedRunKey } from '@/utils/suspendedRun'
 
 const props = defineProps<{
   pendingId: string
@@ -94,6 +95,7 @@ const useEmbedOAuth = () =>
 
 const { t } = useI18n()
 const dock = usePromptDock()
+const resumeSuspendedRun = inject(resumeSuspendedRunKey, undefined)
 
 const submission = computed(() => promptSubmission(props.pendingId))
 const open = computed(() => !props.resolved && !submission.value)
@@ -174,6 +176,7 @@ const skip = async () => {
   if (props.resolved || canceling.value) return
   canceling.value = true
   try {
+    let resumed = false
     if (useEmbedOAuth()) {
       await cancelEmbedMCPOAuth(
         props.embedChannelId!,
@@ -184,9 +187,11 @@ const skip = async () => {
         props.pendingId,
       )
     } else {
-      await cancelMCPOAuth(props.pendingId)
+      const result = await cancelMCPOAuth(props.pendingId)
+      resumed = result.resumed
     }
     markPromptSubmitted(props.pendingId, { authorized: false })
+    if (resumed) resumeSuspendedRun?.(props.pendingId)
   } catch (e: any) {
     const msg = e?.response?.data?.error?.message || e?.message || t('agentStream.mcpOAuth.skipFailed')
     MessagePlugin.error(msg)
@@ -245,6 +250,7 @@ const authorize = async () => {
         stopPoll()
         try { popup?.close() } catch { /* cross-origin close may throw */ }
         try {
+          let resumed = false
           if (useEmbedOAuth()) {
             await resolveEmbedMCPOAuth(
               props.embedChannelId!,
@@ -256,7 +262,8 @@ const authorize = async () => {
               { service_id: props.serviceId, decision: 'authorize' },
             )
           } else {
-            await resolveMCPOAuth(props.pendingId, { service_id: props.serviceId, decision: 'authorize' })
+            const result = await resolveMCPOAuth(props.pendingId, { service_id: props.serviceId, decision: 'authorize' })
+            resumed = result.resumed
             try {
               await refreshMCPMetadata(props.serviceId)
             } catch {
@@ -264,6 +271,7 @@ const authorize = async () => {
             }
           }
           markPromptSubmitted(props.pendingId, { authorized: true })
+          if (resumed) resumeSuspendedRun?.(props.pendingId)
           MessagePlugin.success(t('agentStream.mcpOAuth.authorizedToast'))
         } catch (e: any) {
           const msg = e?.response?.data?.error?.message || e?.message || t('agentStream.mcpOAuth.resumeFailed')

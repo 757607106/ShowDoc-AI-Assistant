@@ -58,10 +58,6 @@ def agent_model_references(config):
         raise StoreError('子代理配置必须为对象列表', 400)
     values.extend((item.get('model_id'), f'subagent:{item.get("name", index)}:model', ('KnowledgeQA', 'VLLM'))
                   for index, item in enumerate(subagents))
-    suggestions = config.get('question_suggestions') or {}
-    if not isinstance(suggestions, dict) or not isinstance(suggestions.get('follow_ups', {}), dict):
-        raise StoreError('推荐问题配置必须为对象', 400)
-    values.append((suggestions.get('follow_ups', {}).get('model_id'), 'follow_up_model', ('KnowledgeQA', 'VLLM')))
     return [(model_id, binding, types) for model_id, binding, types in values if model_id]
 
 
@@ -116,6 +112,11 @@ def save_record(kind, value, owner_id, *, _connection=None):
                     raise StoreError(f'{binding} 的模型类型必须为 {"、".join(types)}', 400)
                 if binding == 'vlm_model' and model['type'] == 'KnowledgeQA' and not model.get('parameters', {}).get('supports_vision'):
                     raise StoreError('图片模型必须支持图片输入', 400)
+                config = value.get('config', {})
+                if kind == 'agent' and (binding == 'chat_model' or binding.startswith('subagent:')
+                        or binding == 'vlm_model' and config.get('image_upload_enabled')):
+                    from agent.models import completion_budget, model_capabilities
+                    completion_budget(model_capabilities(model), config)
         conn.execute('''INSERT INTO runtime_records(id,owner_id,kind,record_key,name,payload,metadata)
             VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (owner_id,kind,record_key)
             DO UPDATE SET payload=excluded.payload,name=excluded.name,updated_at=now()''',
@@ -283,6 +284,16 @@ def save_mcp(body, owner_id, service_id=None):
     value['transport_type'] = transport
     if not isinstance(value.get('enabled'), bool):
         raise StoreError('MCP enabled 必须为布尔值', 400)
+    submitted_advanced = body.get('advanced_config')
+    if submitted_advanced is not None and (not isinstance(submitted_advanced, dict) or set(submitted_advanced) - {'timeout'}):
+        raise StoreError('MCP 高级配置仅支持 timeout', 400)
+    advanced = submitted_advanced if submitted_advanced is not None else value.get('advanced_config', {})
+    if not isinstance(advanced, dict):
+        raise StoreError('MCP 高级配置必须为对象', 400)
+    timeout = advanced.get('timeout', 30)
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 1 <= timeout <= 300:
+        raise StoreError('MCP timeout 必须为 1 至 300 秒', 400)
+    value['advanced_config'] = {'timeout': timeout}
     if transport != 'stdio' and not _http_url(value.get('url', '')):
         raise StoreError('请提供 MCP 服务地址', 400)
     if transport == 'stdio':
@@ -325,7 +336,8 @@ def mcp_connection(value):
         headers[auth.get('api_key_header') or 'X-API-Key'] = private['api_key']
     if auth.get('auth_type') == 'bearer' and private.get('token'):
         headers['Authorization'] = 'Bearer ' + private['token']
-    return {'transport': 'streamable_http' if transport == 'http-streamable' else 'sse', 'url': value['url'], 'headers': headers}
+    return {'transport': 'streamable_http' if transport == 'http-streamable' else 'sse', 'url': value['url'], 'headers': headers,
+            'timeout': (value.get('advanced_config') or {}).get('timeout', 30)}
 
 
 def mcp_tool_policy(value, name, read_only):
@@ -340,17 +352,14 @@ async def mcp_tools(owner_id, config):
     if mode == 'none':
         return []
     selected = set(config.get('mcp_services') or [])
-    values = [item for item in records('mcp', owner_id) if item.get('enabled') and
-              mode != 'none' and (mode == 'all' or item['id'] in selected)]
+    values = [item for item in await asyncio.to_thread(records, 'mcp', owner_id) if item.get('enabled') and
+              (mode == 'all' or item['id'] in selected)]
     if mode == 'selected' and selected - {item['id'] for item in values}:
         raise StoreError('所选 MCP 服务不存在、已停用或无权访问', 403)
+    if any(value['transport_type'] == 'stdio' for value in values):
+        raise StoreError('当前 Agent 仅支持远程 MCP；禁止在宿主机启动 stdio 服务', 501)
     result = []
     for value in values:
-        if value['transport_type'] == 'stdio':
-            with connection() as conn:
-                member = conn.execute('SELECT role,active FROM platform_users WHERE id=%s', (owner_id,)).fetchone()
-            if not member or not member['active'] or member['role'] != 'admin':
-                raise StoreError('stdio MCP 会启动服务器进程，仅允许管理员配置和执行', 403)
         readonly = set()
         async def authorize(request, handler, snapshot=value, readonly_names=readonly):
             current = await asyncio.to_thread(record, 'mcp', snapshot['id'], owner_id)
@@ -362,8 +371,6 @@ async def mcp_tools(owner_id, config):
                 raise StoreError('账号已停用', 403)
             if member['role'] == 'viewer' and request.name not in readonly_names:
                 raise StoreError('当前账号没有该工具的写入权限', 403)
-            if snapshot['transport_type'] == 'stdio' and member['role'] != 'admin':
-                raise StoreError('当前账号没有 stdio MCP 执行权限', 403)
             return await handler(request)
         # Service IDs isolate same-named tools without changing each server's input schema.
         from agent import mcp_auth

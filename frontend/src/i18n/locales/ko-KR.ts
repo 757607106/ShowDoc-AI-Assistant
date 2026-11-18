@@ -1948,7 +1948,7 @@ export default {
       rewriteSystemPrompt: '질문 재작성용 시스템 프롬프트 (비워두면 기본값 사용)',
       rewriteUserPrompt: '질문 재작성용 사용자 프롬프트 템플릿 (비워두면 기본값 사용)',
       selectTools: 'Agent가 사용할 수 있는 도구를 선택하세요',
-      maxIterations: 'Agent가 한 작업에서 수행할 최대 추론 단계 수입니다. 「제한 없음」을 선택하면 모델이 스스로 끝나거나 직접 중지할 때까지 계속 실행됩니다.',
+      maxIterations: '주 에이전트가 한 턴에 모델을 호출하는 횟수를 제한합니다.',
       kbScope: '에이전트가 접근할 수 있는 지식베이스 범위를 선택하세요',
       webSearch: '활성화하면 에이전트가 인터넷에서 정보를 검색할 수 있습니다',
       webSearchProvider: '이 에이전트의 검색 엔진을 지정합니다. 비워두면 기본 검색 엔진을 사용합니다',
@@ -3861,7 +3861,7 @@ export default {
   },
   modelSettings: {
     title: '모델 설정',
-    description: '다양한 유형의 AI 모델을 관리합니다. Ollama 로컬 모델과 원격 API를 지원합니다',
+    description: '현재 계정의 원격 AI 모델 및 API 설정을 관리합니다',
     copySuffix: ' 사본',
     builtinTag: '기본제공',
     confirmDelete: '모델 "{name}"을(를) 삭제하시겠습니까?',
@@ -3884,7 +3884,6 @@ export default {
         chat_model: '대화 모델',
         rerank_model: '재정렬 모델',
         query_understand_model: '질의 이해 모델',
-        follow_up_model: '후속 질문 모델',
         unknown: '기타 모델 설정'
       }
     ,
@@ -5212,8 +5211,6 @@ export default {
   },
   chat: {
     suggestedQuestions: '이렇게 물어보세요',
-    followUpQuestions: '이어서 질문',
-    followUpQuestionsLoading: '추천 질문 로딩 중',
     refreshSuggestedQuestions: '다른 질문',
     thinking: '생각 중...',
     thinkingAlt: '생각 중',
@@ -8202,7 +8199,7 @@ export default {
       rerankModelDesc: '지식베이스 검색 결과를 재정렬하여 답변 정확도를 높입니다',
       rerankModelPlaceholder: 'ReRank 모델을 선택하세요.',
       rerankModelOptionalHint: '현재 범위에 RAG 유형의 지식베이스가 없으므로 선택 사항입니다. 이후 RAG 지식베이스가 추가되면 워크스페이스 기본 ReRank 모델로 자동 폴백되지만, 명시적으로 설정하는 것을 권장합니다.',
-      maxIterations: '최대 반복 횟수',
+      maxIterations: '주 에이전트 모델 호출 한도',
       maxIterationsLimit: '제한',
       maxIterationsUnlimited: '제한 없음',
       allowedTools: '허용된 도구',

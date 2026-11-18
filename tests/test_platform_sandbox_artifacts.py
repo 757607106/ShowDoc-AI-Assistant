@@ -66,8 +66,13 @@ class NativeSandbox:
         if (arguments[:2] == ['python3', '-c'] and 'hashlib.file_digest' in arguments[2]):
             output = json.dumps({path: hashlib.sha256(self.files.values[path][0]).hexdigest()
                                  for path in json.loads(arguments[3])})
+        elif arguments[:2] == ['python3', '-c'] and 'os.scandir(path)' in arguments[2]:
+            assert base64.b64encode(b'/workspace/report.bin').decode() in arguments[2]
+            output = json.dumps({'error': 'not_a_directory'})
         elif command.startswith('test -e '):
-            exit_code = int(shlex.split(command)[2] not in self.files.values)
+            exit_code = int(arguments[2] not in self.files.values)
+        elif arguments[:2] == ['rm', '-rf']:
+            del self.files.values[arguments[2]]
         elif command.startswith('python3 -c ') and 'os.makedirs(os.path.dirname(path)' in command:
             output = ''
         elif command.startswith('if [ -d '):
@@ -83,8 +88,6 @@ class NativeSandbox:
             elif command == 'preserve-mtime':
                 _, metadata = self.files.values['/workspace/report.bin']
                 self.files.values['/workspace/report.bin'] = (b'\x00\xffthird!', metadata)
-            elif command == 'remove-binary':
-                del self.files.values['/workspace/report.bin']
             else:
                 assert command == 'noop', command
         return SimpleNamespace(logs=SimpleNamespace(stdout=[SimpleNamespace(text=output)], stderr=[]), exit_code=exit_code)
@@ -154,8 +157,10 @@ def test_empty_workspace_file_is_listed_downloadable_and_owner_scoped(harness, m
 
 def test_binary_versions_survive_later_turns_and_unchanged_files_do_not_repeat(harness, monkeypatch):
     client, sid, model, native = install(monkeypatch, harness)
-    model.responses = [message for command in ('emit-binary', 'modify-binary', 'preserve-mtime', 'noop', 'remove-binary')
+    model.responses = [message for command in ('emit-binary', 'modify-binary', 'preserve-mtime', 'noop')
         for message in (AIMessage(content='', tool_calls=[call('execute', {'command': command}, command)]), AIMessage(content='Done'))]
+    model.responses.extend([AIMessage(content='', tool_calls=[call('delete', {'file_path': '/workspace/report.bin'}, 'delete-report')]),
+                            AIMessage(content='Deleted')])
     first = send(client, sid, 'Generate binary')[-1]['data']['artifacts']
     assert [item['source_path'] for item in first] == ['/workspace/report.bin']
     send(client, sid, 'Modify binary')
@@ -174,9 +179,12 @@ def test_binary_versions_survive_later_turns_and_unchanged_files_do_not_repeat(h
     library = client.get('/api/v1/artifacts').json()['data']
     assert len(library) == 1 and library[0]['version_count'] == 3
     assert native.files.downloads.count('/workspace/report.bin') == 3
-    send(client, sid, 'Remove working copy')
+    deleted = send(client, sid, 'Remove working copy')
+    assert any(event['response_type'] == 'tool_result' and event['data']['tool_call_id'] == 'delete-report'
+               and event['data']['success'] for event in deleted)
     state = client.get(f'/api/v1/harness/sessions/{sid}/state').json()['values']
     assert '/workspace/report.bin' not in state.get('files', {})
+    assert '/workspace/report.bin' not in native.files.values
     assert client.get(download_path(sid, rows[0])).content == b'\x00\xfffirst'
 
 

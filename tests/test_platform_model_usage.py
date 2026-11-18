@@ -15,7 +15,7 @@ def model(owner, kind='KnowledgeQA'):
 
 
 def reference(field, model_id):
-    return {'question_suggestions': {'follow_ups': {'model_id': model_id}}} if field == 'follow_up_model' else {field: model_id}
+    return {field: model_id}
 
 
 @pytest.mark.parametrize('field,binding,kind', [
@@ -24,7 +24,6 @@ def reference(field, model_id):
     ('vlm_model_id', 'vlm_model', 'VLLM'),
     ('asr_model_id', 'asr_model', 'ASR'),
     ('query_understand_model_id', 'query_understand_model', 'KnowledgeQA'),
-    ('follow_up_model', 'follow_up_model', 'KnowledgeQA'),
 ])
 def test_native_usage_and_delete_cover_every_agent_binding(authenticated_client, field, binding, kind):
     owner = os.environ['TEST_PLATFORM_USER']
@@ -50,12 +49,12 @@ def test_usage_merges_bindings_and_copy_keeps_references(authenticated_client):
     owner = os.environ['TEST_PLATFORM_USER']
     saved = model(owner)
     agent = config.save_agent({'name': 'Merged', 'config': {'model_id': saved['id'],
-        'query_understand_model_id': saved['id'], **reference('follow_up_model', saved['id'])}}, owner)
+        'query_understand_model_id': saved['id']}}, owner)
     copied = config.copy_agent(agent['id'], owner)
     usage = authenticated_client.get(f"/api/v1/models/{saved['id']}/usage").json['data']
     assert usage['agent_total'] == 2 and len(usage['agents']) == 2
     assert {item['id'] for item in usage['agents']} == {agent['id'], copied['id']}
-    assert all(item['bindings'] == ['chat_model', 'query_understand_model', 'follow_up_model'] for item in usage['agents'])
+    assert all(item['bindings'] == ['chat_model', 'query_understand_model'] for item in usage['agents'])
     config.delete_agent(agent['id'], owner)
     assert authenticated_client.delete(f"/api/v1/models/{saved['id']}").status_code == 400
 
@@ -94,7 +93,7 @@ def test_usage_and_binding_writes_are_owner_scoped(authenticated_client):
     foreign = model('another-owner')
     assert authenticated_client.get(f"/api/v1/models/{foreign['id']}/usage").status_code == 404
     assert authenticated_client.delete(f"/api/v1/models/{foreign['id']}").status_code == 404
-    for field in ('model_id', 'asr_model_id', 'follow_up_model'):
+    for field in ('model_id', 'asr_model_id'):
         with pytest.raises(StoreError) as error:
             config.save_agent({'name': 'Invalid owner', 'config': reference(field, foreign['id'])}, owner)
         assert error.value.status == 404

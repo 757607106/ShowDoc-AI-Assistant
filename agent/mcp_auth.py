@@ -16,7 +16,9 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx
 from langchain_core.tools import StructuredTool
-from langgraph.types import interrupt
+from langgraph.func import task
+from langgraph.runtime import get_runtime
+from langgraph.types import Interrupt, interrupt
 from mcp.client.auth import OAuthClientProvider
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata, OAuthToken, ProtectedResourceMetadata
 from mcp.shared._httpx_utils import create_mcp_http_client
@@ -385,31 +387,45 @@ async def make_oauth_tools(owner, value, tool_interceptors=()):
     specs = [*specs, {'name': authorization_name, 'description': 'Authorize this selected MCP service. '
         'This platform helper opens user consent; it does not execute an upstream action.',
         'inputSchema': {'type': 'object', 'properties': {}, 'additionalProperties': False}, 'readOnlyHint': True}]
+    @task
+    async def call_authorized(spec_name, arguments, *, wait_for_decision=False):
+        # Keep the pause decision stable when a token appears before the tool resumes.
+        if wait_for_decision or status(owner, value)['state'] not in ('authorized', 'refreshable'):
+            return None
+        try:
+            client = MultiServerMCPClient({value['id']: mcp_connection(value, owner)},
+                tool_name_prefix=True, tool_interceptors=list(tool_interceptors))
+            actual = await client.get_tools()
+            if spec_name == authorization_name:
+                return 'Authorized. Available tools: ' + ', '.join(tool.name for tool in actual), None
+            candidate = next((tool for tool in actual if tool.name == value['id'] + '_' + spec_name), None)
+            if candidate is None:
+                raise StoreError('MCP 工具目录已变化，请刷新元数据', 409)
+            if (candidate.metadata or {}).get('readOnlyHint') is not True:
+                raise StoreError('当前 MCP 工具未声明只读，请刷新工具目录', 403)
+            result = await candidate.ainvoke({'name': candidate.name, 'args': arguments,
+                                             'id': uuid.uuid4().hex, 'type': 'tool_call'})
+            return result.content, result.artifact
+        except Exception as exc:
+            if not oauth_required(exc):
+                raise
+            return None
+
     def make_call(spec_name):
         async def call(**arguments):
-            if status(owner, value)['state'] not in ('authorized', 'refreshable'):
-                if not oauth_interrupt(owner, value, spec_name):
-                    return 'The user skipped this MCP authorization. No upstream tool was executed.', None
-            for attempt in range(2):
-                try:
-                    client = MultiServerMCPClient({value['id']: mcp_connection(value, owner)},
-                        tool_name_prefix=True, tool_interceptors=list(tool_interceptors))
-                    actual = await client.get_tools()
-                    if spec_name == authorization_name:
-                        return 'Authorized. Available tools: ' + ', '.join(tool.name for tool in actual), None
-                    candidate = next((tool for tool in actual if tool.name == value['id'] + '_' + spec_name), None)
-                    if not candidate:
-                        raise StoreError('MCP 工具目录已变化，请刷新元数据', 409)
-                    result = await candidate.ainvoke({'name': candidate.name, 'args': arguments,
-                                                     'id': uuid.uuid4().hex, 'type': 'tool_call'})
-                    return result.content, result.artifact
-                except Exception as exc:
-                    if not oauth_required(exc) or attempt:
-                        raise
-                    if status(owner, value)['state'] == 'authorized':
-                        continue
-                    if not oauth_interrupt(owner, value, spec_name):
-                        return 'The user skipped this MCP authorization. No upstream tool was executed.', None
+            runtime = get_runtime()
+            pending = (runtime.context or {}).get('pending_oauth', ())
+            # Older interrupted calls lack the persisted result of the first task.
+            wait_for_decision = bool(pending) and Interrupt.from_ns(None, runtime.execution_info.checkpoint_ns).id in pending
+            result = await call_authorized(spec_name, arguments, wait_for_decision=wait_for_decision)
+            if result is not None:
+                return result
+            if not oauth_interrupt(owner, value, spec_name):
+                return 'The user skipped this MCP authorization. No upstream tool was executed.', None
+            result = await call_authorized(spec_name, arguments)
+            if result is None:
+                raise OAuthRequired(value['id'])
+            return result
         return call
     return [StructuredTool(name=value['id'] + '_' + spec['name'], description=spec.get('description') or spec['name'],
         args_schema=spec['inputSchema'], coroutine=make_call(spec['name']), response_format='content_and_artifact',

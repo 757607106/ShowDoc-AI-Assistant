@@ -17,8 +17,7 @@
             <div v-if="session.isRagMode" class="rag-answer-stack">
                 <RagPipelineProgress :session="session" :embedded-mode="embeddedMode" />
                 <AgentStreamDisplay v-if="session.isAgentMode" :session="session" :session-id="sessionId"
-                    :user-query="userQuery" :rag-mode="true" :follow-up-loading="followUpLoading"
-                    :embedded-mode="embeddedMode" defer-tool-approvals
+                    :user-query="userQuery" :rag-mode="true"                    :embedded-mode="embeddedMode" defer-tool-approvals
                     :can-fork="canFork"
                     :can-rewind="canRewind"
                     @fork="emit('fork', $event)"
@@ -34,8 +33,7 @@
                     :session="session" :embedded-mode="embeddedMode" memory-only />
                 <docInfo v-if="session.knowledge_references?.length" :session="session"></docInfo>
                 <AgentStreamDisplay :session="session" :session-id="sessionId" :user-query="userQuery"
-                    v-if="session.isAgentMode" :follow-up-loading="followUpLoading"
-                    :embedded-mode="embeddedMode" defer-tool-approvals
+                    v-if="session.isAgentMode"                    :embedded-mode="embeddedMode" defer-tool-approvals
                     :can-fork="canFork"
                     :can-rewind="canRewind"
                     @fork="emit('fork', $event)"
@@ -119,13 +117,6 @@
                     </t-button>
                 </t-tooltip>
                 <ChatRequestInfoButton v-if="showRequestInfo" :session="session" :session-id="sessionId" />
-                <transition name="follow-up-toolbar-loading">
-                    <span v-if="followUpLoading" class="answer-toolbar__follow-up-loading" role="status"
-                        aria-live="polite">
-                        <t-icon name="lightbulb" />
-                        <span class="answer-toolbar__follow-up-label">{{ t('chat.followUpQuestionsLoading') }}</span>
-                    </span>
-                </transition>
             </div>
             <div v-if="isImgLoading" class="img_loading"><t-loading size="small"></t-loading><span>{{
                 $t('common.loading') }}</span></div>
@@ -249,10 +240,6 @@ const props = defineProps({
     sessionId: {
         type: String,
         default: ''
-    },
-    followUpLoading: {
-        type: Boolean,
-        default: false
     },
     canFork: {
         type: Boolean,

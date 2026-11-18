@@ -173,8 +173,6 @@ def bind_card_ids(owner_id, session_id, state, pending, native_calls):
 
 
 def stage(user, pending_id, body, expected_kind):
-    if expected_kind == 'mcp_oauth':
-        raise StoreError('聊天内 OAuth 恢复尚未对接，请先在 MCP 服务设置中完成授权后重新发送', 501)
     from webapi.harness import read_snapshot
     parts = pending_id.split(':')
     if len(parts) != 3:
@@ -208,6 +206,18 @@ def stage(user, pending_id, body, expected_kind):
                 _validate_response(body['modified_args'], card['request'].get('args_schema'))
             if response['type'] not in card['_allowed']:
                 raise StoreError('此原生中断不允许该审批决定', 400)
+        elif expected_kind == 'mcp_oauth':
+            decision = body.get('decision')
+            service_id = card['request']['service_id']
+            if decision not in ('authorize', 'cancel') or body.get('service_id', service_id) != service_id:
+                raise StoreError('MCP 授权决定或服务无效', 400)
+            if decision == 'authorize':
+                from agent import mcp_auth
+                service = registry.record('mcp', service_id, user['id'])
+                if (not service.get('enabled') or service.get('auth_config', {}).get('auth_type') != 'oauth'
+                        or mcp_auth.status(user['id'], service)['state'] not in ('authorized', 'refreshable')):
+                    raise StoreError('请先完成当前 MCP 服务授权', 409)
+            response = {'decision': decision, 'authorized': decision == 'authorize'}
         elif expected_kind == 'ask_user':
             if body.get('kind') != 'ask_user' or not isinstance(body.get('response'), dict):
                 raise StoreError('提问响应必须为 ask_user 对象', 400)

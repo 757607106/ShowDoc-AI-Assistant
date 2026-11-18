@@ -247,10 +247,9 @@ def history(state, session_id, knowledge_base_ids=(), *, owner_id=None):
     return rows
 
 
-async def structured_outputs(graph, config, checkpointer):
-    from agent.time_travel import ancestry
+async def structured_outputs(snapshots, checkpointer):
     results, completed = {}, set()
-    async for state in ancestry(graph, config):
+    for state in snapshots:
         users = [message_dict(message) for message in state.values.get('messages', [])
                  if getattr(message, 'type', None) == 'human']
         if not users or not users[-1].get('additional_kwargs', {}).get('harness', {}).get('structured_output'):

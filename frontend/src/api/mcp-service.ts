@@ -38,8 +38,6 @@ export interface MCPService {
   }
   advanced_config?: {
     timeout?: number
-    retry_count?: number
-    retry_delay?: number
   }
   stdio_config?: {
     command: 'uvx' | 'npx' // Command: uvx or npx
@@ -347,12 +345,12 @@ export async function resolveAgentPrompt(
 export async function resolveMCPOAuth(
   pendingId: string,
   body: { service_id: string; decision?: 'authorize' | 'cancel' }
-): Promise<void> {
-  await post(`/api/v1/agent/mcp-oauth-resolutions/${encodeURIComponent(pendingId)}`, body)
+) {
+  return post<{ resumed: boolean }>(`/api/v1/agent/mcp-oauth-resolutions/${encodeURIComponent(pendingId)}`, body)
 }
 
-export async function cancelMCPOAuth(pendingId: string): Promise<void> {
-  await post(`/api/v1/agent/mcp-oauth-resolutions/${encodeURIComponent(pendingId)}/cancel`, {})
+export async function cancelMCPOAuth(pendingId: string) {
+  return post<{ resumed: boolean }>(`/api/v1/agent/mcp-oauth-resolutions/${encodeURIComponent(pendingId)}/cancel`, {})
 }
 
 // Persisted directory: GET never opens an upstream MCP connection.

@@ -21,7 +21,8 @@ def delegate(model, parent_call='native-parent-call'):
         AIMessage(content='child trace answer'), AIMessage(content='parent final answer')]
 
 
-def test_native_child_messages_tools_survive_reload_without_shadow_sessions(harness):
+def test_native_child_messages_tools_survive_reload_without_shadow_sessions(harness, monkeypatch):
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
     client, sid, model, *_ = harness
     delegate(model)
     wire = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': 'Delegate'}))
@@ -30,6 +31,8 @@ def test_native_child_messages_tools_survive_reload_without_shadow_sessions(harn
     assert live and live[0]['tasks'][0]['status'] == 'running'
     assert live[-1]['tasks'][0]['status'] == 'succeeded'
     assert all('child trace answer' not in item['content'] for item in wire if item['response_type'] == 'answer')
+    monkeypatch.setattr(AsyncPostgresSaver, 'alist', lambda *_args, **_kwargs: pytest.fail(
+        'A completed task with a native namespace should not scan checkpoints'))
     rows = client.get(f'/api/v1/messages/{sid}/load').json()['data']
     task = rows[-1]['collaboration_status']['tasks'][0]
     assert task['status'] == 'succeeded' and task['name'] == 'general-purpose'

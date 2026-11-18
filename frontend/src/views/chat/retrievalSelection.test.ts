@@ -18,7 +18,7 @@ test('assistant page context does not replace or widen explicit KB, file and tag
     const result = runInNewContext(`${source.slice(start, end)}; ({ kbIds, knowledgeIds, tagIds, hostScope });`, {
       props: { embeddedMode: true, hostScope: () => ({ knowledgeBaseIds: [], pageContext: { knowledge_base_id: 'page-kb' } }) },
       useSettingsStoreInstance: { settings: { selectedKnowledgeBases: ['unrelated-sidebar-kb'], selectedFiles: ['unrelated-doc'] } },
-      pendingSuggestionKnowledgeBaseIds: [], mentionedItems,
+      mentionedItems,
     })
     assert.deepEqual(Array.from(result.kbIds), mentionedItems.filter(i => i.type === 'kb').map(i => i.id))
     assert.deepEqual(Array.from(result.knowledgeIds), mentionedItems.filter(i => i.type === 'file').map(i => i.id))

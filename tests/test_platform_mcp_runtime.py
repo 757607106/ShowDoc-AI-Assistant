@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from flask import Flask
 import httpx
+from langchain_core.messages import AIMessage
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 import pytest
@@ -25,6 +26,8 @@ import uvicorn
 from agent import mcp_auth, registry
 from governance.database import connection
 from governance.store import StoreError
+from tests.test_platform_harness import call, harness, original_prepare
+from tests.test_platform_weknora_adapter import events
 from webapi.auth import auth_bp, require_login
 from webapi.mcp_runtime import mcp_runtime_bp
 from webapi.model_runtime import model_runtime_bp
@@ -74,6 +77,7 @@ def native_mcp():
     def read_fixture(query: str) -> str:
         state['calls'] += 1
         return 'fixture:' + query
+    state['read_tool'] = mcp._tool_manager.get_tool('read_fixture')
     native = mcp.streamable_http_app()
     class Auth(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
@@ -287,33 +291,51 @@ def test_official_oauth_pkce_tokens_refresh_and_revocation(runtime_client, nativ
         'frontend_redirect': '//evil.example'}).status_code == 400
 
 
-def test_real_harness_resumes_same_native_tool_after_oauth(runtime_client, native_mcp):
-    from deepagents import create_deep_agent
-    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-    from langgraph.checkpoint.memory import InMemorySaver
-    from langgraph.types import Command
-    from tests.harness_fakes import StreamingModel, call
+@pytest.mark.parametrize('outcome', ['authorize', 'cancel', 'legacy_cancel', 'changed_catalog'])
+def test_real_harness_resumes_same_native_tool_after_oauth(harness, runtime_client, native_mcp, outcome):
+    client, sid, model, tools, *_ = harness
     owner = os.environ['TEST_PLATFORM_USER']
     value = service(owner, native_mcp['base'], True)
     assert runtime_client.post('/api/v1/mcp-services/fixture-service/metadata/refresh', json={}).status_code == 200
     native_mcp['protected'] = True
-    saver = InMemorySaver()
-    model = StreamingModel(responses=[AIMessage('', tool_calls=[call('fixture-service_read_fixture', {'query': 'after-consent'}, 'pending-tool')]), AIMessage('Completed')])
-    async def first():
-        graph = create_deep_agent(model=model, tools=await mcp_auth.make_oauth_tools(owner, value), checkpointer=saver)
-        return await graph.ainvoke({'messages': [HumanMessage('Use the MCP tool')]}, {'configurable': {'thread_id': 'oauth-thread'}})
-    paused = asyncio.run(first())
-    pending = paused['__interrupt__'][0]
-    assert pending.value['kind'] == 'mcp_oauth' and pending.value['request']['mcp_tool_name'] == 'read_fixture'
+    tools.extend(asyncio.run(registry.mcp_tools(owner, {'mcp_selection_mode': 'all'})))
+    model.responses = [AIMessage('', tool_calls=[call('fixture-service_read_fixture',
+        {'query': 'after-consent'}, 'pending-tool')]), AIMessage('Completed')]
+    if outcome == 'legacy_cancel':
+        candidate = next(tool for tool in tools if tool.name == 'fixture-service_read_fixture')
+        coroutine = candidate.coroutine
+        async def legacy_pause(**_arguments):
+            return mcp_auth.oauth_interrupt(owner, value, 'read_fixture')
+        candidate.coroutine = legacy_pause
+    sent = events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': 'Use the MCP tool'}))
+    if outcome == 'legacy_cancel':
+        candidate.coroutine = coroutine
+    pending = next(event['data'] for event in sent if event['response_type'] == 'mcp_oauth_required')
+    assert pending['mcp_tool_name'] == 'read_fixture'
+    assert client.get(f'/api/v1/messages/{sid}/load').json()['data'][-1]['delegated_prompts'][0]['id'] == pending['pending_id']
     assert native_mcp['calls'] == 0
+    endpoint = '/api/v1/agent/mcp-oauth-resolutions/' + pending['pending_id']
+    body = {'service_id': value['id'], 'decision': 'authorize'}
+    assert client.post(endpoint, json={**body, 'service_id': 'different-service'}).status_code == 400
+    assert client.post(endpoint, json=body).status_code == 409
     authorize(runtime_client, native_mcp, value['id'])
-    async def resume():
-        graph = create_deep_agent(model=model, tools=await mcp_auth.make_oauth_tools(owner, value), checkpointer=saver)
-        return await graph.ainvoke(Command(resume={pending.id: {'decision': 'authorize'}}), {'configurable': {'thread_id': 'oauth-thread'}})
-    result = asyncio.run(resume())
-    assert '__interrupt__' not in result and native_mcp['calls'] == 1
-    response = next(message for message in result['messages'] if isinstance(message, ToolMessage))
-    assert 'fixture:after-consent' in str(response.content)
+    if outcome == 'changed_catalog':
+        native_mcp['read_tool'].annotations = ToolAnnotations(readOnlyHint=False)
+    cancelled = outcome in ('cancel', 'legacy_cancel')
+    response = client.post(endpoint + '/cancel', json={}) if cancelled else client.post(endpoint, json=body)
+    assert response.status_code == 200 and response.json() == {'resumed': True}, response.text
+    params = {'message_id': sent[0]['assistant_message_id'], 'resume_pending_id': pending['pending_id']}
+    resumed = events(client.get(f'/api/v1/sessions/continue-stream/{sid}', params=params))
+    if outcome == 'changed_catalog':
+        assert resumed[-1]['response_type'] == 'error' and resumed[-1]['data']['status'] == 403
+    else:
+        assert resumed[-1]['response_type'] == 'complete', resumed
+        result = next(event['data']['output'] for event in resumed if event['response_type'] == 'tool_result')
+        assert ('skipped' if cancelled else 'fixture:after-consent') in result
+        assert client.get(f'/api/v1/messages/{sid}/load').json()['data'][-1]['delegated_prompts'][0]['response']['authorized'] is (outcome == 'authorize')
+        assert events(client.get(f'/api/v1/sessions/continue-stream/{sid}', params=params))[-1]['response_type'] == 'stop'
+        assert client.post(endpoint, json=body).status_code == 409
+    assert native_mcp['calls'] == int(outcome == 'authorize')
 
 
 def test_oauth_revocation_during_callback_cannot_resurrect_token(runtime_client, native_mcp):

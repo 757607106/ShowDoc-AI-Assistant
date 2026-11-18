@@ -293,11 +293,8 @@
         </template>
       </section>
 
-      <!-- Section 4 — 高级配置（超时/重试），改用带后缀单位的轻量数字输入框，
-           不再用 t-input-number 的加减器（步进按钮在这里没必要，用户更倾向直接键入）。 -->
       <section class="setting-drawer__section mcp-settings-group">
         <h4 class="setting-drawer__section-title">{{ t('mcpServiceDialog.advancedConfig') }}</h4>
-
         <div class="form-item">
           <label class="form-label">{{ t('mcpServiceDialog.timeoutSec') }}</label>
           <t-input
@@ -307,39 +304,7 @@
             :max="300"
             placeholder="30"
             class="number-input"
-            @blur="onAdvancedNumberBlur('timeout', 30, 1, 300)"
-          >
-            <template #suffix>
-              <span class="number-input__unit">{{ t('mcpServiceDialog.unitSecond', '秒') }}</span>
-            </template>
-          </t-input>
-        </div>
-        <div class="form-item">
-          <label class="form-label">{{ t('mcpServiceDialog.retryCount') }}</label>
-          <t-input
-            v-model="advancedRetryCountText"
-            type="number"
-            :min="0"
-            :max="10"
-            placeholder="3"
-            class="number-input"
-            @blur="onAdvancedNumberBlur('retry_count', 3, 0, 10)"
-          >
-            <template #suffix>
-              <span class="number-input__unit">{{ t('mcpServiceDialog.unitTimes', '次') }}</span>
-            </template>
-          </t-input>
-        </div>
-        <div class="form-item">
-          <label class="form-label">{{ t('mcpServiceDialog.retryDelaySec') }}</label>
-          <t-input
-            v-model="advancedRetryDelayText"
-            type="number"
-            :min="0"
-            :max="60"
-            placeholder="1"
-            class="number-input"
-            @blur="onAdvancedNumberBlur('retry_delay', 1, 0, 60)"
+            @blur="onAdvancedTimeoutBlur"
           >
             <template #suffix>
               <span class="number-input__unit">{{ t('mcpServiceDialog.unitSecond', '秒') }}</span>
@@ -471,8 +436,6 @@ const formData = ref({
   },
   advanced_config: {
     timeout: 30,
-    retry_count: 3,
-    retry_delay: 1,
   },
 })
 
@@ -833,50 +796,23 @@ const dialogVisible = computed({
   set: (value) => emit('update:visible', value),
 })
 
-// ---- Advanced numeric inputs (text-bound proxies) ----
-// We bind text instead of v-model directly to advanced_config.<n> so the
-// user can clear the field and see the placeholder while typing. On blur
-// we coerce, clamp, and write back; bad values fall back to the default.
 const advancedTimeoutText = computed<string>({
   get: () => String(formData.value.advanced_config.timeout ?? ''),
   set: (v) => { formData.value.advanced_config.timeout = parseSloppyInt(v) ?? 30 },
 })
-const advancedRetryCountText = computed<string>({
-  get: () => String(formData.value.advanced_config.retry_count ?? ''),
-  set: (v) => { formData.value.advanced_config.retry_count = parseSloppyInt(v) ?? 3 },
-})
-const advancedRetryDelayText = computed<string>({
-  get: () => String(formData.value.advanced_config.retry_delay ?? ''),
-  set: (v) => { formData.value.advanced_config.retry_delay = parseSloppyInt(v) ?? 1 },
-})
 
-// Permissive int parser — keeps '' / NaN inputs as null instead of 0 so the
-// field can stay visually empty while the user is still typing. Negative
-// numbers and non-int chars are rejected (returns null).
 function parseSloppyInt(raw: string): number | null {
-  if (raw == null) return null
   const s = String(raw).trim()
   if (!s) return null
   const n = Number(s)
-  if (!Number.isFinite(n)) return null
-  return Math.trunc(n)
+  return Number.isFinite(n) ? Math.trunc(n) : null
 }
 
-function onAdvancedNumberBlur(
-  field: 'timeout' | 'retry_count' | 'retry_delay',
-  fallback: number,
-  min: number,
-  max: number,
-) {
-  const cur = formData.value.advanced_config[field]
-  if (cur == null || !Number.isFinite(cur)) {
-    formData.value.advanced_config[field] = fallback
-    return
-  }
-  // Clamp to [min, max] on blur — gives the input "settled" feedback even
-  // though native type=number doesn't enforce its own min/max attribute
-  // for typed values (only for stepper buttons).
-  formData.value.advanced_config[field] = Math.min(max, Math.max(min, cur))
+function onAdvancedTimeoutBlur() {
+  const current = formData.value.advanced_config.timeout
+  formData.value.advanced_config.timeout = Number.isFinite(current)
+    ? Math.min(300, Math.max(1, current))
+    : 30
 }
 
 const resetForm = () => {
@@ -891,7 +827,7 @@ const resetForm = () => {
       auth_type: '', api_key: '', api_key_header: '', token: '', scopes: [], auth_server_metadata_url: '',
       client_id: '', client_secret: '',
     },
-    advanced_config: { timeout: 30, retry_count: 3, retry_delay: 1 },
+    advanced_config: { timeout: 30 },
   }
   formRef.value?.clearValidate()
 }
@@ -944,8 +880,6 @@ watch(
         },
         advanced_config: {
           timeout: service.advanced_config?.timeout || 30,
-          retry_count: service.advanced_config?.retry_count || 3,
-          retry_delay: service.advanced_config?.retry_delay || 1,
         },
       }
       oauthAuthorized.value = false

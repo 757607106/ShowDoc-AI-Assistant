@@ -3,7 +3,6 @@ import asyncio
 import json
 
 import pytest
-from deepagents import DeepAgentState
 from deepagents.backends import StateBackend
 from deepagents.backends.protocol import ExecuteResponse, SandboxBackendProtocol
 from deepagents.backends.utils import create_file_data
@@ -12,7 +11,7 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
-from agent import config, graph, native_extensions, registry
+from agent import config, graph, registry
 from governance.store import StoreError
 from tests.test_harness_native import Model, call
 
@@ -29,14 +28,16 @@ def make_agent(monkeypatch):
     monkeypatch.setattr(graph, 'load_knowledge_mcp_tools', no_tools)
     monkeypatch.setattr(graph, 'make_governance_tools', lambda *args: [])
     monkeypatch.setattr(registry, 'mcp_tools', no_mcp)
-    monkeypatch.setattr(native_extensions, '_factories', {})
 
-    async def build(model, *, child_model=None, saver=None, role='admin', backend=None,
-                    native_extension=None, **settings):
-        monkeypatch.setattr(graph, 'build_model', lambda value, owner: child_model
-                            if value['model_id'] == 'child-model' else model)
+    async def build(model, *, child_model=None, saver=None, role='admin', backend=None, **settings):
+        def model_for(value, owner):
+            if value['model_id'] == 'child-model':
+                assert not value['thinking'] and value.get('reasoning_effort') == ''
+                return child_model
+            return model
+        monkeypatch.setattr(graph, 'build_model', model_for)
         return await graph.build_agent(saver, api_key='fake', owner_id='owner', agent_id='agent-one', role=role,
-            backend=backend, native_extension=native_extension, agent_config=config.validate_config(settings))
+            backend=backend, agent_config=config.validate_config(settings))
     return build
 
 
@@ -89,7 +90,7 @@ def test_professional_subagent_uses_its_model_and_native_structured_result(make_
                               AIMessage(content='parent done')])
     child = Model(responses=[call('Answer', {'answer': 7}, 'child-answer')])
     async def run():
-        agent = await make_agent(parent, child_model=child, subagents=[{'name': 'analyst',
+        agent = await make_agent(parent, child_model=child, thinking=True, reasoning_effort='high', subagents=[{'name': 'analyst',
             'description': 'Calculate an answer', 'model_id': 'child-model', 'system_prompt': 'CHILD-ONLY',
             'allowed_tools': [], 'selected_skills': [], 'response_format': ANSWER}])
         return await agent.ainvoke({'messages': [{'role': 'user', 'content': 'Delegate'}]})
@@ -198,29 +199,6 @@ def test_subagent_skill_subset_loads_only_its_independent_source(make_agent):
     assert 'ONLY-A' in child_prompt and 'PRIVATE-B' not in child_prompt
 
 
-def test_trusted_extension_is_server_selected_and_preserves_native_state(make_agent):
-    class ExtendedState(DeepAgentState):
-        label: str
-    contexts = []
-    def extension(context):
-        contexts.append(context)
-        return {'state_schema': ExtendedState, 'name': 'trusted-agent', 'debug': False}
-    native_extensions.register_native_extension('trusted', extension)
-    model = Model(responses=[AIMessage(content='done')])
-    async def run():
-        agent = await make_agent(model, native_extension='trusted')
-        return await agent.ainvoke({'messages': [{'role': 'user', 'content': 'Question'}], 'label': 'native-state'})
-    result = asyncio.run(run())
-    assert result['label'] == 'native-state'
-    assert contexts[0]['owner_id'] == 'owner' and contexts[0]['access_level'] == 'confirm'
-    assert contexts[0]['permissions'] and contexts[0]['interrupt_on']['write_file']
-    with pytest.raises(StoreError):
-        native_extensions.native_options('not-registered', {})
-    native_extensions.register_native_extension('wrong-state', lambda context: {'state_schema': dict})
-    with pytest.raises(StoreError):
-        native_extensions.native_options('wrong-state', {})
-
-
 def test_path_specific_native_approval_does_not_pause_unrelated_writes(make_agent):
     model = Model(responses=[call('write_file', {'file_path': '/public.txt', 'content': 'public'}, 'public'),
         call('write_file', {'file_path': '/sensitive/private.txt', 'content': 'private'}, 'private'),
@@ -321,24 +299,3 @@ def test_default_subagent_keeps_sdk_skills_prompt_and_real_execution_mapping(mak
         system = str(model.prompts[index][0].content)
         assert 'progressive disclosure' in system and '/workspace/skills/' in system
         assert '/state/subagent-skills/' in system
-
-
-def test_trusted_compiled_child_is_built_with_current_owner_permissions(make_agent):
-    from deepagents import create_deep_agent
-    parent = Model(responses=[call('task', {'subagent_type': 'compiled', 'description': 'Try write'}),
-                              AIMessage(content='parent done')])
-    child = Model(responses=[call('write_file', {'file_path': '/forbidden.txt', 'content': 'bad'}, 'compiled-write'),
-                             AIMessage(content='child denied')])
-    def extension(context):
-        assert context['owner_id'] == 'owner' and context['access_level'] == 'read_only'
-        runnable = create_deep_agent(child, backend=context['backend'],
-            permissions=list(context['permissions']), interrupt_on=context['interrupt_on'])
-        return {'subagents': [{'name': 'compiled', 'description': 'Controlled compiled child', 'runnable': runnable}]}
-    native_extensions.register_native_extension('compiled-policy', extension)
-    async def run():
-        agent = await make_agent(parent, access_level='read_only', native_extension='compiled-policy')
-        return await agent.ainvoke({'messages': [{'role': 'user', 'content': 'Delegate'}]})
-    result = asyncio.run(run())
-    assert '/forbidden.txt' not in result.get('files', {})
-    assert any(message.type == 'tool' and message.tool_call_id == 'compiled-write' and message.status == 'error'
-               for messages in child.prompts for message in messages)

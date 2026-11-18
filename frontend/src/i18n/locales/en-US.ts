@@ -1748,7 +1748,7 @@ export default {
       rerankModelDesc: 'Used to rerank knowledge base retrieval results for better accuracy',
       rerankModelPlaceholder: 'Select ReRank Model',
       rerankModelOptionalHint: 'No RAG knowledge base in current scope, so this is optional. If a RAG knowledge base is added later, the workspace default rerank model will be used as a fallback. Configuring it explicitly is still recommended.',
-      maxIterations: 'Max Iterations',
+      maxIterations: 'Main Agent Model Call Limit',
       maxIterationsLimit: 'Limit',
       maxIterationsUnlimited: 'Unlimited',
       allowedTools: 'Allowed Tools',
@@ -4436,8 +4436,6 @@ export default {
   },
   chat: {
     suggestedQuestions: 'You can ask me',
-    followUpQuestions: 'Keep asking',
-    followUpQuestionsLoading: 'Loading suggested questions',
     refreshSuggestedQuestions: 'More',
     thinking: 'Thinking...',
     thinkingAlt: 'Thinking in progress',
@@ -5877,7 +5875,7 @@ export default {
     },
     modelSettings: {
       title: 'Model Settings',
-      description: 'Manage different types of AI models, including local Ollama and remote APIs',
+      description: 'Manage remote AI models and API configurations for your account',
       typeShort: {
         chat: 'Chat',
         embedding: 'Embedding',
@@ -5966,7 +5964,6 @@ export default {
           chat_model: 'Chat model',
           rerank_model: 'Re-ranking model',
           query_understand_model: 'Query understanding model',
-          follow_up_model: 'Follow-up model',
           unknown: 'Other model setting'
         }
       ,
@@ -7943,7 +7940,7 @@ export default {
       rewriteSystemPrompt: 'System prompt for question rewriting (leave empty for default)',
       rewriteUserPrompt: 'User prompt template for question rewriting (leave empty for default)',
       selectTools: 'Select tools available to the Agent',
-      maxIterations: 'Caps how many reasoning steps one task may take. Unlimited keeps going until the model stops on its own or you stop it.',
+      maxIterations: 'Limits model calls made by the main agent in one turn.',
       kbScope: 'Select the scope of knowledge bases accessible to the agent',
       webSearch: 'When enabled, the agent can search the internet for information',
       webSearchProvider: 'Specify a search engine for this agent. Leave empty to use the default.',

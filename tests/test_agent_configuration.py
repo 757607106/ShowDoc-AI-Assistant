@@ -419,18 +419,41 @@ def test_mcp_configuration_credentials_and_tool_flags(settings_client, configure
     monkeypatch.setattr('langchain_mcp_adapters.client.MultiServerMCPClient',
         lambda *args, **kwargs: SimpleNamespace(get_tools=discovered_tools))
     value = settings_client.post('/api/v1/mcp-services', json={'name': 'server', 'transport_type': 'http-streamable',
-        'url': 'https://mcp.invalid/mcp', 'headers': {'Secret': 'header-secret'},
+        'url': 'https://mcp.invalid/mcp', 'headers': {'Secret': 'header-secret'}, 'advanced_config': {'timeout': 45},
         'auth_config': {'auth_type': 'bearer', 'token': 'private-token'}}).json['data']
     assert 'private-token' not in str(value) and 'header-secret' not in str(value)
     saved = registry.record('mcp', value['id'], configured_owner)
     assert 'private-token' not in str(saved)
     assert registry.mcp_connection(saved)['headers'] == {'Secret': 'header-secret', 'Authorization': 'Bearer private-token'}
+    assert registry.mcp_connection(saved)['timeout'] == 45
     assert settings_client.put(f"/api/v1/mcp-services/{value['id']}", json=value).status_code == 200
     assert registry.secrets(registry.record('mcp', value['id'], configured_owner))['headers'] == {'Secret': 'header-secret'}
     response = settings_client.put(f"/api/v1/mcp-services/{value['id']}/tool-approvals/read", json={'enabled': False, 'require_approval': True})
     assert response.json['data'][0]['enabled'] is False
     assert settings_client.delete(f"/api/v1/mcp-services/{value['id']}/credentials/token").status_code == 200
     assert not registry.secrets(registry.record('mcp', value['id'], configured_owner)).get('token')
+
+
+@pytest.mark.parametrize('advanced', [
+    {'retry_count': 3}, {'retry_delay': 1}, {'timeout': 0}, {'timeout': 301}, {'timeout': True},
+])
+def test_mcp_rejects_unsupported_advanced_configuration(settings_client, configured_owner, advanced):
+    response = settings_client.post('/api/v1/mcp-services', json={
+        'name': 'invalid-advanced', 'transport_type': 'sse', 'url': 'https://mcp.invalid/sse',
+        'advanced_config': advanced})
+    assert response.status_code == 400
+    assert registry.records('mcp', configured_owner) == []
+
+
+def test_legacy_mcp_retry_fields_are_dropped_on_next_save(settings_client, configured_owner):
+    legacy = registry.save_record('mcp', {'id': 'legacy-advanced', 'name': 'Legacy', 'enabled': True,
+        'transport_type': 'sse', 'url': 'https://mcp.invalid/sse',
+        'advanced_config': {'timeout': 45, 'retry_count': 3, 'retry_delay': 1}}, configured_owner)
+    response = settings_client.put(f"/api/v1/mcp-services/{legacy['id']}", json={'enabled': False})
+    assert response.status_code == 200, response.json
+    saved = registry.record('mcp', legacy['id'], configured_owner)
+    assert saved['advanced_config'] == {'timeout': 45}
+    assert registry.mcp_connection(saved)['timeout'] == 45
 
 
 def test_runtime_mcp_uses_discovered_tools_and_preserves_schema(configured_owner, monkeypatch):
@@ -472,6 +495,24 @@ def test_native_tool_selection_keeps_names_without_enabling_unselected_tools():
         'agent_mode': 'quick-answer', 'max_iterations': 1, 'allowed_tools': []})) == []
     with pytest.raises(StoreError):
         config.validate_config({'allowed_tools': 'search_knowledge'})
+
+
+def test_agent_save_rejects_invalid_runtime_combinations(settings_client, configured_owner):
+    short = registry.save_model({'name': 'short-context', 'parameters': {'provider': 'generic',
+        'base_url': 'https://example.invalid', 'context_window': 4096}}, configured_owner)
+    for invalid, field in [
+        ({'sandbox_config_id': 'opensandbox-local', 'permissions': [
+            {'operations': ['write'], 'paths': ['/workspace/reports/**'], 'mode': 'deny'}]}, 'permissions'),
+        ({'subagents': [{'name': 'worker', 'description': 'Read notes',
+                        'selected_skills': ['notes']}]}, 'subagents[0].selected_skills'),
+        ({'model_id': short['id']}, 'max_completion_tokens'),
+    ]:
+        response = settings_client.post('/api/v1/agents', json={'name': 'Fixture', 'config': invalid})
+        assert response.status_code == 400 and field in response.json['message']
+    assert registry.records('agent', configured_owner) == []
+    response = settings_client.post('/api/v1/agents', json={'name': 'Fixture', 'config': {
+        'model_id': short['id'], 'max_completion_tokens': 512}})
+    assert response.status_code == 201 and response.json['data']['config']['max_completion_tokens'] == 512
 
 
 def test_native_async_configuration_round_trip_and_service_gate(monkeypatch):

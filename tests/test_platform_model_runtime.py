@@ -151,3 +151,32 @@ def test_usage_generation_uses_only_cached_metadata_and_real_configured_model(ru
     prompt = calls[-1]['payload']['messages']
     assert 'Read records' in prompt[-1]['content'] and value['url'] not in prompt[-1]['content']
     assert 'model-private-key' not in str(prompt) and 'untrusted reference data' in prompt[0]['content']
+
+
+def test_model_mutations_require_platform_admin(authenticated_client):
+    import app as app_module
+    from webapi.auth import create_user
+
+    owner = create_user('model-editor', '模型编辑者', 'editor-pass-123', 'editor')
+    client = app_module.app.test_client()
+    login = client.post('/api/v1/auth/login', json={'account': 'model-editor', 'password': 'editor-pass-123'})
+    client.environ_base['HTTP_AUTHORIZATION'] = 'Bearer ' + login.json['token']
+    body = {'name': 'editor-model', 'type': 'KnowledgeQA', 'source': 'remote',
+            'parameters': {'provider': 'generic', 'base_url': 'https://model.invalid/v1'}}
+
+    assert client.post('/api/v1/models', json=body).status_code == 403
+    saved = registry.save_model(body, owner)
+    before = registry.record('model', saved['id'], owner)
+    attempts = [
+        ('put', f"/api/v1/models/{saved['id']}", body),
+        ('patch', f"/api/v1/models/{saved['id']}", {'description': 'changed'}),
+        ('delete', f"/api/v1/models/{saved['id']}", None),
+        ('post', f"/api/v1/models/{saved['id']}/copy", {'display_name': 'copy'}),
+        ('put', f"/api/v1/models/{saved['id']}/credentials", {'api_key': 'replacement'}),
+        ('delete', f"/api/v1/models/{saved['id']}/credentials/api_key", None),
+    ]
+    for method, path, payload in attempts:
+        response = getattr(client, method)(path, json=payload) if payload is not None else getattr(client, method)(path)
+        assert response.status_code == 403, (method, path, response.json)
+    assert registry.record('model', saved['id'], owner) == before
+    assert len(registry.records('model', owner)) == 1
