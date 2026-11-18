@@ -1,9 +1,10 @@
 """Local governance workbench; durable jobs run in governance.worker."""
 import io
 import json
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import os
 import re
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,6 +67,10 @@ def spa_fallback(error):
 
 @app.errorhandler(StoreError)
 def handle_api_error(error):
+    if (request.path.startswith('/api/v1/models') or request.path == '/api/v1/tenants/kv/default-settings'
+            or request.blueprint == 'model_runtime'):
+        codes = {400: 1000, 401: 1001, 403: 1002, 404: 1003, 409: 1005, 422: 1010, 503: 1008}
+        return jsonify(success=False, error={'code': codes.get(error.status, 1007), 'message': str(error), 'details': None}), error.status
     return jsonify(success=False, message=str(error)), error.status
 
 
@@ -528,6 +533,17 @@ def download_result(task_id):
     return send_file(path, as_attachment=True, download_name=f'audit-{task_id}.zip')
 
 
+@contextmanager
+def upload_directory():
+    directory = data_dir() / 'uploads' / str(uuid.uuid4())
+    directory.mkdir(parents=True)
+    try:
+        yield directory
+    except BaseException:
+        shutil.rmtree(directory)
+        raise
+
+
 @app.route('/api/uploads', methods=['POST'])
 def upload_files():
     files = request.files.getlist('files')
@@ -542,28 +558,27 @@ def upload_files():
     for file in files:
         if not file.filename:
             raise ApiError('上传文件必须有文件名', 400)
-    directory = data_dir() / 'uploads' / str(uuid.uuid4())
-    directory.mkdir(parents=True)
-    paths, names = [], []
-    for index, file in enumerate(files):
-        original = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', Path(file.filename.replace('\\', '/')).name).strip(' .')
-        suffix = Path(original).suffix.lower().encode('utf-8')[:40].decode('utf-8', errors='ignore')
-        stem = Path(original).stem
-        stem = stem.encode('utf-8')[:180].decode('utf-8', errors='ignore') or 'document'
-        name = stem + suffix
-        path = directory / f'{index + 1:03d}-{name}'
-        file.save(path)
-        if not path.stat().st_size:
-            raise ApiError('不能上传空文件', 400)
-        paths.append(str(path))
-        names.append(name)
-    from governance.knowledge_bases import base_write_lock
-    from governance.spaces import require_writable_space
-    kb_id = require_writable_space(store, space_scope)['knowledge_base_id'] if space_scope else None
-    with base_write_lock(kb_id) if kb_id else nullcontext():
-        if space_scope:
-            require_writable_space(store, space_scope)
-        job = store.create_job('file', {'file_paths': paths, 'file_names': names}, applicability=scope, scope=space_scope)
+    with upload_directory() as directory:
+        paths, names = [], []
+        for index, file in enumerate(files):
+            original = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', Path(file.filename.replace('\\', '/')).name).strip(' .')
+            suffix = Path(original).suffix.lower().encode('utf-8')[:40].decode('utf-8', errors='ignore')
+            stem = Path(original).stem
+            stem = stem.encode('utf-8')[:180].decode('utf-8', errors='ignore') or 'document'
+            name = stem + suffix
+            path = directory / f'{index + 1:03d}-{name}'
+            file.save(path)
+            if not path.stat().st_size:
+                raise ApiError('不能上传空文件', 400)
+            paths.append(str(path))
+            names.append(name)
+        from governance.knowledge_bases import base_write_lock
+        from governance.spaces import require_writable_space
+        kb_id = require_writable_space(store, space_scope)['knowledge_base_id'] if space_scope else None
+        with base_write_lock(kb_id) if kb_id else nullcontext():
+            if space_scope:
+                require_writable_space(store, space_scope)
+            job = store.create_job('file', {'file_paths': paths, 'file_names': names}, applicability=scope, scope=space_scope)
     return jsonify(success=True, task_id=job['task_id'], message='文件已保存，任务已入队')
 
 
@@ -605,19 +620,18 @@ def revise_document(version_id):
         raise ApiError('修订正文不能为空且不能超过 5 MB', 400)
     if not isinstance(reason, str) or not reason.strip():
         raise ApiError('请填写修订理由', 400)
-    directory = data_dir() / 'uploads' / str(uuid.uuid4())
-    directory.mkdir(parents=True)
-    path = directory / 'revision.md'
-    path.write_text(content, encoding='utf-8')
-    from governance.spaces import get_space, require_writable_space
-    from governance.knowledge_bases import base_write_lock
-    kb_id = get_space(store, document['scope'])['knowledge_base_id']
-    with base_write_lock(kb_id) if kb_id else nullcontext():
-        if kb_id:
-            require_writable_space(store, document['scope'])
-        job = store.create_job('file', {'file_paths': [str(path)]}, scope=document['scope'],
-                               version_id=version_id, document_id=document['id'], revision_reason=reason.strip(),
-                               applicability=document.get('metadata', {}).get('scope'))
+    with upload_directory() as directory:
+        path = directory / 'revision.md'
+        path.write_text(content, encoding='utf-8')
+        from governance.spaces import get_space, require_writable_space
+        from governance.knowledge_bases import base_write_lock
+        kb_id = get_space(store, document['scope'])['knowledge_base_id']
+        with base_write_lock(kb_id) if kb_id else nullcontext():
+            if kb_id:
+                require_writable_space(store, document['scope'])
+            job = store.create_job('file', {'file_paths': [str(path)]}, scope=document['scope'],
+                                   version_id=version_id, document_id=document['id'], revision_reason=reason.strip(),
+                                   applicability=document.get('metadata', {}).get('scope'))
     return jsonify(success=True, task_id=job['task_id'], message='修订已保存为新版本输入，等待解析')
 
 

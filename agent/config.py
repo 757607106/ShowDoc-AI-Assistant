@@ -289,29 +289,30 @@ def _resolve_system_prompt(config, owner_id):
     return content
 
 
-def list_agents(owner_id):
+def list_agents(owner_id, *, resolve_default=True):
     saved = registry.records('agent', owner_id)
     overrides = {item['id']: item for item in saved}
-    values = [overrides.get(agent_id) or {'id': agent_id, 'is_builtin': True, 'tenant_id': 1,
+    fallback = registry.default_model_id(owner_id) if resolve_default else ''
+    values = [overrides.get(agent_id) or {'id': agent_id, 'is_builtin': True,
         'name': details['name'], 'description': details['description'],
-        'config': validate_config({**details['config'], 'model_id': registry.default_model_id(owner_id)})} for agent_id, details in BUILTINS.items()] + [
+        'config': validate_config({**details['config'], 'model_id': fallback})} for agent_id, details in BUILTINS.items()] + [
             item for item in saved if item['id'] not in BUILTINS]
     for value in values:
         value['config'] = {**value['config'], 'retrieval_provider': 'contextdb'}
     return values
 
 
-def load_agent(agent_id=None, owner_id=None):
+def load_agent(agent_id=None, owner_id=None, *, resolve_default=True):
     agent_id = agent_id or 'builtin-smart-reasoning'
     if agent_id == INTERNAL_ASSISTANT_ID:
-        return {'id': agent_id, 'is_builtin': True, 'tenant_id': 1, 'name': 'WeKnora 助手',
+        return {'id': agent_id, 'is_builtin': True, 'name': 'WeKnora 助手',
             'description': '当前页面的知识检索与会话助手',
             'config': validate_config({'agent_type': 'custom', 'temperature': 0.3,
-                'model_id': registry.default_model_id(owner_id),
+                'model_id': registry.default_model_id(owner_id) if resolve_default else '',
                 'allowed_tools': [*DEFAULT_TOOLS, 'wiki_search']})}
     if agent_id == 'platform-agent':
         agent_id = 'builtin-smart-reasoning'
-    for item in list_agents(owner_id):
+    for item in list_agents(owner_id, resolve_default=resolve_default):
         if item['id'] == agent_id:
             result = copy.deepcopy(item)
             result['config'] = validate_config(result['config'], check_runtime=False)
@@ -322,7 +323,7 @@ def load_agent(agent_id=None, owner_id=None):
 def save_agent(body, owner_id, agent_id=None):
     if agent_id == INTERNAL_ASSISTANT_ID:
         raise StoreError('页面内置助手由服务器管理，不能覆盖其配置', 403)
-    value = load_agent(agent_id, owner_id) if agent_id else {'id': str(uuid.uuid4()), 'is_builtin': False, 'tenant_id': 1, 'created_by': owner_id}
+    value = load_agent(agent_id, owner_id) if agent_id else {'id': str(uuid.uuid4()), 'is_builtin': False, 'created_by': owner_id}
     for key in ('name', 'description', 'avatar'):
         if key in body:
             if not isinstance(body[key], str) or len(body[key]) > (200 if key == 'name' else 10000):
@@ -331,8 +332,8 @@ def save_agent(body, owner_id, agent_id=None):
     if not value.get('name', '').strip():
         raise StoreError('请提供 Agent 名称', 400)
     submitted = body.get('config', value.get('config', {}))
-    if not agent_id and isinstance(submitted, dict) and 'model_id' not in submitted:
-        submitted = {**submitted, 'model_id': registry.default_model_id(owner_id)}
+    if isinstance(submitted, dict):
+        submitted = {'model_id': '', **submitted}
     value['config'] = validate_config(submitted)
     _resolve_system_prompt(value['config'], owner_id)
     return registry.save_record('agent', value, owner_id)
@@ -363,15 +364,20 @@ def _ids(body, key):
 
 
 def resolve_request(body, *, client, owner_id, role='viewer', session=None, has_image_attachments=False):
-    if body.get('agent_source_tenant_id') not in (None, 0, '', 1, '1'):
-        raise StoreError('当前平台不支持跨空间 Agent', 403)
+    source = body.get('agent_source_tenant_id')
+    # Older saved chat selections used 1 for the account's only space.
+    if source not in (None, 0, '', 1, '1'):
+        from governance.database import connection
+        with connection() as conn:
+            workspace = conn.execute('SELECT workspace_id FROM workspace_users WHERE id=%s', (owner_id,)).fetchone()
+        if not workspace or str(source) != str(workspace['workspace_id']):
+            raise StoreError('当前平台不支持跨空间 Agent', 403)
     session_config = (session or {}).get('agent_config') or {}
-    agent = load_agent(body.get('agent_id') or (session or {}).get('agent_id') or session_config.get('agent_id'), owner_id)
+    agent = load_agent(body.get('agent_id') or (session or {}).get('agent_id') or session_config.get('agent_id'),
+                       owner_id, resolve_default=False)
     config = copy.deepcopy(agent['config'])
-    for key in ('summary_model_id', 'reasoning_effort'):
-        if body.get(key):
-            config['model_id' if key == 'summary_model_id' else key] = body[key]
-    registry.model_config(config['model_id'], owner_id)
+    if body.get('reasoning_effort'):
+        config['reasoning_effort'] = body['reasoning_effort']
     config = validate_config(config)
     config['system_prompt'] = _resolve_system_prompt(config, owner_id)
     access = body.get('assistant_access', config['access_level'])
@@ -438,10 +444,27 @@ def resolve_request(body, *, client, owner_id, role='viewer', session=None, has_
         document_bases[document_id] = kb_id
         kb_ids.append(kb_id)
     kb_ids = list(dict.fromkeys(kb_ids))
+    kb_models = []
+    local_bindings = registry.knowledge_model_bindings(owner_id) if kb_ids else {}
     for kb_id in kb_ids:
         if not isinstance(kb_id, str) or not kb_id:
             raise StoreError('知识库 ID 无效', 400)
-        client.get_knowledge_base(kb_id)
+        detail = client.get_knowledge_base(kb_id)
+        kb_model = detail.get('summary_model_id') or local_bindings.get(kb_id, {}).get('summary_model_id')
+        if kb_model:
+            kb_models.append(kb_model)
+    candidates = {m['id']: m for m in registry.models(owner_id) if m['type'] == 'KnowledgeQA' and m['status'] == 'active'}
+    requested = body.get('summary_model_id') or ''
+    if not isinstance(requested, str):
+        raise StoreError('summary_model_id 必须为字符串', 400)
+    if requested.strip() in candidates:
+        config['model_id'] = requested.strip()
+    elif config.get('model_id'):
+        selected = registry.model_record(config['model_id'], owner_id)
+        if selected.get('status', 'active') != 'active' or selected['type'] not in ('KnowledgeQA', 'VLLM'):
+            raise StoreError('Agent 的对话模型不可用', 400)
+    else:
+        config['model_id'] = next((mid for mid in kb_models if mid in candidates), None) or registry.default_model_id(owner_id)
     config['_document_bases'] = document_bases
     config['_whole_knowledge_bases'] = whole_kb_ids
     config['_owner_id'] = owner_id
@@ -488,7 +511,7 @@ def apply_image_model(resolved, owner_id):
 def _select_image_model(config, owner_id):
     if not config.get('image_upload_enabled'):
         raise StoreError('当前 Agent 未启用图片输入', 400)
-    model_id = config.get('vlm_model_id') or config.get('model_id')
+    model_id = config.get('vlm_model_id') or registry.default_model_id(owner_id, 'vlm_model_id') or config.get('model_id')
     model = registry.model_config(model_id, owner_id)
     if model['type'] != 'VLLM' and not model.get('parameters', {}).get('supports_vision'):
         raise StoreError('请选择 VLLM 模型或明确支持图片的对话模型', 400)

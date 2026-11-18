@@ -1046,7 +1046,7 @@ export default {
       capabilityMessageHistory: '消息历史',
       capabilityMessageHistoryHint: '允许检索空间聊天历史并读取聊天历史统计；不授予空间配置权限。',
       capabilityManageModels: '管理模型',
-      capabilityManageModelsHint: '允许管理模型配置、模型凭据、模型连通性测试和 WeKnoraCloud 凭据。',
+      capabilityManageModelsHint: '允许管理模型配置、模型凭据和模型连通性测试。',
       capabilityManageMcpServices: '管理 MCP 服务',
       capabilityManageMcpServicesHint: '允许管理 MCP 服务、凭据、工具审批策略和该主体的 OAuth 授权状态。',
       capabilityManageDatasources: '管理数据源',
@@ -2722,10 +2722,6 @@ export default {
           name: 'MarkItDown',
           desc: 'Microsoft MarkItDown 文档转换工具（支持 PDF/Office/HTML 等）'
         },
-        weknoracloud: {
-          name: 'WeKnora Cloud',
-          desc: '使用 WeKnora Cloud 进行文档解析'
-        },
         paddleocr_vl_cloud: {
           name: 'PaddleOCR-VL Cloud',
           desc: 'PaddleOCR-VL 云 API'
@@ -2897,12 +2893,6 @@ export default {
         q1: '怎样连接本机的 Ollama？',
         q2: '连上之后要怎样把模型加到空间里？',
         q3: 'Ollama 连不上时通常要检查什么？',
-      },
-      weknoracloud: {
-        description: '我可以说明 WeKnora Cloud 能提供哪些模型，以及怎样开通和选用。',
-        q1: 'WeKnora Cloud 能提供哪些模型？',
-        q2: '怎样开通或绑定 Cloud 账号？',
-        q3: 'Cloud 模型和我自己接入的模型怎么选？',
       },
       vectorstore: {
         description: '我可以说明当前向量检索引擎、换引擎的影响，以及怎样检查是否正常。',
@@ -3863,7 +3853,7 @@ export default {
   },
   modelSettings: {
     title: '模型配置',
-    description: '管理当前账号的远程 AI 模型与 API 配置',
+    description: '管理当前空间的远程 AI 模型与 API 配置',
     copySuffix: ' 副本',
     builtinTag: '内置',
     confirmDelete: '确定删除模型「{name}」吗？',
@@ -5140,10 +5130,10 @@ export default {
     },
     deleteDangerZone: {
       title: '删除当前空间',
-      desc: '删除整个空间及其配置。删除后，空间成员将无法继续访问其中的知识库、智能体与 API Key。',
+      desc: '删除后，你将无法访问这个空间的个人文件、会话和智能体配置。账号和共享知识库会保留。',
       button: '删除空间',
       confirmTitle: '删除当前空间？',
-      confirmBody: '此操作将删除空间「{name}」，并使其中的知识库、智能体、成员与 API Key 不再可用。此操作不可撤销。',
+      confirmBody: '确认删除空间「{name}」？此操作无法撤销。账号和共享知识库会保留。',
       confirmHint: '请输入空间名称「{name}」以确认删除。',
       confirm: '删除',
       nameMismatch: '空间名称不匹配',
@@ -5159,7 +5149,7 @@ export default {
       quotaLabel: '存储配额',
       quotaDescription: '空间的总存储空间配额',
       usedLabel: '已使用存储',
-      usedDescription: '已经使用的存储空间',
+      usedDescription: '上传原件、采集归档、聊天附件、技能包和保存的智能体文件实际占用的空间',
       usageLabel: '存储使用率',
       usageDescription: '存储空间的使用百分比'
     },
@@ -5192,7 +5182,7 @@ export default {
     create: {
       action: '创建新空间',
       dialogTitle: '创建新空间',
-      dialogSubtitle: '空间拥有独立的知识库与成员，你将自动成为新空间的所有者。',
+      dialogSubtitle: '个人文件保存在这个空间中，默认配额为 10 GB。所有账号共用 ContextDB 知识库。',
       nameLabel: '空间名称',
       namePlaceholder: '例如：我的新项目',
       nameRequired: '请输入空间名称',
@@ -6883,7 +6873,7 @@ export default {
     registerError: '注册错误，请稍后重试',
     workspaceOnboarding: {
       title: '选择你的工作空间',
-      description: '创建一个空间即可开始使用，或接受邀请加入已有空间。',
+      description: '创建个人空间后即可继续使用。',
       create: '创建空间',
       invitations: '查看邀请',
       loadingPolicy: '正在确认可用的空间加入方式…',
@@ -7095,11 +7085,11 @@ export default {
   },
   defaultSettings: {
     loadFailed: '默认设置加载失败，请重试后再编辑。',
-    title: "个人默认",
-    description: "设置当前账号的默认对话模型。",
-    introTitle: "未单独选择时使用个人默认",
-    introDescription: "智能体、子代理或本次对话明确选择的模型优先；没有选择时使用个人默认，再使用部署内置模型。",
-    readOnly: "当前账号没有修改权限。",
+    title: '默认配置',
+    description: '集中管理本空间各项功能默认使用的模型和搜索引擎。',
+    introTitle: '资源未单独指定时使用这里的默认值',
+    introDescription: '智能体、知识库或单次对话明确选择的模型优先；没有选择时使用这里的空间默认；空间也没设置时，使用部署内置的默认模型。',
+    readOnly: '仅空间管理员可以修改，你可以查看当前生效的默认值。',
     modelGroup: '模型',
     webSearchGroup: '网络搜索',
     unsetPlaceholder: '未设置（使用系统默认）',
@@ -7976,59 +7966,6 @@ export default {
       paddleocrVlEndpointPlaceholder: '如 http://your-paddleocr-vl:8080',
       paddleocrVlEndpointHint: '填写 PaddleOCR-VL 完整服务（pipeline）地址，无需 /layout-parsing 后缀',
       paddleocrVlCloudTokenPlaceholder: 'PaddleOCR-VL 飞桨星河社区 Token'
-    },
-    weknoraCloud: {
-      title: 'WeKnora Cloud',
-      description: '配置 WeKnora Cloud 的 APPID 和 APPSECRET 凭证。凭证用于模型服务和文档解析引擎。',
-      viewDocs: '查看文档',
-      unconfigured: '尚未配置凭证，请填写 APPID 和 APPSECRET',
-      configured: '凭证已配置，状态正常',
-      expired: 'WeKnora Cloud 凭证已失效',
-      expiredDefault: '服务重启后加密密钥已变更，已保存的凭证无法解密。请重新填写凭证。',
-      reconfigure: '重新配置',
-      appIdLabel: 'APPID',
-      appIdDesc: 'WeKnora Cloud 的应用 ID',
-      appIdPlaceholder: '请输入 APPID',
-      appSecretLabel: 'APPSECRET',
-      appSecretDesc: 'WeKnora Cloud 的应用密钥',
-      appSecretPlaceholder: '请输入 APPSECRET',
-      saveHint: '保存后将验证服务可达性并加密存储凭证',
-      saveBtn: '保存凭证',
-      usageTitle: '使用说明',
-      usageSteps: '1. 填写并保存 APPID / APPSECRET\n2. 在下方「云模型接入」中按行添加 chat、embedding、rerank、vlm\n3. 文档解析：知识库设置 → 解析引擎，选择 WeKnora Cloud 引擎',
-      fillRequired: '请填写 APPID 和 APPSECRET',
-      saveSuccess: '凭证已保存',
-      saveFailed: '凭证保存失败',
-      credentialConfigured: 'WeKnoraCloud 凭证已配置',
-      credentialExpired: '凭证已失效，请重新配置。',
-      credentialUnconfigured: '尚未配置 WeKnoraCloud 凭证，请先填写 APPID 和 APPSECRET。',
-      checkingStatus: '正在检查凭证状态...',
-      goToSettings: '前往设置中配置',
-      modelHintConfigured: 'WeKnoraCloud 凭证已配置。支持的模型可参考',
-      modelHintDocsLink: '接口文档',
-      addModelsSuccess: '已成功添加 {count} 个模型',
-      addModelsPartial: '已添加 {success} 个，{failed} 个失败',
-      addModelsFailed: '添加模型失败',
-      addModelsEmbeddingFailed: 'Embedding 模型连接测试失败，无法获取向量维度',
-      addModelsDisplayName: {
-        chat: 'WeKnoraCloud 对话',
-        embedding: 'WeKnoraCloud Embedding',
-        rerank: 'WeKnoraCloud ReRank',
-        vllm: 'WeKnoraCloud 视觉'
-      },
-      modelsSection: {
-        title: '云模型接入',
-        descReady: '将 WeKnora Cloud 提供的四类标准模型注册到当前空间，用于对话、向量检索、重排序与多模态理解。',
-        descPending: '请先保存上方凭证，再在此添加云模型。',
-        statusAdded: '已添加',
-        statusPending: '待配置凭证',
-        addOne: '添加',
-        addAllBtn: '添加全部缺失（{count}）',
-        addAllConfirm: '确认添加',
-        confirmAddOne: '添加 {type} 模型「{name}」？',
-        confirmAddAll: '一次性添加 {count} 个缺失的云模型？',
-        allReady: '四类云模型均已就绪'
-      }
     },
     roleDenied: {
       title: '权限不足',

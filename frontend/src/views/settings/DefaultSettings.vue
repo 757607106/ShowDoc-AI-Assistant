@@ -3,7 +3,6 @@
     <div class="section-header">
       <h2>{{ t('defaultSettings.title') }}</h2>
       <p class="section-description">{{ t('defaultSettings.description') }}</p>
-      <p v-if="IS_CONTEXTDB" class="section-description">知识库的嵌入与重排由 ContextDB 管理。</p>
     </div>
 
     <div class="intro">
@@ -73,7 +72,6 @@
 </template>
 
 <script setup lang="ts">
-import { IS_CONTEXTDB } from '@/config/contextdb'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -111,7 +109,7 @@ const modelSlots: ModelSlot[] = [
   { field: 'rerank_model_id', key: 'rerank', type: 'Rerank' },
   { field: 'vlm_model_id', key: 'vlm', type: 'VLLM' },
   { field: 'asr_model_id', key: 'asr', type: 'ASR' },
-].filter(slot => !IS_CONTEXTDB || slot.field === 'chat_model_id') as ModelSlot[]
+]
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -119,7 +117,7 @@ const uiStore = useUIStore()
 const chatResources = useChatResourcesStore()
 const deploymentCapabilities = useDeploymentCapabilitiesStore()
 
-const canEdit = computed(() => IS_CONTEXTDB || authStore.hasRole('admin'))
+const canEdit = computed(() => authStore.hasRole('admin'))
 const saving = ref(false)
 const settingsLoaded = ref(false)
 const settingsLoadFailed = ref(false)
@@ -133,7 +131,7 @@ const settings = reactive<DefaultSettings>({
   asr_model_id: '',
 })
 
-const models = computed<ModelConfig[]>(() => chatResources.allModels.filter((m) => !m.status || m.status === 'active'))
+const models = computed<ModelConfig[]>(() => chatResources.allModels.filter((m) => m.status === 'active'))
 
 const effective = computed(() => {
   const out = {} as Record<ModelField, EffectiveDefault<ModelConfig>>
@@ -179,9 +177,8 @@ const loadSettings = async () => {
   try {
     const response = await getTenantDefaultSettings()
     if (!response.data) throw new Error('Default settings response is missing data')
-    // Hidden legacy slots still feed existing Agents and title generation.
-    for (const field of Object.keys(settings) as ModelField[]) {
-      settings[field] = response.data[field] || ''
+    for (const slot of modelSlots) {
+      settings[slot.field] = response.data[slot.field] || ''
     }
     settingsLoaded.value = true
   } catch (error) {

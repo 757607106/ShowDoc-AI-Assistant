@@ -10,10 +10,12 @@ from urllib.parse import urlsplit
 
 from psycopg.types.json import Jsonb
 
+from agent import model_secrets
 from governance.database import connection
 from governance.store import StoreError
 
 MASKED = '********'
+EMBEDDING_DEFAULTS = {'dimension': 0, 'truncate_prompt_tokens': 0, 'supports_dimension_override': False}
 AGENT_MODEL_FIELDS = {
     'model_id': ('chat_model', ('KnowledgeQA', 'VLLM')),
     'rerank_model_id': ('rerank_model', ('Rerank',)),
@@ -72,6 +74,21 @@ def model_bindings_transaction(owner_id):
         yield conn
 
 
+def knowledge_model_bindings(owner_id, *, _connection=None):
+    bases = {}
+    for row in records('knowledge_space', owner_id, _connection=_connection):
+        kb_id = row.get('knowledge_base_id')
+        if kb_id and row.get('lifecycle') not in ('deleted', 'deleting', 'missing'):
+            bindings = {field: row[field] for field in ('summary_model_id', 'embedding_model_id') if row.get(field)}
+            if bindings:
+                bases[kb_id] = {'id': kb_id, 'name': row.get('name') or kb_id, **bindings}
+    return bases
+
+
+def model_in_use(usage):
+    return bool(usage['agent_total'] or usage['knowledge_base_total'] or usage['long_term_memory']['bindings'])
+
+
 def model_usage(model_id, owner_id, *, _connection=None):
     agents = []
     for value in records('agent', owner_id, _connection=_connection):
@@ -80,14 +97,15 @@ def model_usage(model_id, owner_id, *, _connection=None):
         if bindings:
             agents.append({'id': value['id'], 'name': value.get('name', value['id']), 'bindings': bindings})
     agents.sort(key=lambda value: (value['name'], value['id']))
-    return {'knowledge_bases': [], 'agents': agents[:50], 'knowledge_base_total': 0,
+    bases = []
+    for kb in knowledge_model_bindings(owner_id, _connection=_connection).values():
+        bindings = [k.removesuffix('_id') for k in ('summary_model_id','embedding_model_id') if kb.get(k) == model_id]
+        if bindings:
+            bases.append({'id': kb['id'], 'name': kb['name'], 'bindings': bindings})
+    bases.sort(key=lambda kb: (kb['name'], kb['id']))
+    # Native AGENTS.md memory files do not bind an extraction or an embedding model.
+    return {'knowledge_bases': bases[:50], 'agents': agents[:50], 'knowledge_base_total': len(bases),
             'agent_total': len(agents), 'long_term_memory': {'bindings': []}}
-
-
-def default_model_references(model_id, owner_id, *, _connection=None):
-    settings = next((value.get('value', {}) for value in records('settings', owner_id, _connection=_connection)
-                     if value['id'] == 'default-settings'), {})
-    return [field for field, referenced in settings.items() if field.endswith('_model_id') and referenced == model_id]
 
 
 def save_record(kind, value, owner_id, *, _connection=None):
@@ -98,12 +116,12 @@ def save_record(kind, value, owner_id, *, _connection=None):
     value['updated_at'] = now()
     metadata = {'type': kind, 'owner_id': owner_id}
     with nullcontext(_connection) if _connection is not None else connection() as conn:
-        if kind == 'agent' or kind == 'settings' and value['id'] == 'default-settings':
-            # Binding writes and deletion share one transaction lock, so neither can leave dangling IDs.
+        if kind == 'settings' and value['id'] == 'default-settings':
             _lock_model_bindings(conn, owner_id)
-            references = agent_model_references(value.get('config', {})) if kind == 'agent' else [
-                (model_id, field, ()) for field, model_id in value.get('value', {}).items()
-                if field.endswith('_model_id') and model_id]
+            return {**value, 'value': save_workspace_defaults(owner_id, value['value'], _connection=conn)}
+        if kind == 'agent':
+            _lock_model_bindings(conn, owner_id)
+            references = agent_model_references(value.get('config', {}))
             for model_id, binding, types in references:
                 if not isinstance(model_id, str):
                     raise StoreError('模型 ID 必须为字符串', 400)
@@ -132,31 +150,30 @@ def delete_record(kind, record_id, owner_id, *, _connection=None):
 
 
 def secrets(value):
+    if value.get('_kind') == 'model':
+        return model_secrets.read(value)
     from agent.credentials import cipher
     encrypted = value.get('_encrypted')
     return json.loads(cipher().decrypt(encrypted.encode())) if encrypted else {}
 
 
 def with_secrets(value, private):
+    if value.get('_kind') == 'model':
+        return model_secrets.store(value, private)
     from agent.credentials import cipher
     value['_encrypted'] = cipher().encrypt(json.dumps(private).encode()).decode()
     return value
 
 
 def public(value):
+    if value.get('_kind') == 'model':
+        return model_response(value)
     value = copy.deepcopy(value)
     private = secrets(value)
     value.pop('_encrypted', None)
-    if value.get('_kind') in ('model', 'mcp', 'web-search'):
-        fields = ('api_key', 'app_secret') if value['_kind'] == 'model' else ('api_key', 'token', 'client_secret') if value['_kind'] == 'mcp' else ('api_key',)
+    if value.get('_kind') in ('mcp', 'web-search'):
+        fields = ('api_key', 'token', 'client_secret') if value['_kind'] == 'mcp' else ('api_key',)
         value['credentials'] = {key: {'configured': bool(private.get(key))} for key in fields}
-    if value.get('_kind') == 'model' and private.get('custom_headers'):
-        value.setdefault('parameters', {})['custom_headers'] = {key: MASKED for key in private['custom_headers']}
-    if value.get('_kind') == 'model':
-        value.setdefault('status', 'active')
-    if value.get('_kind') == 'model' and value.get('type') in ('KnowledgeQA', 'VLLM'):
-        from agent.models import describe_model
-        value = describe_model(value)
     if value.get('_kind') == 'mcp':
         for key in ('headers', 'env_vars'):
             if private.get(key):
@@ -169,104 +186,237 @@ def public(value):
     return value
 
 
+MODEL_SLOTS = {'chat_model_id': 'KnowledgeQA', 'embedding_model_id': 'Embedding', 'rerank_model_id': 'Rerank',
+               'vlm_model_id': 'VLLM', 'asr_model_id': 'ASR', 'utility_model_id': 'Utility'}
+
+
 def environment_model():
-    from agent.models import describe_model
     name = os.getenv('AGENT_MAIN_MODEL', 'qwen-max')
-    value = {'id': 'agent-main', 'name': name, 'display_name': name, 'type': 'KnowledgeQA', 'source': 'remote',
-             'is_default': True, 'is_builtin': True, 'status': 'active',
-             'parameters': {'model_name': name, 'provider': 'aliyun'}}
-    return describe_model(value)
+    return {'id': 'agent-main', '_kind': 'model', 'name': name, 'display_name': name, 'type': 'KnowledgeQA',
+            'source': 'remote', 'is_default': True, 'is_builtin': True, 'status': 'active',
+            'parameters': {'model_name': name, 'provider': 'aliyun',
+                'base_url': os.getenv('AGENT_BAILIAN_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
+                if os.getenv('BAILIAN_API_KEY', '').strip() else (os.getenv('DASHSCOPE_API_URL') or
+                    'https://llm-rtc5v8cnt0umugh9.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions'
+                ).rstrip('/').removesuffix('/chat/completions')}, '_from_environment': True}
 
 
-def models(owner_id):
-    defaults = next((item.get('value', {}) for item in records('settings', owner_id)
-                     if item['id'] == 'default-settings'), {})
-    values = [environment_model(), *[public(item) for item in records('model', owner_id)]]
-    for value in values:
-        value['is_default'] = value['id'] == 'agent-main'
-        value['default_for'] = []
-    slots = {'KnowledgeQA': defaults.get('chat_model_id') or 'agent-main',
-             'Embedding': defaults.get('embedding_model_id'), 'Rerank': defaults.get('rerank_model_id'),
-             'VLLM': defaults.get('vlm_model_id'), 'ASR': defaults.get('asr_model_id'),
-             'Utility': defaults.get('utility_model_id')}
-    for kind, model_id in slots.items():
-        selected = next((value for value in values if value['id'] == model_id and value['status'] == 'active'
-                         and (value['type'] == ('KnowledgeQA' if kind == 'Utility' else kind)
-                              or kind == 'VLLM' and value['type'] == 'KnowledgeQA'
-                              and value.get('parameters', {}).get('supports_vision'))), None)
-        if selected:
-            selected['default_for'].append(kind)
-            for value in values:
-                if value['type'] == kind:
-                    value['is_default'] = value['id'] == model_id
+def _model_rows(owner_id, model_id=None, *, conn, lock=False):
+    query = """SELECT r.owner_id,r.payload,r.created_at,r.updated_at,coalesce(w.id,0) AS tenant_id
+        FROM runtime_records r LEFT JOIN platform_workspaces w ON w.principal_id=r.owner_id
+        WHERE r.kind='model' AND (r.owner_id=%s OR r.payload @> '{"is_builtin":true}')"""
+    args = [owner_id]
+    if model_id is not None:
+        query += ' AND r.record_key=%s'
+        args.append(model_id)
+    rows = conn.execute(query + ' ORDER BY r.created_at,r.id' + (' FOR UPDATE OF r' if lock else ''), args).fetchall()
+    values = []
+    for row in rows:
+        value = row['payload']
+        if value.get('_from_environment'):
+            value = {**environment_model(), **value}
+        value.setdefault('created_at', row['created_at'].isoformat())
+        value.setdefault('updated_at', row['updated_at'].isoformat())
+        value.update(_kind='model', tenant_id=row['tenant_id'], _storage_owner=row['owner_id'])
+        values.append(value)
     return values
 
 
+def model_record(model_id, owner_id, *, _connection=None, lock=False):
+    with nullcontext(_connection) if _connection is not None else connection() as conn:
+        rows = _model_rows(owner_id, model_id, conn=conn, lock=lock)
+    if not rows:
+        raise StoreError('Model not found', 404)
+    return rows[0]
+
+
+def model_response(value, *, admin=False, system_admin=False):
+    from agent.model_catalog import PROVIDERS
+    from agent.models import model_capabilities
+    params = value.get('parameters', {})
+    builtin = bool(value.get('is_builtin'))
+    manage_builtin = builtin and system_admin
+    visible = manage_builtin or (admin and not builtin)
+    result = {key: value[key] for key in ('id', 'name', 'type', 'source', 'created_at', 'updated_at') if key in value}
+    result.update(tenant_id=value.get('tenant_id', 0), display_name=value.get('display_name', ''),
+                  description=value.get('description', ''), is_default=bool(value.get('is_default')), is_builtin=builtin,
+                  status=value.get('status', 'active'))
+    if value.get('default_for'):
+        result['default_for'] = value['default_for']
+    stored_embedding = params.get('embedding_parameters') or {}
+    public_params = {'base_url': params.get('base_url', '') if visible else '',
+                     'provider': params.get('provider', ''), 'supports_vision': bool(params.get('supports_vision')),
+                     'interface_type': params.get('interface_type', ''), 'parameter_size': params.get('parameter_size', ''),
+                     'embedding_parameters': {k: stored_embedding.get(k, default) for k, default in EMBEDDING_DEFAULTS.items()}}
+    for key in ('context_window', 'max_output_tokens', 'max_concurrency'):
+        if params.get(key):
+            public_params[key] = params[key]
+    if not builtin or manage_builtin:
+        if params.get('app_id'):
+            public_params['app_id'] = params['app_id']
+        private = model_secrets.read(value, metadata=True)
+        result['credentials'] = {key: {'configured': bool(private.get(key))} for key in model_secrets.FIELDS}
+        fields = PROVIDERS.get(params.get('provider'), {}).get('extraFields', [])
+        if any(field.get('key') == 'secret_key' for field in fields) or (params.get('extra_config') or {}).get('secret_key'):
+            result['credentials']['secret_key'] = {'configured': bool(private.get('app_secret'))}
+        if visible:
+            extra = {k: v for k, v in (params.get('extra_config') or {}).items() if k != 'secret_key'}
+            if extra:
+                public_params['extra_config'] = extra
+            if private.get('custom_headers'):
+                public_params['custom_headers'] = dict.fromkeys(private['custom_headers'], MASKED)
+            if params.get('spec'):
+                public_params['spec'] = params['spec']
+    result['parameters'] = public_params
+    if value.get('source', 'remote') == 'remote' and value.get('type') != 'ASR':
+        result['capabilities'] = model_capabilities(value)
+    return result
+
+
+def _supports(model, kind):
+    kind = 'KnowledgeQA' if kind == 'Utility' else kind
+    return model.get('type') == kind or (kind == 'VLLM' and model.get('type') == 'KnowledgeQA'
+                                         and model.get('parameters', {}).get('supports_vision'))
+
+
+def workspace_defaults(owner_id, *, _connection=None):
+    with nullcontext(_connection) if _connection is not None else connection() as conn:
+        row = conn.execute('SELECT default_settings FROM platform_workspaces WHERE principal_id=%s AND deleted_at IS NULL',
+                           (owner_id,)).fetchone()
+    values = row['default_settings'] if row else {}
+    return {field: (values.get(field) or '').strip() for field in MODEL_SLOTS}
+
+
+def save_workspace_defaults(owner_id, updates, *, _connection=None):
+    if any(updates.get(field) is not None and not isinstance(updates[field], str) for field in MODEL_SLOTS):
+        raise StoreError('模型 ID 必须为字符串', 400)
+    values = {field: (updates.get(field) or '').strip() for field in MODEL_SLOTS}
+    with nullcontext(_connection) if _connection is not None else model_bindings_transaction(owner_id) as conn:
+        previous = workspace_defaults(owner_id, _connection=conn)
+        rows = {row['id']: row for row in _model_rows(owner_id, conn=conn)}
+        for field, kind in MODEL_SLOTS.items():
+            model_id = values[field]
+            if not model_id or model_id == previous[field]:
+                continue
+            row = rows.get(model_id)
+            if not row:
+                raise StoreError(f'{field}: model not found', 400)
+            if not _supports(row, kind):
+                raise StoreError(f'{field} must be a {"KnowledgeQA" if kind == "Utility" else kind} model', 400)
+            if row.get('status', 'active') != 'active':
+                raise StoreError(f'{field}: model is not active', 400)
+        if not conn.execute('UPDATE platform_workspaces SET default_settings=%s,updated_at=now() WHERE principal_id=%s AND deleted_at IS NULL',
+                            (Jsonb(values), owner_id)).rowcount:
+            raise StoreError('Workspace not found', 404)
+    return values
+
+
+def models(owner_id, *, admin=False, system_admin=False):
+    with connection() as conn:
+        defaults = workspace_defaults(owner_id, _connection=conn)
+        rows = _model_rows(owner_id, conn=conn)
+    for field, kind in MODEL_SLOTS.items():
+        selected = next((row for row in rows if row['id'] == defaults[field] and _supports(row, kind)
+                         and row.get('status', 'active') == 'active'), None)
+        if selected:
+            selected.setdefault('default_for', []).append(kind)
+            for row in rows:
+                if row['type'] == kind:
+                    row['is_default'] = row is selected
+    return [model_response(row, admin=admin, system_admin=system_admin) for row in rows]
+
+
 def default_model_id(owner_id, field='chat_model_id'):
-    value = next((item for item in records('settings', owner_id) if item['id'] == 'default-settings'), {})
-    model_id = value.get('value', {}).get(field)
-    if model_id and model_id != 'agent-main':
-        try:
-            selected = record('model', model_id, owner_id)
-        except StoreError as exc:
-            if exc.status != 404:
-                raise
-        else:
-            if selected.get('status', 'active') == 'active' and (
-                    field not in ('chat_model_id', 'summary_model_id', 'utility_model_id')
-                    or selected.get('type', 'KnowledgeQA') == 'KnowledgeQA'):
-                return model_id
-    elif model_id == 'agent-main':
-        return model_id
-    return default_model_id(owner_id) if field == 'utility_model_id' else 'agent-main'
+    kind = MODEL_SLOTS[field]
+    rows = models(owner_id)
+    active = [row for row in rows if _supports(row, kind) and row['status'] == 'active']
+    chosen = next((row for row in active if kind in row.get('default_for', [])), None)
+    if not chosen and kind == 'Utility':
+        chosen = next((row for row in active if 'KnowledgeQA' in row.get('default_for', [])), None)
+        kind = 'KnowledgeQA'
+    if not chosen:
+        chosen = next((row for row in active if row['type'] == kind and row['is_default']), None)
+    return (chosen or (active[0] if active else {})).get('id', '')
 
 
 def model_config(model_id, owner_id, *, _connection=None):
-    if not model_id or model_id == 'agent-main':
-        value = environment_model()
-        bailian = os.getenv('BAILIAN_API_KEY', '').strip()
-        value['parameters'].update(api_key=bailian or os.getenv('DASHSCOPE_API_KEY') or os.getenv('QWEN_API_KEY', ''),
-            base_url=os.getenv('AGENT_BAILIAN_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1') if bailian else
-            (os.getenv('DASHSCOPE_API_URL') or 'https://llm-rtc5v8cnt0umugh9.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions').rstrip('/').removesuffix('/chat/completions'))
-        return value
-    value = copy.deepcopy(record('model', model_id, owner_id, _connection=_connection))
+    from governance.database import database_url
     from agent.models import validate_model_runtime
+    if not database_url() and (not model_id or model_id == 'agent-main'):
+        value = environment_model()
+    else:
+        value = model_record(model_id or 'agent-main', owner_id, _connection=_connection)
     validate_model_runtime(value)
-    value['parameters'].update(secrets(value))
+    value['parameters'].update(model_secrets.read(value))
+    (value['parameters'].get('extra_config') or {}).pop('secret_key', None)
     return value
 
 
-def save_model(body, owner_id, model_id=None):
-    value = copy.deepcopy(record('model', model_id, owner_id)) if model_id else {'_kind': 'model'}
-    private = secrets(value)
-    value.update({key: body[key] for key in ('name', 'display_name', 'type', 'source', 'description') if key in body})
-    if not isinstance(value.get('name'), str) or not value['name'].strip():
+def persist_model(value, owner_id, conn):
+    storage_owner = value.pop('_storage_owner', owner_id)
+    value.pop('_from_environment', None)
+    return save_record('model', value, storage_owner, _connection=conn)
+
+
+def save_model(body, owner_id, *, stored=None, _connection=None):
+    from agent.models import model_headers, validate_model_runtime
+    from agent.model_http import validate_model_address
+    value = copy.deepcopy(stored) if stored else {'_kind': 'model'}
+    original = value.setdefault('parameters', {})
+    if body.get('source') == 'remote' and value.get('source') == 'local':
+        original.pop('interface_type', None)
+    if body.get('name') and original.get('model_name') == value.get('name'):
+        original.pop('model_name', None)
+    for key in ('name', 'display_name', 'type', 'source', 'description'):
+        if key in body:
+            if not isinstance(body[key], str):
+                raise StoreError(f'{key} 必须为字符串', 400)
+            value[key] = body[key]
+    if not value.get('name', '').strip():
         raise StoreError('请提供模型名称', 400)
-    if value.get('type', 'KnowledgeQA') not in ('KnowledgeQA', 'VLLM', 'Embedding', 'Rerank', 'ASR'):
-        raise StoreError('模型类型无效', 400)
-    params = body.get('parameters', {})
+    params = copy.deepcopy(body.get('parameters', {}))
     if not isinstance(params, dict):
         raise StoreError('模型参数必须为对象', 400)
-    params = copy.deepcopy(params)
-    for key in ('api_key', 'app_secret', 'custom_headers'):
+    if isinstance(params.get('embedding_parameters'), dict):
+        params['embedding_parameters'] = {k: v for k, v in params['embedding_parameters'].items() if k in EMBEDDING_DEFAULTS}
+    if stored and 'custom_headers' in params:
+        existing_headers = model_secrets.read(value, metadata=True).get('custom_headers') or {}
+        if params['custom_headers'] == dict.fromkeys(existing_headers, MASKED):
+            params.pop('custom_headers')
+    # Ordinary edits keep the stored ciphertext, including while a key is unavailable.
+    needs_encryption = (not stored or value.get('_from_environment') or 'custom_headers' in params
+                        or any(original.get(k) for k in (*model_secrets.FIELDS, 'custom_headers'))
+                        or (original.get('extra_config') or {}).get('secret_key'))
+    private = model_secrets.read(value) if needs_encryption else None
+    extra = params.get('extra_config')
+    if isinstance(extra, dict) and 'secret_key' in extra:
+        params.setdefault('app_secret', extra.pop('secret_key'))
+    for key in model_secrets.FIELDS:
         if key in params:
-            if key == 'custom_headers':
-                if not isinstance(params[key], dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in params[key].items()):
-                    raise StoreError('自定义请求头必须为字符串映射', 400)
-            elif not isinstance(params[key], str):
-                raise StoreError('模型凭据必须为字符串', 400)
             submitted = params.pop(key)
-            private[key] = _masked_map(submitted, private.get(key, {})) if key == 'custom_headers' else submitted
-    value['parameters'] = {**value.get('parameters', {}), **params}
+            if not stored:
+                if not isinstance(submitted, str):
+                    raise StoreError('模型凭据必须为字符串', 400)
+                private[key] = submitted
+    if 'custom_headers' in params:
+        headers = params.pop('custom_headers')
+        if not isinstance(headers, dict) or any(not isinstance(v, str) for v in headers.values()):
+            raise StoreError('自定义请求头必须为字符串映射', 400)
+        private['custom_headers'] = _masked_map(headers, private.get('custom_headers', {}))
+        model_headers({'parameters': {'custom_headers': private['custom_headers']}})
+    value['parameters'] = {**original, **params}
     value.setdefault('type', 'KnowledgeQA')
     value.setdefault('source', 'remote')
-    value.setdefault('status', 'active')
-    from agent.models import validate_model_runtime
-    validate_model_runtime(value)
-    base_url = value['parameters'].get('base_url', '')
-    if not isinstance(base_url, str) or not _http_url(base_url):
+    if not stored or stored.get('source') == 'local' and value['source'] == 'remote':
+        value['status'] = 'active'
+    resolved = validate_model_runtime(value)
+    if not resolved['base_url']:
         raise StoreError('请提供有效的模型 API 地址', 400)
-    return save_record('model', with_secrets(value, private), owner_id)
+    validate_model_address(resolved['base_url'])
+    if private is not None:
+        model_secrets.store(value, private)
+    with nullcontext(_connection) if _connection is not None else connection() as conn:
+        return persist_model(value, owner_id, conn)
 
 
 def save_mcp(body, owner_id, service_id=None):
@@ -366,7 +516,7 @@ async def mcp_tools(owner_id, config):
             if not current.get('enabled') or current.get('_encrypted') != snapshot.get('_encrypted') or current.get('tool_approvals') != snapshot.get('tool_approvals'):
                 raise StoreError('MCP 服务凭据或工具配置已变化，请重新执行', 403)
             with connection() as conn:
-                member = conn.execute('SELECT role,active FROM platform_users WHERE id=%s', (owner_id,)).fetchone()
+                member = conn.execute('SELECT role,active FROM workspace_users WHERE id=%s', (owner_id,)).fetchone()
             if not member or not member['active']:
                 raise StoreError('账号已停用', 403)
             if member['role'] == 'viewer' and request.name not in readonly_names:

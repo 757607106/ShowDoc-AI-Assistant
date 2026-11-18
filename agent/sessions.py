@@ -127,6 +127,12 @@ def _clear_checkpoint(session_id, owner_id):
     with make_checkpointer() as saver:
         saver.delete_thread(session_id)
     with connection() as conn:
+        conn.execute("SELECT id FROM agent_sessions WHERE id=%s AND owner_id=%s FOR UPDATE", (session_id, owner_id))
+        conn.execute("DELETE FROM runtime_records WHERE owner_id=%s AND kind='chat_attachment' AND payload->>'session_id'=%s",
+                     (owner_id, session_id))
+        conn.execute("""DELETE FROM workspace_storage WHERE principal_id=%s AND
+            (starts_with(resource_key,%s) OR starts_with(resource_key,%s))""",
+            (owner_id, f'attachment:{session_id}:', f'artifact:{session_id}:'))
         conn.execute("DELETE FROM runtime_records WHERE owner_id=%s AND kind='harness_resume' AND record_key=%s",
                      (owner_id, session_id))
 

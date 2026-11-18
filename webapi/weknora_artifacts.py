@@ -1,7 +1,7 @@
 """Artifact versions from checkpoint history and native current-file deletion."""
 from pathlib import PurePosixPath
 
-from agent.artifacts import artifact_key, deleted_for, download
+from agent.artifacts import artifact_key, deleted_for, download, is_artifact
 from agent.time_travel import ancestry
 from webapi.weknora_adapter import assistant_id, media_files, message_dict
 
@@ -17,9 +17,7 @@ def collect(snapshots, owner_id, session_id):
         identifier = assistant_id(users[-1])
         files = {path: item for path, item in {**media_files(state.values.get('messages', [])),
                                               **state.values.get('files', {})}.items()
-                 if not path.startswith(('/attachments/', '/skills/', '/subagent-skills/',
-                     '/conversation_history/', '/large_tool_results/', '/workspace/conversation_history/',
-                     '/workspace/large_tool_results/')) and path != '/AGENTS.md'}
+                 if is_artifact(path)}
         recorded = turns.setdefault(identifier, {})
         for path, item in files.items():
             if item == previous.get(path):
@@ -94,6 +92,8 @@ async def delete(user, selected, message_id, index, *, all_versions=False):
             raise StoreError('文件不存在或已删除', 404)
         deleted_at = now()
         with connection() as conn:
+            from governance.workspaces import set_file_sizes
+            set_file_sizes(conn, owner, {'artifact:' + key: 0 for key in pending})
             for key in pending:
                 registry.save_record('artifact_deleted',
                     {'id': key, 'session_id': sid, 'deleted_at': deleted_at}, owner, _connection=conn)

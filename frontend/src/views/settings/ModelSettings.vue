@@ -491,7 +491,7 @@ const sourceLabel = (type: ModelType) => {
   return t('modelSettings.source.remote')
 }
 
-// Maps a backend `provider` id (e.g. "openai", "aliyun", "weknoracloud")
+// Maps a backend `provider` id (e.g. "openai", "aliyun")
 // to the vendor's localized name from the backend catalog (modelProviders
 // store), so the model card and the editor dropdown always agree. Falls
 // back to the raw id when the catalog has not loaded yet, and to '' when

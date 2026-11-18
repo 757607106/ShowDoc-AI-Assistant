@@ -48,7 +48,8 @@ def test_legacy_default_slots_are_projected_without_sharing_between_owners(authe
     assert rows[vision_b['id']]['is_default'] and not rows[vision_a['id']]['is_default']
     assert rows[asr_b['id']]['is_default'] and not rows[asr_a['id']]['is_default']
     assert registry.default_model_id(owner, 'utility_model_id') == utility['id']
-    assert registry.models('other-owner')[0]['default_for'] == ['KnowledgeQA']
+    other = registry.models('other-owner')[0]
+    assert other['is_default'] and not other.get('default_for')
     assert registry.default_model_id('other-owner') == 'agent-main'
 
 
@@ -107,19 +108,20 @@ def test_explicit_empty_model_overrides_clear_but_patch_omission_preserves(authe
     assert response.status_code == 200, response.json
     cleared = registry.model_config(saved['id'], owner)['parameters']
     assert all(cleared[key] == 0 for key in ('context_window', 'max_output_tokens', 'max_concurrency'))
-    assert cleared['custom_headers'] == {}
-    assert response.json['data']['capabilities']['context_window'] is None
+    assert not cleared.get('custom_headers')
+    assert 'context_window' not in response.json['data']['capabilities']
     assert 'old-value' not in str(authenticated_client.get('/api/v1/models').json)
 
 
-def test_viewer_can_change_only_their_personal_default_not_shared_or_model_settings(authenticated_client):
+def test_viewer_can_read_but_cannot_change_workspace_defaults_or_models(authenticated_client):
     owner = os.environ['TEST_PLATFORM_USER']
     saved = save_model(owner, 'personal')
     with connection() as conn:
         conn.execute("UPDATE platform_users SET role='viewer' WHERE id=%s", (owner,))
     result = authenticated_client.put('/api/v1/tenants/kv/default-settings', json={'chat_model_id': saved['id']})
-    assert result.status_code == 200, result.json
-    assert registry.default_model_id(owner) == saved['id']
+    assert result.status_code == 403, result.json
+    assert authenticated_client.get('/api/v1/tenants/kv/default-settings').json['data']['chat_model_id'] == ''
+    assert registry.default_model_id(owner) == 'agent-main'
     assert registry.default_model_id('another-owner') == 'agent-main'
     assert authenticated_client.put('/api/v1/tenants/kv/prompt-templates', json={}).status_code == 403
     assert authenticated_client.patch(f"/api/v1/models/{saved['id']}", json={'display_name': 'forbidden'}).status_code == 403

@@ -135,6 +135,60 @@ def _initialize_schema():
                 updated_at timestamptz NOT NULL DEFAULT now()
             );
             ALTER TABLE platform_users ADD COLUMN IF NOT EXISTS preferences jsonb NOT NULL DEFAULT '{}';
+            CREATE TABLE IF NOT EXISTS platform_workspaces (
+                id bigint GENERATED ALWAYS AS IDENTITY (START WITH 10000) PRIMARY KEY,
+                account_id text NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
+                principal_id text NOT NULL UNIQUE,
+                name text NOT NULL,
+                description text NOT NULL DEFAULT 'Default workspace',
+                storage_quota bigint NOT NULL DEFAULT 10737418240 CHECK (storage_quota > 0),
+                storage_indexed boolean NOT NULL DEFAULT true,
+                created_at timestamptz NOT NULL DEFAULT now(),
+                updated_at timestamptz NOT NULL DEFAULT now(),
+                deleted_at timestamptz
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS platform_personal_workspace
+                ON platform_workspaces(account_id) WHERE deleted_at IS NULL;
+            INSERT INTO platform_workspaces(account_id,principal_id,name,storage_indexed,created_at)
+                SELECT u.id,u.id,concat(left(u.username,52),chr(39),'s Workspace'),false,u.created_at FROM platform_users u
+                WHERE NOT EXISTS (SELECT 1 FROM platform_workspaces w WHERE w.account_id=u.id);
+            ALTER TABLE platform_users ADD COLUMN IF NOT EXISTS is_system_admin boolean NOT NULL DEFAULT false;
+            ALTER TABLE platform_workspaces ADD COLUMN IF NOT EXISTS default_settings jsonb;
+            UPDATE platform_workspaces w SET default_settings=COALESCE(
+                (SELECT jsonb_strip_nulls(jsonb_build_object(
+                    'chat_model_id',coalesce(r.payload->'value'->>'chat_model_id',r.payload->'value'->>'summary_model_id'),
+                    'utility_model_id',r.payload->'value'->>'utility_model_id',
+                    'embedding_model_id',r.payload->'value'->>'embedding_model_id',
+                    'rerank_model_id',r.payload->'value'->>'rerank_model_id',
+                    'vlm_model_id',r.payload->'value'->>'vlm_model_id',
+                    'asr_model_id',r.payload->'value'->>'asr_model_id'))
+                 FROM runtime_records r WHERE r.owner_id=w.principal_id AND r.kind='settings'
+                    AND r.record_key='default-settings'), '{}') WHERE default_settings IS NULL;
+            ALTER TABLE platform_workspaces ALTER COLUMN default_settings SET DEFAULT '{}';
+            ALTER TABLE platform_workspaces ALTER COLUMN default_settings SET NOT NULL;
+            INSERT INTO runtime_records(id,owner_id,kind,record_key,name,payload,metadata)
+                VALUES ('builtin:agent-main','','model','agent-main','agent-main',
+                        '{"id":"agent-main","_kind":"model","is_builtin":true,"_from_environment":true}','{}')
+                ON CONFLICT (owner_id,kind,record_key) DO NOTHING;
+            CREATE OR REPLACE VIEW workspace_users AS
+                SELECT w.principal_id AS id,u.id AS account_id,w.id AS workspace_id,u.role,u.active,
+                       u.contextdb_key_encrypted FROM platform_workspaces w
+                JOIN platform_users u ON u.id=w.account_id WHERE w.deleted_at IS NULL;
+            CREATE TABLE IF NOT EXISTS workspace_storage (
+                resource_key text NOT NULL,
+                principal_id text NOT NULL REFERENCES platform_workspaces(principal_id) ON DELETE CASCADE,
+                size_bytes bigint NOT NULL CHECK (size_bytes >= 0),
+                PRIMARY KEY (principal_id,resource_key)
+            );
+            DO $$ DECLARE t regclass; fk record; BEGIN
+                FOREACH t IN ARRAY ARRAY['agent_sessions'::regclass,'agent_runs'::regclass] LOOP
+                    FOR fk IN SELECT conname FROM pg_constraint
+                              WHERE conrelid=t AND confrelid='platform_users'::regclass LOOP
+                        EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I',t,fk.conname);
+                        EXECUTE format('ALTER TABLE %s ADD FOREIGN KEY (owner_id) REFERENCES platform_workspaces(principal_id)',t);
+                    END LOOP;
+                END LOOP;
+            END $$;
             ALTER TABLE knowledge_sync ADD COLUMN IF NOT EXISTS conversion_fingerprint text NOT NULL DEFAULT '';
             ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS knowledge_base_ids jsonb NOT NULL DEFAULT '[]';
             ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS pinned_at timestamptz;
@@ -189,3 +243,9 @@ def _initialize_schema():
                     CHECK (target_mode IN ('source', 'wiki', 'graph'));
             END IF;
         END $$''')
+        from agent.model_secrets import migrate
+        migrate(conn)
+        bootstrap = os.getenv('PLATFORM_ADMIN_ACCOUNT') or os.getenv('PLATFORM_ADMIN_EMAIL')
+        if bootstrap:
+            conn.execute("UPDATE platform_users SET is_system_admin=true WHERE email=%s AND role='admin' AND NOT is_system_admin",
+                         (bootstrap.strip().lower(),))

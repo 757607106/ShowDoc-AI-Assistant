@@ -23,7 +23,8 @@ def test_initialize_uses_postgres_without_cloud_knowledge_storage():
     assert client.knowledge_bases == {}
     from governance.database import connection
     with connection() as conn:
-        assert conn.execute('SELECT count(*) FROM runtime_records').fetchone()['count'] == 0
+        assert conn.execute('SELECT kind,record_key FROM runtime_records').fetchall() == [
+            {'kind': 'model', 'record_key': 'agent-main'}]
 
 
 def test_job_lifecycle_and_volatile_fast_path():
@@ -133,9 +134,7 @@ def test_ingest_rolls_back_all_records_and_retries_after_midway_failure(monkeypa
     assert _generation(store, 'atomic') == original_generation
     assert len(store._list({'type': 'version'})) == 1
     assert len(store._list({'type': 'jobdoc', 'job_id': job['task_id']})) == 1
-    # A rolled-back insert may leave an orphan snapshot, but no committed row may reference a missing file.
-    new_snapshots = set(data_dir().rglob('*.json')) - snapshots_before
-    assert len(new_snapshots) == 1 and all(path.is_file() for path in new_snapshots)
+    assert set(data_dir().rglob('*.json')) == snapshots_before
     for version in store._list({'type': 'version'}):
         store._body(version['id'])
 

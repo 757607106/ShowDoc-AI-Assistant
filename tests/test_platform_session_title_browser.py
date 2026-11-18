@@ -8,7 +8,7 @@ import pytest
 
 from agent import registry, sessions
 from tests.test_platform_harness import harness, original_prepare
-from tests.test_platform_litellm import model_record, sdk_provider
+from tests.test_platform_model_protocols import model_record, sdk_provider
 from tests.test_platform_mcp_runtime import serve
 
 

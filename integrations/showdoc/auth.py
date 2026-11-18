@@ -5,7 +5,7 @@ import re
 from jsonpath_ng import parse
 import tempfile
 import os
-import litellm
+from common.model_api import chat_completion
 
 # 千问VL默认端点与模型(OpenAI兼容格式)
 DEFAULT_QWEN_API_URL = (
@@ -122,10 +122,9 @@ class ShowDocAuthenticator:
             
             print("🔍 正在调用千问大模型识别验证码...")
             
-            result = litellm.completion(
+            result = chat_completion(
                 model=self.qwen_vl_model,
-                custom_llm_provider='openai',
-                api_base=self.qwen_api_url.rstrip('/').removesuffix('/chat/completions'),
+                base_url=self.qwen_api_url.rstrip('/').removesuffix('/chat/completions'),
                 api_key=api_key,
                 messages=[
                     {

@@ -850,14 +850,15 @@
     },
     "src/views/settings/ModelSettings.vue": {
       "template": "21daa842e4a695d436f382a2ec79c12e3ffcf3afe1174f45905fdcbb96454774",
-      "source": "9b3be6cb5c3541ad67fe5ade4ee6585f644cae914f3e8539dc3e7e208df91d08",
+      "source": "abeeb0daf3afa23b8b18145cc6edab556fe7536b00645ca8b5acfe556cc3be22",
       "reason": "Existing effective model context displays remain; saving explicitly clears obsolete headers and context/output overrides and retains native model selection consumers.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
     "src/components/ModelEditorDialog.vue": {
-      "template": "63d1a599af2708547ed235e71ac600842c62d7ea4d1bc2a6aab84a66c9d698e6",
-      "source": "f9b9e44eb5476827f80964e433281805f9611d6192c4a558f30b728f60179b90",
-      "reason": "Existing raw/effective model limit previews remain; the unconsumed concurrency governor input is removed while legacy round-trip values remain compatible. In ContextDB, retired Ollama and WeKnoraCloud management probes, downloads and settings links are disabled. Historical local model names remain readable with an explicit retirement notice; ordinary remote OpenAI-compatible connections, including localhost endpoints, remain available.",
+      "template": "f47bc5fdd0c8aa409f13938d99f5ef4cf0cd4854b75c6d66cb67aa40b51a0b7c",
+      "styles": "de6b7cf4c544198dfd698a9d1990c7000951ad4b8d213e54050675619183bc35",
+      "source": "f9f84e18017e348030a09e3812f7981bca61c4cc3f57d3f55a0849a0cfbc5380",
+      "reason": "The editor uses the Python remote provider catalog and dedicated model credentials. It retains conversion for historical local models. WeKnora Cloud controls and Ollama management are retired.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
     "src/components/ModelDebugDrawer.vue": {
@@ -870,6 +871,11 @@
       "source": "ae173b88bb1ba5ca4f6342cd58d1182a6fe2784d63730d6cbd810836f5d3ac0e",
       "reason": "Reviewed assistant welcome guidance advertises browser setup/tasks only when the deployment explicitly enables browser execution.",
       "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/config/settingsAccess.ts": {
+      "source": "0d3ad12f6415d831a8b578e07971de367e9e1237ee419bc30f74448903e82748",
+      "reason": "Remove the access entry for the retired WeKnora Cloud settings page.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
     "src/config/deploymentCapabilities.ts": {
       "source": "ead124e1f6f25816ecd1526d046b62a9e7a9ae4e71405ab18c7fe82e2b8871ff",

@@ -79,6 +79,7 @@ async def _travel(selected, user, body, *, fork):
                     # Publish the new session only after its native checkpoint seed is durable.
                     created = sessions.create_session(body.get('title') or selected['title'], user['id'], config,
                         kind=resolved.get('_kind', ''), _connection=conn)
+                    saver.charge_connection = conn
                     await time_travel.seed(graph, source, created['id'])
                     row = conn.execute('UPDATE agent_sessions SET knowledge_base_ids=%s WHERE id=%s AND owner_id=%s RETURNING *',
                         (Jsonb(selected['knowledge_base_ids']), created['id'], user['id'])).fetchone()

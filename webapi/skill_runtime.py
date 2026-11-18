@@ -15,6 +15,7 @@ from agent.sandbox import CONFIG_ID
 from agent.skill_bundle import MAX_DOWNLOAD, fetch_bundle, parse_bundle
 from governance.database import connection
 from governance.store import StoreError, data_dir
+from governance.workspaces import set_file_sizes
 from webapi.legacy_runtime import unavailable
 
 skill_runtime_bp = Blueprint('skill_runtime', __name__)
@@ -64,11 +65,22 @@ def _catalog_view(value):
             'installations': []}
 
 
+def _bundle_directory(owner):
+    return data_dir() / 'skill-bundles' / hashlib.sha256(owner.encode()).hexdigest()
+
+
+def _remove_bundle(value, owner):
+    if value.get('_bundle_path'):
+        path = Path(value['_bundle_path']).resolve()
+        if path.parent == _bundle_directory(owner):
+            path.unlink(missing_ok=True)
+
+
 def _bundle_files(value):
     if 'files' in value:
         return {path: content.encode() for path, content in value['files'].items()}
     path = Path(value['_bundle_path']).resolve()
-    directory = data_dir() / 'skill-bundles' / hashlib.sha256(g.user['id'].encode()).hexdigest()
+    directory = _bundle_directory(g.user['id'])
     if not path.is_relative_to(directory.resolve()):
         raise StoreError('Skill 归档路径无效', 409)
     try:
@@ -106,24 +118,26 @@ def catalog():
     if request.method == 'POST':
         _admin()
         bundle = _upload()
-        with connection() as conn:
-            conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':skills:' || %s, 0))", (owner,))
-            old = next((value for value in registry.records('skill', owner) if value['name'] == bundle['name']), {})
-            if old and any(row.get('catalog_id') == old['id'] for row in registry.records('skill_install', owner)):
-                raise StoreError('旧安装记录引用此目录，请用新名称上传以保留历史版本', 409)
-            directory = data_dir() / 'skill-bundles' / hashlib.sha256(owner.encode()).hexdigest()
-            directory.mkdir(parents=True, exist_ok=True)
-            path = directory / (bundle['bundle_sha256'] + '.zip')
-            if not path.exists():
-                temporary = directory / (uuid.uuid4().hex + '.tmp')
-                temporary.write_bytes(bundle['archive'])
-                temporary.replace(path)
-            value = {**old, 'id': old.get('id', str(uuid.uuid4())), 'name': bundle['name'],
-                     'description': bundle['description'], 'version': bundle['version'],
-                     'bundle_sha256': bundle['bundle_sha256'], '_bundle_path': str(path),
-                     'enabled': old.get('enabled', True)}
-            value.pop('files', None)
-            value = registry.save_record('skill', value, owner)
+        path = _bundle_directory(owner) / (uuid.uuid4().hex + '.zip')
+        try:
+            with connection() as conn:
+                conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':skills:' || %s, 0))", (owner,))
+                old = next((v for v in registry.records('skill', owner, _connection=conn) if v['name'] == bundle['name']), {})
+                if old and any(row.get('catalog_id') == old['id'] for row in registry.records('skill_install', owner, _connection=conn)):
+                    raise StoreError('旧安装记录引用此目录，请用新名称上传以保留历史版本', 409)
+                value = {**old, 'id': old.get('id', str(uuid.uuid4())), 'name': bundle['name'],
+                         'description': bundle['description'], 'version': bundle['version'],
+                         'bundle_sha256': bundle['bundle_sha256'], '_bundle_path': str(path),
+                         'enabled': old.get('enabled', True)}
+                value.pop('files', None)
+                set_file_sizes(conn, owner, {'skill:' + value['id']: len(bundle['archive'])})
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(bundle['archive'])
+                value = registry.save_record('skill', value, owner, _connection=conn)
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
+        _remove_bundle(old, owner)
         return jsonify(success=True, data=_catalog_view(value)), 201
     return jsonify(success=True, data=[_catalog_view(value) for value in registry.records('skill', owner)])
 
@@ -131,13 +145,18 @@ def catalog():
 @skill_runtime_bp.route('/api/v1/skills/catalog/<catalog_id>', methods=['GET', 'DELETE'])
 def catalog_item(catalog_id):
     owner = g.user['id']
-    value = registry.record('skill', catalog_id, owner)
     if request.method == 'DELETE':
         _admin()
-        if any(row.get('catalog_id') == catalog_id for row in registry.records('skill_install', owner)):
-            raise StoreError('旧安装记录引用此目录，保留归档内容；自动卸载已停用', 409)
-        registry.delete_record('skill', catalog_id, owner)
+        with connection() as conn:
+            conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':skills:' || %s, 0))", (owner,))
+            value = registry.record('skill', catalog_id, owner, _connection=conn)
+            if any(row.get('catalog_id') == catalog_id for row in registry.records('skill_install', owner, _connection=conn)):
+                raise StoreError('旧安装记录引用此目录，保留归档内容；自动卸载已停用', 409)
+            set_file_sizes(conn, owner, {'skill:' + catalog_id: 0})
+            registry.delete_record('skill', catalog_id, owner, _connection=conn)
+        _remove_bundle(value, owner)
         return jsonify(success=True)
+    value = registry.record('skill', catalog_id, owner)
     return jsonify(success=True, data=_catalog_view(value))
 
 

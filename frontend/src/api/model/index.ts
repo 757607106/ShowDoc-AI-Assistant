@@ -76,7 +76,6 @@ export interface ModelConfig {
     // 后台任务（入库/富化）对该模型的并发上限，按模型 ID 全副本共享。
     // 0 或不填表示沿用全局默认（model.max_concurrency）；仅对 chat/embedding/vllm 生效。
     max_concurrency?: number;
-    app_id?: string;
     // Secret fields (api_key, app_secret) are never returned by the server in
     // this shape — they live behind the /credentials subresource. They are
     // kept on the type so create-mode payloads can still carry them in the
@@ -297,52 +296,4 @@ export async function deleteModelCredentialField(
   field: ModelCredentialField,
 ): Promise<void> {
   await del(`/api/v1/models/${id}/credentials/${field}`)
-}
-
-export interface InitializeWeKnoraCloudRequest {
-  app_id: string
-  app_secret: string
-}
-
-// 仅保存 WeKnoraCloud 凭证，不自动创建模型
-export function saveWeKnoraCloudCredentials(data: InitializeWeKnoraCloudRequest): Promise<{ success: boolean; message: string }> {
-  return new Promise((resolve, reject) => {
-    post('/api/v1/weknoracloud/credentials', data)
-      .then((response: any) => {
-        if (response.success) {
-          resolve(response)
-        } else {
-          reject(new Error(response.message || response.error || '凭证保存失败'))
-        }
-      })
-      .catch((error: any) => {
-        console.error('Failed to save WeKnoraCloud credentials:', error)
-        reject(error)
-      })
-  })
-}
-
-export interface WeKnoraCloudStatusResult {
-  has_models: boolean
-  needs_reinit: boolean
-  reason?: string
-}
-
-export function getWeKnoraCloudStatus(): Promise<WeKnoraCloudStatusResult> {
-  return new Promise((resolve, reject) => {
-    get('/api/v1/models/weknoracloud/status')
-      .then((response: any) => {
-        // status 接口直接返回对象，不包在 success/data 中
-        if (response && typeof response.has_models === 'boolean') {
-          resolve(response)
-        } else if (response?.success && response?.data) {
-          resolve(response.data)
-        } else {
-          resolve({ has_models: false, needs_reinit: false })
-        }
-      })
-      .catch(() => {
-        resolve({ has_models: false, needs_reinit: false })
-      })
-  })
 }

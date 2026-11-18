@@ -10,8 +10,8 @@ langchain-docling[local]==3.0.0
 docling-slim==2.150.0
 docling-core==2.106.0
 langchain-openai==1.7.4
-langchain-litellm==0.11.1
-litellm==1.109.1
+langchain-anthropic==1.7.10
+langchain-google-genai==4.5.0
 json-repair==0.53.1
 # openai 3.x 与 langchain-openai 1.7.4 不兼容(AsyncOpenAI 构造报缺凭证),钉 2.x
 openai<3

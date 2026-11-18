@@ -39,7 +39,8 @@ def test_account_creation_requires_no_email_and_is_case_insensitively_unique(aut
     client, response = sign_in('employee', 'user1234')
     assert response.status_code == 200 and response.json['user']['id'] == created.json['id']
     assert response.json['user']['username'] == '显示名称'
-    assert response.json['memberships'][0]['role'] == 'contributor'
+    assert response.json['memberships'][0]['role'] == 'owner'
+    assert response.json['user']['platform_role'] == 'editor'
     body['account'] = 'EMPLOYEE'
     assert authenticated_client.post('/api/platform/users', json=body).status_code == 409
     users = authenticated_client.get('/api/platform/users').json['users']

@@ -71,21 +71,18 @@ def test_usage_lists_are_capped_without_under_counting(authenticated_client):
     assert [item['name'] for item in details['agents']] == [f'Agent {index:02}' for index in range(50)]
 
 
-def test_default_pins_keep_plain_conflict_and_file_memory_has_no_model_dependency(authenticated_client):
+def test_default_only_is_repairable_and_native_file_memory_has_no_model_binding(authenticated_client):
     owner = os.environ['TEST_PLATFORM_USER']
     saved = model(owner)
     response = authenticated_client.put('/api/v1/tenants/kv/default-settings', json={'chat_model_id': saved['id']})
     assert response.status_code == 200
-    usage = authenticated_client.get(f"/api/v1/models/{saved['id']}/usage").json['data']
-    assert usage['in_use'] is True and usage['agents'] == []
-    deleted = authenticated_client.delete(f"/api/v1/models/{saved['id']}")
-    assert deleted.status_code == 409 and 'chat_model_id' in deleted.json['message']
-    assert 'error' not in deleted.json
-    assert authenticated_client.put('/api/v1/tenants/kv/default-settings', json={
-        'chat_model_id': 'agent-main', 'summary_model_id': 'agent-main'}).status_code == 200
     registry.save_record('settings', {'id': 'memory-config', 'value': {
         'enabled': True, 'extract_model_id': saved['id'], 'embedding_model_id': saved['id']}}, owner)
+    usage = authenticated_client.get(f"/api/v1/models/{saved['id']}/usage").json['data']
+    assert not usage['in_use'] and usage['long_term_memory']['bindings'] == []
     assert authenticated_client.delete(f"/api/v1/models/{saved['id']}").status_code == 200
+    assert registry.workspace_defaults(owner)['chat_model_id'] == saved['id']
+    assert registry.default_model_id(owner) == 'agent-main'
 
 
 def test_usage_and_binding_writes_are_owner_scoped(authenticated_client):

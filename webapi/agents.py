@@ -23,7 +23,10 @@ def _view(value):
     issues = runtime_config_issues(validate_config(config, check_runtime=False))
     if config.get('sandbox_config_id') == 'state-backend':
         config['sandbox_config_id'] = ''
-    return {**value, 'config': config, 'config_issues': issues}
+    result = {**value, 'tenant_id': g.user['workspace_id'], 'config': config, 'config_issues': issues}
+    if result.get('created_by') == g.user['id']:
+        result['created_by'] = g.user['account_id']
+    return result
 
 
 @agents_bp.route('/api/v1/agents', methods=['GET', 'POST'])

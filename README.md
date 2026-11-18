@@ -22,7 +22,7 @@ uv pip install --python .venv/bin/python -r requirements.txt
 cp .env.example .env  # 仅在 .env 尚不存在时执行
 ```
 
-填写 `.env` 的 ContextDB、模型和平台配置：`POSTGRES_PASSWORD`、`DATABASE_URL`、`AGENT_DATABASE_URL`、`FLASK_SECRET_KEY`、`CREDENTIAL_ENCRYPTION_KEY`、`PLATFORM_ADMIN_ACCOUNT`、`PLATFORM_ADMIN_PASSWORD`。两个应用 DSN 必须使用不同数据库、不同受限账号，禁止使用 Compose 的引导管理员。已有共享库按[隔离迁移说明](docs/guides/agent-postgres-isolation.md)先备份、盘点再切换。Fernet 密钥可用 `.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` 生成；平台使用账号和密码登录，无需邮箱格式，密码长度为 8 至 1024 位。默认管理员为 `admin / admin123`，首次引导会创建账号，已有账号不会被启动或引导过程重置；旧配置 `PLATFORM_ADMIN_EMAIL` 仍作为账号配置的兼容别名。数据库连接串中的密码需 URL 编码。
+填写 `.env` 的 ContextDB、模型和平台配置：`POSTGRES_PASSWORD`、`DATABASE_URL`、`AGENT_DATABASE_URL`、`FLASK_SECRET_KEY`、`CREDENTIAL_ENCRYPTION_KEY`、`SYSTEM_AES_KEY`、`PLATFORM_ADMIN_ACCOUNT`、`PLATFORM_ADMIN_PASSWORD`。两个应用 DSN 必须使用不同数据库、不同受限账号，禁止使用 Compose 的引导管理员。已有共享库按[隔离迁移说明](docs/guides/agent-postgres-isolation.md)先备份、盘点再切换。Fernet 密钥可用 `.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` 生成；平台使用账号和密码登录，无需邮箱格式，密码长度为 8 至 1024 位。默认管理员为 `admin / admin123`，首次引导会创建账号，已有账号不会被启动或引导过程重置；旧配置 `PLATFORM_ADMIN_EMAIL` 仍作为账号配置的兼容别名。数据库连接串中的密码需 URL 编码。
 
 ```bash
 docker compose -f compose.postgres.yml up -d
@@ -51,11 +51,9 @@ cd ..
 
 回答引用只采用本轮成功官方工具返回的原文切片，按真实知识库/文档/切片 ID 校验；跨流片段完整输出标签，代码示例保持字面内容。工具错误、停止与恢复使用实际执行状态，停止无需等待卡住的工具再返回事件。
 
-Agent 模型通过 **LiteLLM Python SDK** 接入，继续使用原生 Deep Agents / LangGraph 执行、审批和 checkpoint。模型配置中的供应商可选择 OpenAI、阿里云百炼、DeepSeek、Anthropic、Google Gemini 或 OpenAI 兼容服务；填写该供应商的实际模型名、Base URL 和个人 API Key。前端 Agent 组件及交互沿用固定 WeKnora 版本，模型能力、调试表单与流事件由后端适配。普通连接测试不代表该型号支持思考或工具调用。
+模型配置沿用 [WeKnora 模型目录](https://github.com/Tencent/WeKnora/tree/7d064bc3a259f87634840199f565ec4dd644ba1e/internal/models)的服务商、型号、默认地址和协议设置。设置中的「模型配置」支持远程对话、Embedding、ReRank、视觉和语音模型。连接测试、调试和 Agent 通过 Python 直接请求配置的服务商。模型 API Key、签名密钥和自定义请求头由 `SYSTEM_AES_KEY`（32 字节，可用 `openssl rand -hex 16` 生成）以 AES-256-GCM 加密。平台启动时使用原 `CREDENTIAL_ENCRYPTION_KEY` 迁移旧模型凭据，Web 和 Agent 进程须使用相同的模型密钥。
 
-思考选项来自固定 SDK 的本地型号目录，可通过现有 `parameters.spec` 覆盖新型号的 `reasoning`、`thinking_levels` 和 token 限制；不支持的强度会明确拒绝。`qwen-max` 不提供思考选项；百炼可使用支持思考的 `qwen-plus`。`auto` 对 Qwen 开启思考，对 DeepSeek/Gemini/支持 adaptive 的 Claude 使用自动模式；OpenAI 无可用自动强度时使用 `medium`。Claude 思考输出预算须大于 1024 tokens。模型测试返回请求选项、实际应用的选项、思考内容和用量；受模型限制的采样参数不会伪装成已应用。OpenAI Responses 可在现有高级配置中选择 `extra_config.api=openai-responses`，保留推理摘要及恢复所需的加密项。
-
-SDK 固定为 `langchain-litellm==0.11.1`、`litellm==1.109.1`。`langchain-litellm 0.11.2` 强制引入 MCP 2.x，与当前 `mcp==1.30.0` 冲突，因此本次不升级该依赖。默认测试使用本地 OpenAI/Qwen/DeepSeek、Anthropic、Gemini 协议服务及隔离 PostgreSQL；真实浏览器与百炼验收分别执行 `RUN_BROWSER_ACCEPTANCE=1 .venv/bin/python -m pytest tests/test_platform_litellm_browser.py -q`（先构建前端，需安装 Chrome）和 `RUN_LLM_ACCEPTANCE=1 .venv/bin/python -m pytest tests/test_platform_litellm_live.py -q`（使用已配置的百炼凭据，产生模型调用费用）。验收仅写入测试 schema 和会话虚拟文件；验收报告不保存思考正文或明文凭据。
+模型协议测试使用本地 HTTP 服务和隔离 PostgreSQL。构建前端后，可运行 `RUN_BROWSER_ACCEPTANCE=1 .venv/bin/python -m pytest tests/test_platform_model_protocols_browser.py -q` 验证浏览器操作。
 
 Wiki 编译器接管准入结果为 **未通过**：完整受影响页定位、编译来源/链接写入及云端编译隔离仍未确认，继续使用 ContextDB 官方编译。独立切片分页、页面版本冲突与读回实测见[准入报告](docs/architecture/contextdb-wiki-compiler-readiness.md)；未增加本地编译器或 Worker 编译阶段。
 

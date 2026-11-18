@@ -4,12 +4,12 @@
     :description="getModalDescription()" :icon="modelTypeIcon" :confirm-loading="saving" :cancel-disabled="saving"
     :confirm-text="$t('model.editor.saveAndClose')"
     :close-on-overlay-click="!saving" :close-on-esc-keydown="!saving"
-    :confirm-disabled="retiredLocalModel || (formData.provider === 'weknoracloud' && wkcCredentialState !== 'configured')"
+    :confirm-disabled="retiredLocalModel"
     @update:visible="(v: boolean) => dialogVisible = v" @confirm="handleConfirm" @cancel="handleCancel">
 
     <template v-if="formData.source === 'remote'" #footer-left>
       <t-button variant="outline" @click="checkRemoteAPI" :loading="checking"
-        :disabled="saving || !formData.modelName || (!formData.baseUrl && formData.provider !== 'weknoracloud') || (formData.provider === 'weknoracloud' && wkcCredentialState !== 'configured')">
+        :disabled="saving || !formData.modelName || !formData.baseUrl">
         <template #icon>
           <t-icon v-if="!checking && remoteChecked && remoteAvailable" name="check-circle-filled"
             class="status-icon available" />
@@ -92,79 +92,13 @@
               <t-icon name="cloud" class="source-option__icon" />
               <span class="source-option__label">{{ $t('model.editor.sourceRemote') }}</span>
             </button>
-            <button
-              v-if="ollamaManagementEnabled && activeModelType !== 'rerank'"
-              type="button"
-              class="source-option"
-              :class="{ 'is-active': formData.source === 'local', 'is-disabled': ollamaServiceStatus === false }"
-              :disabled="ollamaServiceStatus === false"
-              role="radio"
-              :aria-checked="formData.source === 'local'"
-              @click="formData.source = 'local'"
-            >
-              <t-icon name="server" class="source-option__icon" />
-              <span class="source-option__label">{{ $t('model.editor.sourceLocal') }}</span>
-            </button>
-          </div>
-
-          <!-- Ollama不可用时的提示信息 -->
-          <div v-if="ollamaManagementEnabled && shouldShowOllamaUnavailableTip(formData.source, activeModelType, ollamaServiceStatus)"
-            class="ollama-unavailable-tip">
-            <t-icon name="error-circle-filled" class="tip-icon" />
-            <span class="tip-text">{{ $t('model.editor.ollamaUnavailable') }}</span>
-            <t-button variant="text" size="small" @click="goToOllamaSettings" class="tip-link">
-              <template #icon><t-icon name="jump" /></template>
-              {{ $t('model.editor.goToOllamaSettings') }}
-            </t-button>
           </div>
         </div>
 
-        <!-- Ollama 本地模型选择器 -->
-        <div v-if="formData.source === 'local'" class="form-item">
-          <label class="form-label required">{{ $t('model.modelName') }}</label>
-          <template v-if="retiredLocalModel">
-            <t-input :model-value="formData.modelName" readonly />
-            <t-alert theme="info" :message="$t('model.editor.legacyLocalUnavailable')" />
-          </template>
-          <div v-else class="model-select-row">
-            <t-select v-model="formData.modelName" :loading="loadingOllamaModels" :class="{ 'downloading': downloading }"
-              :style="downloading ? `--progress: ${downloadProgress}%` : ''" filterable :filter="handleModelFilter"
-              :placeholder="$t('model.searchPlaceholder')" @focus="loadOllamaModels"
-              @visible-change="handleDropdownVisibleChange">
-              <!-- 已下载的模型 -->
-              <t-option v-for="model in filteredOllamaModels" :key="model.name" :value="model.name" :label="model.name">
-                <div class="model-option">
-                  <t-icon name="check-circle-filled" class="downloaded-icon" />
-                  <span class="model-name">{{ model.name }}</span>
-                  <span class="model-size">{{ formatModelSize(model.size) }}</span>
-                </div>
-              </t-option>
-
-              <!-- 下载新模型选项（仅当搜索词不在列表中时显示） -->
-              <t-option v-if="showDownloadOption" :value="`__download__${searchKeyword}`"
-                :label="$t('model.editor.downloadLabel', { keyword: searchKeyword })" class="download-option">
-                <div class="model-option download">
-                  <t-icon name="download" class="download-icon" />
-                  <span class="model-name">{{ $t('model.editor.downloadLabel', { keyword: searchKeyword }) }}</span>
-                </div>
-              </t-option>
-
-              <!-- 下载进度后缀 -->
-              <template v-if="downloading" #suffix>
-                <div class="download-suffix">
-                  <t-icon name="loading" class="spinning" />
-                  <span class="progress-text">{{ downloadProgress.toFixed(1) }}%</span>
-                </div>
-              </template>
-            </t-select>
-
-            <!-- 刷新按钮 -->
-            <t-button variant="text" size="small" :loading="loadingOllamaModels" @click="refreshOllamaModels"
-              class="refresh-btn">
-              <t-icon name="refresh" />
-              {{ $t('model.editor.refreshList') }}
-            </t-button>
-          </div>
+        <div v-if="retiredLocalModel" class="form-item">
+          <label class="form-label">{{ $t('model.modelName') }}</label>
+          <t-input :model-value="formData.modelName" readonly />
+          <t-alert theme="info" :message="$t('model.editor.legacyLocalUnavailable')" />
         </div>
       </section>
 
@@ -218,48 +152,6 @@
             </p>
           </div>
 
-          <!-- WeKnoraCloud 提示信息 -->
-          <template v-if="!IS_CONTEXTDB && formData.provider === 'weknoracloud'">
-            <!-- 凭证已配置 -->
-            <div v-if="wkcCredentialState === 'configured'" class="weknoracloud-hint weknoracloud-hint--ok">
-              <t-icon name="check-circle-filled" class="hint-icon hint-icon--ok" />
-              <div>
-                {{ $t('settings.weknoraCloud.modelHintConfigured') }}
-                <a href="https://developers.weixin.qq.com/doc/aispeech/knowledge/atomic_capability/atomic_interface.html"
-                  target="_blank" rel="noopener noreferrer" class="doc-link">
-                  {{ $t('settings.weknoraCloud.modelHintDocsLink') }}
-                  <t-icon name="link" class="link-icon" />
-                </a>
-              </div>
-            </div>
-
-            <!-- 未配置 / 失效 -->
-            <div v-else-if="wkcCredentialState !== 'loading'" class="weknoracloud-hint weknoracloud-hint--warn">
-              <t-icon name="error-circle-filled" class="hint-icon hint-icon--warn" />
-              <div style="flex: 1;">
-                <template v-if="wkcCredentialState === 'expired'">
-                  {{ $t('settings.weknoraCloud.credentialExpired') }}
-                </template>
-                <template v-else>
-                  {{ $t('settings.weknoraCloud.credentialUnconfigured') }}
-                </template>
-                <div style="margin-top: 8px;">
-                  <t-button variant="text" size="small" @click="goToWeKnoraCloudSettings"
-                    style="padding: 0; height: auto;">
-                    <template #icon><t-icon name="jump" /></template>
-                    {{ $t('settings.weknoraCloud.goToSettings') }}
-                  </t-button>
-                </div>
-              </div>
-            </div>
-
-            <!-- 加载中 -->
-            <div v-else class="weknoracloud-hint">
-              <t-icon name="loading" class="spinning hint-icon hint-icon--loading" />
-              <span>{{ $t('settings.weknoraCloud.checkingStatus') }}</span>
-            </div>
-          </template>
-
           <!--
             模型名称：厂商内置目录做候选，同时允许自由输入（filterable + creatable）。
             选中目录内模型时自动带出上下文窗口 / 输出上限 / 视觉 / 维度（仅填空字段）。
@@ -276,7 +168,6 @@
               v-if="catalogModelOptions.length === 0"
               v-model="formData.modelName"
               :placeholder="getModelNamePlaceholder()"
-              :disabled="formData.provider === 'weknoracloud' && wkcCredentialState !== 'configured'"
               clearable
               autocomplete="off"
               spellcheck="false"
@@ -288,7 +179,6 @@
               creatable
               clearable
               :placeholder="getModelNamePlaceholder()"
-              :disabled="formData.provider === 'weknoracloud' && wkcCredentialState !== 'configured'"
               :popup-props="{ overlayClassName: 'wk-popover catalog-model-select-popup', overlayInnerStyle: matchTriggerWidth }"
               @create="handleCatalogModelCreate"
               @change="handleCatalogModelChange"
@@ -316,12 +206,12 @@
             <p class="form-desc">{{ $t('model.editor.displayNameDesc') }}</p>
           </div>
 
-          <div v-if="formData.provider !== 'weknoracloud'" class="form-item">
+          <div class="form-item">
             <label class="form-label required">{{ $t('model.editor.baseUrlLabel') }}</label>
             <t-input v-model="formData.baseUrl" :placeholder="getBaseUrlPlaceholder()" />
           </div>
 
-          <div v-if="formData.provider !== 'weknoracloud'" class="form-item">
+          <div class="form-item">
             <label class="form-label" :class="{ required: apiKeyRequired }">{{ apiKeyLabel }}</label>
             <!--
               Edit mode: credentials live behind the /credentials subresource
@@ -348,7 +238,7 @@
             厂商声明的 secret 额外字段（LKEAP / 火山引擎 Rerank 的 SecretKey 等）：
             创建模式写入 app_secret；编辑模式由上面的 CredentialResource 卡片管理。
           -->
-          <div v-if="secretExtraField && !isEdit && formData.provider !== 'weknoracloud'" class="form-item">
+          <div v-if="secretExtraField && !isEdit" class="form-item">
             <label class="form-label" :class="{ required: secretExtraField.required }">{{ extraFieldDisplayLabel(secretExtraField) }}</label>
             <t-input v-model="formData.appSecret" type="password"
               :placeholder="secretExtraField.placeholder || ''" autocomplete="new-password" spellcheck="false">
@@ -385,7 +275,7 @@
           </div>
 
           <!-- 自定义 HTTP Header（类似 OpenAI Python SDK 的 extra_headers） -->
-          <div v-if="formData.provider !== 'weknoracloud'" class="form-item">
+          <div class="form-item">
             <div class="custom-headers-header">
               <label class="form-label" style="margin-bottom: 0;">{{ $t('model.editor.customHeadersLabel') }}</label>
               <t-button variant="text" size="small" theme="primary" @click="addCustomHeader">
@@ -478,20 +368,8 @@
         <!-- Embedding 专用：维度 -->
         <div v-if="activeModelType === 'embedding'" class="form-item">
           <label class="form-label">{{ $t('model.editor.dimensionLabel') }}</label>
-          <div class="dimension-control">
-            <t-input v-model.number="formData.dimension" type="number" :min="128" :max="4096"
-              :placeholder="$t('model.editor.dimensionPlaceholder')"
-              :disabled="!formData.supportsDimensionOverride || (formData.source === 'local' && checking)" />
-            <!-- Ollama 本地模型：自动检测维度按钮 -->
-            <t-button v-if="ollamaManagementEnabled && formData.source === 'local' && formData.modelName" variant="text" size="small"
-              :loading="checking" @click="checkOllamaDimension" class="dimension-check-btn">
-              <t-icon name="refresh" />
-              {{ $t('model.editor.checkDimension') }}
-            </t-button>
-          </div>
-          <p v-if="dimensionChecked && dimensionMessage" class="dimension-hint" :class="{ success: dimensionSuccess }">
-            {{ dimensionMessage }}
-          </p>
+          <t-input v-model.number="formData.dimension" type="number" :min="128" :max="4096"
+            :placeholder="$t('model.editor.dimensionPlaceholder')" :disabled="!formData.supportsDimensionOverride" />
         </div>
 
         <div v-if="activeModelType === 'embedding'" class="form-item">
@@ -536,11 +414,18 @@
           <p class="form-desc">{{ $t('model.editor.maxOutputTokensDesc') }}</p>
         </div>
 
+        <div v-if="['embedding', 'chat', 'vllm'].includes(activeModelType)" class="form-item">
+          <label class="form-label">{{ $t('model.editor.maxConcurrencyLabel') }}</label>
+          <t-input v-model.number="formData.maxConcurrency" type="number" :min="0" :max="4096"
+            :placeholder="$t('model.editor.maxConcurrencyPlaceholder')" />
+          <p class="form-desc">{{ $t('model.editor.maxConcurrencyDesc') }}</p>
+        </div>
+
         <!--
           高级：协议覆盖 / 远端模型名 / 目录 compat 覆盖，以及仅旧数据才显示的
           thinking_control 兼容选择。默认折叠，绝大多数用户无需触碰。
         -->
-        <template v-if="formData.source === 'remote' && formData.provider !== 'weknoracloud'">
+        <template v-if="formData.source === 'remote'">
           <button type="button" class="advanced-toggle" :aria-expanded="advancedOpen" @click="advancedOpen = !advancedOpen">
             <t-icon name="chevron-right" class="toggle-arrow" :class="{ open: advancedOpen }" />
             <span>{{ $t('model.editor.advanced.toggle') }}</span>
@@ -607,21 +492,18 @@
 import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import {
-  checkOllamaModels, checkRemoteModel, testEmbeddingModel, checkRerankModel, checkASRModel, listOllamaModels,
-  downloadOllamaModel, getDownloadProgress, checkOllamaStatus, resolveModelCatalog,
-  type OllamaModelInfo, type ModelProviderOption, type ModelProviderExtraField,
+  checkRemoteModel, testEmbeddingModel, checkRerankModel, checkASRModel, resolveModelCatalog,
+  type ModelProviderOption, type ModelProviderExtraField,
   type ModelProviderExtraFieldOption, type ModelCatalogEntry,
   type ResolvedModelCatalog,
 } from '@/api/initialization'
 import {
-  getWeKnoraCloudStatus,
   putModelCredentials,
   deleteModelCredentialField,
   type ModelCredentialField,
   type ModelSpecOverride,
 } from '@/api/model'
 import { useI18n } from 'vue-i18n'
-import { useUIStore } from '@/stores/ui'
 import { useModelProvidersStore } from '@/stores/modelProviders'
 import {
   credentialLabelForModelType,
@@ -643,12 +525,8 @@ import CredentialResource, {
   type CredentialFieldDef,
   type CredentialResourceApi,
 } from '@/components/credentials/CredentialResource.vue'
-import { shouldShowOllamaUnavailableTip } from '@/components/modelEditorSourceState'
-import { WEKNORA_CLOUD_PROVIDER, WKC_MODEL_KINDS, WKC_MODEL_NAME_BY_KIND } from '@/utils/weknoraCloudModels'
 import { docsUrl } from '@/utils/docsUrl'
-import { IS_CONTEXTDB } from '@/config/contextdb'
 
-const ollamaManagementEnabled = !IS_CONTEXTDB
 
 interface CustomHeaderItem {
   key: string
@@ -726,7 +604,6 @@ interface Props {
 }
 
 const { t, locale } = useI18n()
-const uiStore = useUIStore()
 const providersStore = useModelProvidersStore()
 
 const props = withDefaults(defineProps<Props>(), {
@@ -894,25 +771,8 @@ interface CatalogModelOption {
   entry?: ModelCatalogEntry
 }
 
-const catalogEntries = computed<ModelCatalogEntry[]>(() => {
-  const entries = selectedProvider.value?.models || []
-  // Managed aliases are already used by the cloud setup page. They have no
-  // published limits, so the backend catalog is empty, but they can still be
-  // offered by name without inventing context windows or embedding dimensions.
-  if (formData.value.provider === WEKNORA_CLOUD_PROVIDER && entries.length === 0) {
-    const kind = WKC_MODEL_KINDS.find(kind => kind === activeModelType.value)
-    if (kind) {
-      const name = WKC_MODEL_NAME_BY_KIND[kind]
-      return [{ id: name, name, type: kind === 'vllm' ? 'chat' : kind, input: kind === 'vllm' ? ['text', 'image'] : ['text'] }]
-    }
-  }
-  // The list is already scoped: providers are fetched per model type, so the
-  // backend returned exactly the entries that type can use. Filtering again
-  // here on entry.type was wrong for 视觉 — a VLM entry is a chat model that
-  // accepts images, so it arrives typed "chat" and every one of them was
-  // dropped, leaving the picker empty for every vendor.
-  return entries
-})
+// Providers return entries scoped to the selected model type, including vision-capable chat models.
+const catalogEntries = computed<ModelCatalogEntry[]>(() => selectedProvider.value?.models || [])
 
 const catalogModelOptions = computed<CatalogModelOption[]>(() => {
   const options: CatalogModelOption[] = catalogEntries.value.map(entry => ({
@@ -1041,8 +901,7 @@ const isChatLike = computed(() => activeModelType.value === 'chat' || activeMode
 const showResolvedPanel = computed(() =>
   isChatLike.value
   && formData.value.source === 'remote'
-  && !!formData.value.provider
-  && formData.value.provider !== 'weknoracloud',
+  && !!formData.value.provider,
 )
 
 const resolvedThinkingLevels = computed(() => supportedLevels(resolved.value?.capabilities))
@@ -1171,9 +1030,7 @@ const credentialFields = computed<CredentialFieldDef<ModelCredentialField>[]>(()
   const fields: CredentialFieldDef<ModelCredentialField>[] = [
     { key: 'api_key', label: t('model.editor.apiKeyOptional') as string },
   ]
-  if (formData.value.provider === 'weknoracloud') {
-    fields.push({ key: 'app_secret', label: 'App Secret' })
-  } else if (secretExtraField.value) {
+  if (secretExtraField.value) {
     fields.push({ key: 'app_secret', label: extraFieldDisplayLabel(secretExtraField.value) })
   }
   return fields
@@ -1229,8 +1086,6 @@ watch(() => props.visible && saving.value, (locked) => {
 // affordance for everyday use. Reset every time the drawer closes (see
 // reset block in the visible watcher) so we never leak the previous value
 // across editor sessions.
-const modelChecked = ref(false)
-const modelAvailable = ref(false)
 const checking = ref(false)
 const remoteChecked = ref(false)
 const remoteAvailable = ref(false)
@@ -1247,9 +1102,6 @@ const invalidateConnectionTest = (showStale = true) => {
   remoteChecked.value = false
   remoteAvailable.value = false
   remoteMessage.value = ''
-  dimensionChecked.value = false
-  dimensionSuccess.value = false
-  dimensionMessage.value = ''
 }
 
 const applyDetectedDimension = (dimension: number) => {
@@ -1259,52 +1111,6 @@ const applyDetectedDimension = (dimension: number) => {
   } finally {
     applyingDetectedDimension = false
   }
-}
-const dimensionChecked = ref(false)
-const dimensionSuccess = ref(false)
-const dimensionMessage = ref('')
-
-// Ollama 模型状态
-const ollamaModelList = ref<OllamaModelInfo[]>([])
-const loadingOllamaModels = ref(false)
-const searchKeyword = ref('')
-const downloading = ref(false)
-const downloadProgress = ref(0)
-const currentDownloadModel = ref('')
-let downloadInterval: any = null
-
-// Ollama 服务状态
-const ollamaServiceStatus = ref<boolean | null>(null)
-const checkingOllamaStatus = ref(false)
-
-// WeKnoraCloud 凭证状态
-const wkcCredentialState = ref<'loading' | 'unconfigured' | 'configured' | 'expired'>('loading')
-
-const checkWkcCredentialStatus = async () => {
-  if (IS_CONTEXTDB) return
-  wkcCredentialState.value = 'loading'
-  try {
-    const status = await getWeKnoraCloudStatus()
-    if (status.needs_reinit) {
-      wkcCredentialState.value = 'expired'
-    } else if (status.has_models) {
-      wkcCredentialState.value = 'configured'
-    } else {
-      wkcCredentialState.value = 'unconfigured'
-    }
-  } catch {
-    wkcCredentialState.value = 'unconfigured'
-  }
-}
-
-const goToWeKnoraCloudSettings = async () => {
-  if (IS_CONTEXTDB) return
-  emit('update:visible', false)
-  if (uiStore.showSettingsModal) {
-    uiStore.closeSettings()
-    await nextTick()
-  }
-  uiStore.openSettings('weknoracloud')
 }
 
 const formData = ref<ModelFormData>({
@@ -1318,7 +1124,7 @@ const formData = ref<ModelFormData>({
   apiKey: '',
   dimension: undefined,
   supportsDimensionOverride: false,
-  interfaceType: 'ollama',
+  interfaceType: undefined,
   isDefault: false,
   supportsVision: false,
   contextWindow: undefined,
@@ -1331,7 +1137,7 @@ const formData = ref<ModelFormData>({
   customHeaders: [],
   appSecret: '',
 })
-const retiredLocalModel = computed(() => IS_CONTEXTDB && formData.value.source === 'local')
+const retiredLocalModel = computed(() => formData.value.source === 'local')
 
 const rules = computed(() => ({
   modelName: [
@@ -1399,16 +1205,12 @@ const getModelNamePlaceholder = () => {
   const catalogModel = catalogEntries.value[0]
   if (formData.value.source === 'remote' && catalogModel) return catalogModel.id
   if (activeModelType.value === 'vllm') {
-    return formData.value.source === 'local'
-      ? t('model.editor.modelNamePlaceholder.localVllm')
-      : t('model.editor.modelNamePlaceholder.remoteVllm')
+    return t('model.editor.modelNamePlaceholder.remoteVllm')
   }
   if (activeModelType.value === 'asr') {
     return t('model.editor.modelNamePlaceholder.remoteAsr')
   }
-  return formData.value.source === 'local'
-    ? t('model.editor.modelNamePlaceholder.local')
-    : t('model.editor.modelNamePlaceholder.remote')
+  return t('model.editor.modelNamePlaceholder.remote')
 }
 
 const getBaseUrlPlaceholder = () => {
@@ -1419,48 +1221,6 @@ const getBaseUrlPlaceholder = () => {
     return t('model.editor.baseUrlPlaceholderAsr')
   }
   return t('model.editor.baseUrlPlaceholder')
-}
-
-// 检查Ollama服务状态
-const checkOllamaServiceStatus = async () => {
-  if (!ollamaManagementEnabled) return
-  console.log('开始检查Ollama服务状态...')
-  checkingOllamaStatus.value = true
-  try {
-    const result = await checkOllamaStatus()
-    ollamaServiceStatus.value = result.available
-    console.log('Ollama服务状态检查完成:', result.available)
-  } catch (error) {
-    console.error('检查Ollama服务状态失败:', error)
-    ollamaServiceStatus.value = false
-  } finally {
-    checkingOllamaStatus.value = false
-  }
-
-  // Ollama 不可用时，新增场景下默认切换到 remote
-  if (ollamaServiceStatus.value === false && !isEdit.value && formData.value.source === 'local') {
-    formData.value.source = 'remote'
-  }
-}
-
-// 打开Ollama设置窗口
-const goToOllamaSettings = async () => {
-  if (!ollamaManagementEnabled) return
-  console.log('点击跳转到Ollama设置按钮')
-  // 关闭当前弹窗
-  emit('update:visible', false)
-
-  // 先关闭设置弹窗（如果已打开）
-  if (uiStore.showSettingsModal) {
-    uiStore.closeSettings()
-    // 等待 DOM 更新
-    await nextTick()
-  }
-
-  // 打开设置窗口并直接跳转到Ollama设置
-  console.log('调用uiStore.openSettings')
-  uiStore.openSettings('ollama')
-  console.log('uiStore.openSettings调用完成')
 }
 
 // 上一次打开时的 modelData id：用来判断切换模型/新增 vs. 同一次新增的连续打开
@@ -1486,21 +1246,13 @@ const initializeVisibleForm = (val: boolean) => {
     // belong to another settings tab (including the initial chat default).
     draftModelType.value = props.modelType
 
-    // 检查Ollama服务状态
-    checkOllamaServiceStatus()
-
     advancedOpen.value = false
 
     // 每次打开都清理上一次遗留的校验/检测结果，避免编辑别的模型时
     // 直接显示上一次的“连接成功”
-    modelChecked.value = false
-    modelAvailable.value = false
     remoteChecked.value = false
     remoteAvailable.value = false
     remoteMessage.value = ''
-    dimensionChecked.value = false
-    dimensionSuccess.value = false
-    dimensionMessage.value = ''
 
     const currentId = props.modelData?.id ?? null
 
@@ -1541,14 +1293,9 @@ const initializeVisibleForm = (val: boolean) => {
 
       lastOpenedModelId.value = currentId
 
-      // ReRank 模型强制使用 remote 来源（Ollama 不支持 ReRank）
+      // ReRank 仅支持远程来源
       if (activeModelType.value === 'rerank') {
         formData.value.source = 'remote'
-      }
-
-      // 如果当前 provider 是 WeKnoraCloud，检查凭证状态
-      if (formData.value.provider === 'weknoracloud') {
-        checkWkcCredentialStatus()
       }
     } finally {
       nextTick(() => {
@@ -1623,7 +1370,6 @@ const resetForm = () => {
   catalogFilled.value = {}
   advancedOpen.value = false
   saveError.value = ''
-  searchKeyword.value = ''
   invalidateConnectionTest(false)
   resolveRevision++
   if (resolveTimer) {
@@ -1634,14 +1380,9 @@ const resetForm = () => {
   resolved.value = null
   resolveFailed.value = false
   resolveError.value = ''
-  modelChecked.value = false
-  modelAvailable.value = false
   remoteChecked.value = false
   remoteAvailable.value = false
   remoteMessage.value = ''
-  dimensionChecked.value = false
-  dimensionSuccess.value = false
-  dimensionMessage.value = ''
   nextTick(() => formRef.value?.clearValidate?.())
 }
 
@@ -1678,11 +1419,6 @@ const resetModelSelectionForVendor = () => {
   }
   if (activeModelType.value === 'embedding') dropEmbeddingInputOverride()
   catalogFilled.value = {}
-  modelChecked.value = false
-  modelAvailable.value = false
-  dimensionChecked.value = false
-  dimensionSuccess.value = false
-  dimensionMessage.value = ''
 }
 
 const handleProviderChange = (value: string) => {
@@ -1697,10 +1433,6 @@ const handleProviderChange = (value: string) => {
   remoteChecked.value = false
   remoteAvailable.value = false
   remoteMessage.value = ''
-  // WeKnoraCloud: 检查凭证状态
-  if (value === 'weknoracloud') {
-    checkWkcCredentialStatus()
-  }
   if (hydratingForm.value) return
   resetModelSelectionForVendor()
   // 换厂商：丢掉上一家的厂商字段（保留协议 / 远端模型名等高级覆盖），再灌入新厂商默认值
@@ -1729,138 +1461,6 @@ const removeCustomHeader = (idx: number) => {
   formData.value.customHeaders.splice(idx, 1)
 }
 
-// 过滤后的模型列表
-const filteredOllamaModels = computed(() => {
-  if (!searchKeyword.value) return ollamaModelList.value
-  return ollamaModelList.value.filter(model =>
-    model.name.toLowerCase().includes(searchKeyword.value.toLowerCase())
-  )
-})
-
-// 是否显示"下载模型"选项
-const showDownloadOption = computed(() => {
-  if (!ollamaManagementEnabled) return false
-  if (!searchKeyword.value.trim()) return false
-  // 检查搜索词是否已存在于模型列表中
-  const exists = ollamaModelList.value.some(model =>
-    model.name.toLowerCase() === searchKeyword.value.toLowerCase()
-  )
-  return !exists
-})
-
-// 自定义过滤逻辑（捕获搜索关键词）
-const handleModelFilter = (filterWords: string) => {
-  searchKeyword.value = filterWords
-  return true // 让 TDesign 使用我们的 filteredOllamaModels
-}
-
-// 加载 Ollama 模型列表
-const loadOllamaModels = async () => {
-  if (!ollamaManagementEnabled) return
-  // 只在选择 local 来源时加载
-  if (formData.value.source !== 'local') return
-
-  loadingOllamaModels.value = true
-  try {
-    const models = await listOllamaModels()
-    ollamaModelList.value = models
-  } catch (error) {
-    console.error(t('model.editor.loadModelListFailed'), error)
-    MessagePlugin.error(t('model.editor.loadModelListFailed'))
-  } finally {
-    loadingOllamaModels.value = false
-  }
-}
-
-// 刷新模型列表
-const refreshOllamaModels = async () => {
-  if (!ollamaManagementEnabled) return
-  ollamaModelList.value = [] // 清空以强制重新加载
-  await loadOllamaModels()
-  MessagePlugin.success(t('model.editor.listRefreshed'))
-}
-
-// 监听下拉框可见性变化
-const handleDropdownVisibleChange = (visible: boolean) => {
-  if (!visible) {
-    searchKeyword.value = ''
-  }
-}
-
-// 格式化模型大小
-const formatModelSize = (bytes: number): string => {
-  if (!bytes || bytes === 0) return ''
-  const gb = bytes / (1024 * 1024 * 1024)
-  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / (1024 * 1024)).toFixed(0)} MB`
-}
-
-// 检查模型状态（Ollama本地模型）
-const checkModelStatus = async () => {
-  if (!ollamaManagementEnabled) return
-  if (!formData.value.modelName || formData.value.source !== 'local') {
-    return
-  }
-
-  try {
-    // 调用真实 Ollama API 检查模型是否存在
-    const result = await checkOllamaModels([formData.value.modelName])
-    modelChecked.value = true
-    modelAvailable.value = result.models[formData.value.modelName] || false
-  } catch (error) {
-    console.error('检查模型状态失败:', error)
-    modelChecked.value = false
-    modelAvailable.value = false
-  }
-}
-
-// 检查 Ollama 本地 Embedding 模型维度
-const checkOllamaDimension = async () => {
-  if (!ollamaManagementEnabled) return
-  if (checking.value || saving.value) return
-  if (!formData.value.modelName || formData.value.source !== 'local' || activeModelType.value !== 'embedding') {
-    return
-  }
-
-  const revision = ++connectionRevision
-  checking.value = true
-  dimensionChecked.value = false
-  dimensionMessage.value = ''
-
-  try {
-    const result = await testEmbeddingModel({
-      source: 'local',
-      modelName: formData.value.modelName,
-      dimension: formData.value.dimension,
-      supportsDimensionOverride: formData.value.supportsDimensionOverride ?? false,
-    })
-
-    if (revision !== connectionRevision) return
-    dimensionChecked.value = true
-    dimensionSuccess.value = result.available || false
-
-    if (result.available && result.dimension) {
-      applyDetectedDimension(result.dimension)
-      dimensionMessage.value = t('model.editor.dimensionDetected', { value: result.dimension })
-      MessagePlugin.success(dimensionMessage.value)
-    } else {
-      if (result.message) {
-        console.debug('Backend dimension message:', result.message)
-      }
-      dimensionMessage.value = t('model.editor.dimensionFailed')
-      MessagePlugin.warning(dimensionMessage.value)
-    }
-  } catch (error: any) {
-    if (revision !== connectionRevision) return
-    console.error('Ollama dimension check failed:', error)
-    dimensionChecked.value = true
-    dimensionSuccess.value = false
-    dimensionMessage.value = t('model.editor.dimensionFailed')
-    MessagePlugin.error(dimensionMessage.value)
-  } finally {
-    if (revision === connectionRevision) checking.value = false
-  }
-}
-
 /** extra_config exactly as it will be persisted: trimmed, empty values dropped. */
 const buildExtraConfig = (): Record<string, string> => {
   const out: Record<string, string> = {}
@@ -1878,7 +1478,7 @@ const buildExtraConfig = (): Record<string, string> => {
 // 检查 Remote API 连接（根据模型类型调用不同的接口）
 const checkRemoteAPI = async () => {
   if (checking.value || saving.value) return
-  if (!formData.value.modelName || (!formData.value.baseUrl && formData.value.provider !== 'weknoracloud')) {
+  if (!formData.value.modelName || !formData.value.baseUrl) {
     MessagePlugin.warning(t('model.editor.fillModelAndUrl'))
     return
   }
@@ -1903,10 +1503,7 @@ const checkRemoteAPI = async () => {
         if (key && value) customHeaders[key] = value
       }
     }
-    // 只在非空时带上字段，避免在 URL query / 日志里出现空对象
-    const headerPayload = Object.keys(customHeaders).length > 0
-      ? { customHeaders }
-      : {}
+    const headerPayload = { customHeaders }
 
     // 根据模型类型调用不同的校验接口
     // 编辑模式下 apiKey 由 <CredentialResource> 独立管理、不在 formData 里。
@@ -1920,8 +1517,9 @@ const checkRemoteAPI = async () => {
     // 使测试连接走与生产调用相同的目录解析路径。
     const extraConfig = buildExtraConfig()
     const extraPayload = {
-      spec: buildSpec(),
-      ...(Object.keys(extraConfig).length > 0 ? { extraConfig } : {}),
+      source: 'remote' as const,
+      spec: buildSpec() || {},
+      extraConfig,
       ...(formData.value.appSecret?.trim() ? { appSecret: formData.value.appSecret.trim() } : {}),
     }
 
@@ -1942,7 +1540,6 @@ const checkRemoteAPI = async () => {
       case 'embedding':
         // Embedding 模型
         result = await testEmbeddingModel({
-          source: 'remote',
           modelName: formData.value.modelName,
           baseUrl: formData.value.baseUrl || '',
           apiKey: formData.value.apiKey || '',
@@ -2036,8 +1633,7 @@ const handleConfirm = async () => {
       return
     }
 
-    // 如果是 remote 类型且非 WeKnoraCloud，必须填写 baseUrl
-    if (formData.value.source === 'remote' && formData.value.provider !== 'weknoracloud') {
+    if (formData.value.source === 'remote') {
       if (!formData.value.baseUrl || !formData.value.baseUrl.trim()) {
         MessagePlugin.warning(t('model.editor.remoteBaseUrlRequired'))
         return
@@ -2050,9 +1646,7 @@ const handleConfirm = async () => {
         MessagePlugin.warning(t('model.editor.validation.baseUrlInvalid'))
         return
       }
-    }
 
-    if (formData.value.source === 'remote' && formData.value.provider !== 'weknoracloud') {
       // 厂商声明的必填额外字段
       for (const field of plainExtraFields.value) {
         if (field.required && !(formData.value.extraConfig?.[field.key] || '').trim()) {
@@ -2102,94 +1696,6 @@ const handleConfirm = async () => {
   }
 }
 
-// 监听模型选择变化（处理下载逻辑和自动维度检测提示）
-watch(() => formData.value.modelName, async (newValue, oldValue) => {
-  if (!newValue) return
-
-  // 处理下载逻辑
-  if (ollamaManagementEnabled && newValue.startsWith('__download__')) {
-    // 提取模型名称
-    const modelName = newValue.replace('__download__', '')
-
-    // 重置选择（避免显示 __download__ 前缀）
-    formData.value.modelName = ''
-
-    // 开始下载
-    await startDownload(modelName)
-    return
-  }
-
-  // 如果是 embedding 模型且选择的是 Ollama 本地模型，且模型名称发生了实际变化
-  if (activeModelType.value === 'embedding' &&
-    formData.value.source === 'local' &&
-    newValue !== oldValue &&
-    oldValue !== '') {
-    // 提示用户可以检测维度
-    MessagePlugin.info(t('model.editor.dimensionHint'))
-  }
-})
-
-// 开始下载模型
-const startDownload = async (modelName: string) => {
-  if (!ollamaManagementEnabled) return
-  downloading.value = true
-  downloadProgress.value = 0
-  currentDownloadModel.value = modelName
-
-  try {
-    // 启动下载
-    const result = await downloadOllamaModel(modelName)
-    const taskId = result.taskId
-
-    MessagePlugin.success(t('model.editor.downloadStarted', { name: modelName }))
-
-    // 轮询下载进度
-    downloadInterval = setInterval(async () => {
-      try {
-        const progress = await getDownloadProgress(taskId)
-        downloadProgress.value = progress.progress
-
-        if (progress.status === 'completed') {
-          // 下载完成
-          clearInterval(downloadInterval)
-          downloadInterval = null
-          downloading.value = false
-
-          MessagePlugin.success(t('model.editor.downloadCompleted', { name: modelName }))
-
-          // 刷新模型列表
-          await loadOllamaModels()
-
-          // 自动选中新下载的模型
-          formData.value.modelName = modelName
-
-          // 重置状态
-          downloadProgress.value = 0
-          currentDownloadModel.value = ''
-
-        } else if (progress.status === 'failed') {
-          // 下载失败
-          clearInterval(downloadInterval)
-          downloadInterval = null
-          downloading.value = false
-          MessagePlugin.error(progress.message || t('model.editor.downloadFailed', { name: modelName }))
-          downloadProgress.value = 0
-          currentDownloadModel.value = ''
-        }
-      } catch (error) {
-        console.error('获取下载进度失败:', error)
-      }
-    }, 1000) // 每秒查询一次
-
-  } catch (error: any) {
-    downloading.value = false
-    downloadProgress.value = 0
-    currentDownloadModel.value = ''
-    console.error('Download start failed:', error)
-    MessagePlugin.error(t('model.editor.downloadStartFailed'))
-  }
-}
-
 // 组件卸载时清理定时器
 onUnmounted(() => {
   window.removeEventListener('keydown', handleSaveEscape, true)
@@ -2199,39 +1705,6 @@ onUnmounted(() => {
     resolveTimer = null
   }
   resolveRevision++
-  if (downloadInterval) {
-    clearInterval(downloadInterval)
-  }
-})
-
-// 监听来源变化，清理所有状态
-watch(() => formData.value.source, () => {
-  // 重置校验状态
-  modelChecked.value = false
-  modelAvailable.value = false
-  remoteChecked.value = false
-  remoteAvailable.value = false
-  remoteMessage.value = ''
-  dimensionChecked.value = false
-  dimensionSuccess.value = false
-  dimensionMessage.value = ''
-
-  // 清理下载状态
-  searchKeyword.value = ''
-  if (downloadInterval) {
-    clearInterval(downloadInterval)
-    downloadInterval = null
-  }
-  downloading.value = false
-  downloadProgress.value = 0
-  currentDownloadModel.value = ''
-})
-
-// 监听模型名称变化，清理维度检测状态
-watch(() => formData.value.modelName, () => {
-  dimensionChecked.value = false
-  dimensionSuccess.value = false
-  dimensionMessage.value = ''
 })
 
 // 取消（点击底部"取消"按钮触发；点遮罩/ESC 不触发，从而保留草稿）
@@ -2353,14 +1826,6 @@ const handleCancel = () => {
 }
 
 
-
-.source-option {
-  // 外观来自上面那条共用规则；这里只补禁用态（Ollama 未就绪 / rerank 不支持）。
-  &.is-disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-  }
-}
 
 // 输入框样式：只在最外层 .t-input 上调字号，避免在内部 wrap/inner 上重复加边
 // 与 border-radius，造成视觉上"嵌套圆角容器"的错觉
@@ -2505,177 +1970,6 @@ const handleCancel = () => {
 
   &.unavailable {
     color: var(--td-error-color);
-  }
-}
-
-// WeKnoraCloud 提示信息
-.weknoracloud-hint {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: var(--app-radius-md);
-  font-size: var(--app-text-md);
-  color: var(--td-text-color-secondary);
-  line-height: 1.5;
-
-  // Theming via tokens so the warn/ok states track light/dark switches
-  // instead of fighting hardcoded `#fff7ed` etc.
-  &--ok {
-    background: var(--td-success-color-light);
-    border: 1px solid var(--td-success-color-focus);
-  }
-
-  &--warn {
-    background: var(--td-warning-color-light);
-    border: 1px solid var(--td-warning-color-focus);
-    border-left: 3px solid var(--td-warning-color);
-  }
-
-  .hint-icon {
-    font-size: var(--app-text-xl);
-    flex-shrink: 0;
-    margin-top: 2px;
-
-    &--ok {
-      color: var(--td-success-color);
-    }
-
-    &--warn {
-      color: var(--td-warning-color);
-    }
-
-    &--loading {
-      color: var(--td-text-color-placeholder);
-    }
-  }
-}
-
-// Ollama 模型选择器样式
-.model-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 4px 0;
-
-  .downloaded-icon {
-    font-size: var(--app-text-base);
-    color: var(--td-brand-color);
-    flex-shrink: 0;
-  }
-
-  .download-icon {
-    font-size: var(--app-text-base);
-    color: var(--td-brand-color);
-    flex-shrink: 0;
-  }
-
-  .model-name {
-    flex: 1;
-    font-size: var(--app-text-md);
-    color: var(--td-text-color-primary);
-  }
-
-  .model-size {
-    font-size: var(--app-text-sm);
-    color: var(--td-text-color-placeholder);
-    margin-left: auto;
-  }
-
-  &.download {
-    .model-name {
-      color: var(--td-brand-color);
-      font-weight: 500;
-    }
-  }
-}
-
-// 下载进度后缀样式
-.download-suffix {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 4px;
-
-  .spinning {
-    animation: wk-spin 1s linear infinite;
-    font-size: var(--app-text-base);
-    color: var(--td-brand-color);
-  }
-
-  .progress-text {
-    font-size: var(--app-text-sm);
-    font-weight: 500;
-    color: var(--td-brand-color);
-  }
-}
-
-// 下载中的选择框进度条效果
-:deep(.t-select.downloading) {
-  .t-input {
-    position: relative;
-    overflow: hidden;
-
-    &::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: var(--progress, 0%);
-      background: linear-gradient(90deg, color-mix(in srgb, var(--td-brand-color) 8%, transparent), color-mix(in srgb, var(--td-brand-color) 15%, transparent));
-      transition: width var(--app-motion-slow) ease;
-      z-index: 0;
-      border-radius: 5px 0 0 5px;
-    }
-
-    .t-input__inner,
-    input {
-      position: relative;
-      z-index: 1;
-      background: transparent !important;
-    }
-  }
-}
-
-.model-select-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  .t-select {
-    flex: 1;
-  }
-}
-
-.refresh-btn {
-  flex-shrink: 0;
-}
-
-// 维度控制样式
-.dimension-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  :deep(.t-input) {
-    flex: 1;
-  }
-}
-
-.dimension-check-btn {
-  flex-shrink: 0;
-}
-
-.dimension-hint {
-  margin: 8px 0 0 0;
-  font-size: var(--app-text-md);
-  line-height: 1.5;
-  color: var(--td-error-color);
-
-  &.success {
-    color: var(--td-brand-color);
   }
 }
 
@@ -2920,70 +2214,6 @@ const handleCancel = () => {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-// Ollama不可用提示样式
-.ollama-unavailable-tip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 10px 12px;
-  background: var(--td-error-color-light);
-  border: 1px solid var(--td-error-color-focus);
-  border-radius: var(--app-radius-md);
-  font-size: var(--app-text-md);
-
-  .tip-icon {
-    color: var(--td-error-color);
-    font-size: var(--app-text-xl);
-    flex-shrink: 0;
-    margin-right: 2px;
-
-    &.info {
-      color: var(--td-brand-color);
-    }
-  }
-
-  .tip-text {
-    color: var(--td-error-color);
-    flex: 1;
-    line-height: 1.5;
-  }
-
-  :deep(.tip-link) {
-    color: var(--td-brand-color);
-    font-size: var(--app-text-md);
-    font-weight: 500;
-    padding: 4px 6px 4px 10px !important;
-    min-height: auto !important;
-    height: auto !important;
-    line-height: 1.4 !important;
-    text-decoration: none;
-    white-space: nowrap;
-    display: inline-flex !important;
-    align-items: center !important;
-    gap: 1px;
-    border-radius: var(--app-radius-xs);
-    transition: all var(--app-motion-base) ease;
-
-    &:hover {
-      background: color-mix(in srgb, var(--td-brand-color) 8%, transparent) !important;
-      color: var(--td-brand-color-active) !important;
-    }
-
-    &:active {
-      background: color-mix(in srgb, var(--td-brand-color) 12%, transparent) !important;
-    }
-
-    .t-icon {
-      font-size: var(--app-text-base) !important;
-      margin: 0 !important;
-      line-height: 1 !important;
-      display: inline-flex !important;
-      align-items: center !important;
-    }
-  }
 }
 
 // Destructive-action checkbox for "Remove this credential". Styled to match

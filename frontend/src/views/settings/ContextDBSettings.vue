@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TenantInfo from './TenantInfo.vue'
 import ContextDBPermissions from './ContextDBPermissions.vue'
 import ModelSettings from './ModelSettings.vue'
 import DefaultSettings from './DefaultSettings.vue'
@@ -22,9 +23,9 @@ const section=ref('account'),users=ref<any[]>([]),members=ref<any[]>([]),health=
 const memoryDirty=ref(false),retiredSection=ref('')
 const error=ref(''),formOpen=ref(false),editing=ref(''),account=ref(''),username=ref(''),password=ref(''),key=ref(''),role=ref('viewer')
 const visible=computed(()=>ui.showSettingsModal||route.name==='settings')
-const groups=computed(()=>[{key:'platform',label:'平台',items:[{key:'account',icon:'user',label:'当前账号'},...(auth.hasRole('admin')?[{key:'members',icon:'usergroup',label:'成员管理'}]:[]),{key:'permissions',icon:'secured',label:'知识库权限'},{key:'runtime',icon:'server',label:'运行状态'}]},
+const groups=computed(()=>[{key:'platform',label:'平台',items:[{key:'account',icon:'user',label:'当前账号'},{key:'tenant',icon:'user-circle',label:'空间信息'},...(auth.hasRole('admin')?[{key:'members',icon:'usergroup',label:'成员管理'}]:[]),{key:'permissions',icon:'secured',label:'知识库权限'},{key:'runtime',icon:'server',label:'运行状态'}]},
   {key:'personal',label:'个人',items:[{key:'general',icon:'setting',label:'常规设置'},{key:'userprofile',icon:'user',label:'个人资料'}]},
-  {key:'agent',label:'智能体',items:[{key:'models',icon:'chat',label:'模型配置'},{key:'defaults',icon:'setting',label:'个人默认'},{key:'memory',icon:'bookmark',label:'文件记忆'},{key:'sandbox',icon:'code',label:'运行环境'},{key:'agents',icon:'control-platform',label:'智能体配置'},{key:'toolbox',icon:'tools',label:'工具箱'}]}])
+  {key:'agent',label:'智能体',items:[{key:'models',icon:'chat',label:'模型配置'},{key:'defaults',icon:'setting',label:'空间默认配置'},{key:'memory',icon:'bookmark',label:'文件记忆'},{key:'sandbox',icon:'code',label:'运行环境'},{key:'agents',icon:'control-platform',label:'智能体配置'},{key:'toolbox',icon:'tools',label:'工具箱'}]}])
 function selectSection(value?:string|null){
   if(!value)return
   const target=value==='mymemory'?'memory':value==='system'?'runtime':value
@@ -76,7 +77,8 @@ watch([visible,section],()=>{if(visible.value)void load()},{immediate:true})
   <SettingsModalShell :visible="visible" title="设置" :model-value="section" :nav-groups="groups" @update:model-value="selectSection" @close="shell.requestClose">
     <div class="native-settings">
       <t-alert v-if="error" theme="error" :message="error"/>
-      <template v-if="section==='account'"><h3>当前账号</h3><t-descriptions :column="1" bordered><t-descriptions-item label="显示名称">{{auth.user?.username}}</t-descriptions-item><t-descriptions-item label="账号">{{auth.user?.account||auth.user?.email}}</t-descriptions-item><t-descriptions-item label="平台角色">{{memberRoleLabel(auth.currentTenantRole==='owner'?'admin':auth.currentTenantRole==='contributor'?'editor':auth.currentTenantRole)}}</t-descriptions-item></t-descriptions></template>
+      <template v-if="section==='account'"><h3>当前账号</h3><t-descriptions :column="1" bordered><t-descriptions-item label="显示名称">{{auth.user?.username}}</t-descriptions-item><t-descriptions-item label="账号">{{auth.user?.account||auth.user?.email}}</t-descriptions-item><t-descriptions-item label="平台角色">{{memberRoleLabel(auth.user?.platform_role)}}</t-descriptions-item></t-descriptions></template>
+      <TenantInfo v-else-if="section==='tenant'"/>
       <template v-else-if="section==='members'"><h3>成员管理</h3><t-button @click="edit()">添加成员</t-button>
         <t-table row-key="id" :data="users" :columns="[{colKey:'username',title:'显示名称'},{colKey:'account',title:'账号'},{colKey:'role',title:'平台角色'},{colKey:'contextdb_member_id',title:'知识库账号'},{colKey:'active',title:'账号状态'},{colKey:'operation',title:'操作'}]">
           <template #role="{row}">{{memberRoleLabel(row.role)}}</template>

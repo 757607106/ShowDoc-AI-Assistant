@@ -181,7 +181,9 @@ export const useAuthStore = defineStore('auth', () => {
     owner: 40,
   }
   const hasRole = (min: 'viewer' | 'contributor' | 'admin' | 'owner'): boolean => {
-    return (ROLE_LEVEL[currentTenantRole.value] ?? 0) >= ROLE_LEVEL[min]
+    const platformRole = user.value?.platform_role
+    const role = platformRole ? { admin: 'owner', editor: 'contributor', viewer: 'viewer' }[platformRole] : currentTenantRole.value
+    return (ROLE_LEVEL[role] ?? 0) >= ROLE_LEVEL[min]
   }
 
   const effectiveTenantId = computed(() => {
@@ -403,6 +405,9 @@ export const useAuthStore = defineStore('auth', () => {
     const list = response.data?.memberships
     if (Array.isArray(list)) {
       setMemberships(list)
+      if (selectedTenantId.value != null && !list.some(m => m.tenant_id === selectedTenantId.value)) {
+        setSelectedTenant(null, null)
+      }
     }
 
     const createCapability = response.data?.capabilities?.can_create_tenant

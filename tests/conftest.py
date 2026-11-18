@@ -4,7 +4,6 @@ import sys
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from importlib.util import find_spec
 
 import psycopg
 from psycopg import sql
@@ -76,11 +75,9 @@ def agent_test_database(postgres_admin_database):
 
 @pytest.fixture(autouse=True)
 def isolate_contextdb(monkeypatch, request, tmp_path):
+    monkeypatch.setenv('SSRF_WHITELIST_EXTRA', '127.0.0.1,localhost,::1,*.invalid,*.example.test')
+    monkeypatch.setenv('SYSTEM_AES_KEY', uuid.uuid4().hex)
     monkeypatch.delenv('PLATFORM_DATABASE_URL', raising=False)
-    # Use the pinned SDK's real tokenizer data; isolated captures must not download it.
-    tokenizer_cache = Path(find_spec('litellm').origin).parent / 'litellm_core_utils' / 'tokenizers'
-    assert (tokenizer_cache / '9b5ad71b2ce5302211f9c61530b329a4922fc6a4').is_file()
-    monkeypatch.setenv('TIKTOKEN_CACHE_DIR', str(tokenizer_cache))
     monkeypatch.setenv('CONTEXTDB_API_KEY', 'ctxdb-fake')
     monkeypatch.setenv('CONTEXTDB_MCP_URL', 'http://127.0.0.1:9/mcp')
     import requests

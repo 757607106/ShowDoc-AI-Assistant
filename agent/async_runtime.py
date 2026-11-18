@@ -59,7 +59,7 @@ def principal(token):
     if parent['agent_config'].get('runtime') != 'deepagents':
         raise StoreError('父会话不允许异步执行', 403)
     with connection() as conn:
-        user = conn.execute('SELECT * FROM platform_users WHERE id=%s AND active', (grant['owner_id'],)).fetchone()
+        user = conn.execute('SELECT * FROM workspace_users WHERE id=%s AND active', (grant['owner_id'],)).fetchone()
     if user is None:
         raise StoreError('账号已停用', 401)
     return user, grant

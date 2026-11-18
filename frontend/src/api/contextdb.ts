@@ -70,7 +70,7 @@ export async function listMembers() {
 
 export function kbView(base: any) {
   return { ...base, name: base.name, original_name: base.name,
-    tenant_id: 1, type: 'document',
+    type: 'document',
     capabilities: { vector: true, keyword: true, wiki: !!base.wiki_enabled,
       graph: !!base.graph_enabled, faq: false, ...base.capabilities },
     indexing_strategy: { wiki_enabled: base.wiki_enabled, graph_enabled: base.graph_enabled },

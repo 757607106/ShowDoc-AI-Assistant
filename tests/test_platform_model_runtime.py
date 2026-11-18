@@ -14,6 +14,24 @@ from agent import registry
 from tests.test_platform_mcp_runtime import runtime_client, serve
 
 
+def test_weknora_cloud_retirement(authenticated_client, provider_server):
+    client = authenticated_client
+    provider = 'weknoracloud'
+    assert client.get(f'/api/v1/models/{provider}/status').status_code == 404
+    assert client.post(f'/api/v1/{provider}/credentials', json={}).status_code == 404
+    providers = {item['value'] for item in client.get('/api/v1/models/providers').json['data']}
+    assert provider not in providers and 'generic' in providers
+    assert client.get(f'/api/v1/models/providers/{provider}').status_code == 404
+
+    base, calls = provider_server
+    model = {'name': 'chat', 'type': 'KnowledgeQA', 'source': 'remote', 'parameters': {'provider': provider, 'base_url': base}}
+    assert client.post('/api/v1/models', json=model).status_code == 400
+    registry.save_record('model', {**model, '_kind': 'model', 'id': 'old-cloud'}, os.environ['TEST_PLATFORM_USER'])
+    assert client.post('/api/v1/initialization/remote/check', json={'modelId': 'old-cloud'}).status_code == 400
+    assert client.delete('/api/v1/models/old-cloud').status_code == 200
+    assert calls == []
+
+
 @pytest.fixture
 def provider_server():
     calls = []
@@ -23,6 +41,8 @@ def provider_server():
         calls.append({'path': request.url.path, 'headers': dict(request.headers), 'payload': payload, 'raw': raw})
         if request.headers.get('x-reject'):
             return JSONResponse({'error': {'message': request.headers.get('authorization'), 'type': 'invalid_key'}}, status_code=401)
+        if request.headers.get('x-empty-audio'):
+            return JSONResponse({'error': 'silent audio'}, status_code=422)
         if payload.get('stream'):
             chunks = [
                 {'choices': [{'index': 0, 'delta': {'role': 'assistant', 'reasoning_content': 'Provider reasoning'}, 'finish_reason': None}]},
@@ -60,7 +80,18 @@ def test_draft_checks_really_call_matching_provider_endpoint(runtime_client, pro
         assert b'connection-check.wav' in calls[-1]['raw'] and b'RIFF' in calls[-1]['raw']
 
 
-def test_saved_secret_is_reused_only_at_same_provider_endpoint(runtime_client, provider_server):
+@pytest.mark.parametrize(('headers', 'available'), [({'X-Empty-Audio': '1'}, True), ({'X-Reject': '1'}, False)])
+def test_asr_check_distinguishes_reachable_silent_audio_from_auth_failure(runtime_client, provider_server, headers, available):
+    base, _ = provider_server
+    result = runtime_client.post('/api/v1/initialization/asr/check', json={
+        'modelName': 'whisper', 'baseUrl': base + '/v1', 'provider': 'generic',
+        'apiKey': 'private-asr-key', 'customHeaders': headers,
+    })
+    assert result.status_code == 200 and result.json['data']['available'] is available
+    assert b'private-asr-key' not in result.data
+
+
+def test_saved_secret_is_reused_for_draft_check_across_vendor_and_base_edits(runtime_client, provider_server):
     owner = os.environ['TEST_PLATFORM_USER']
     base, calls = provider_server
     saved = registry.save_model({'name': 'fixture', 'type': 'KnowledgeQA', 'source': 'remote',
@@ -68,9 +99,30 @@ def test_saved_secret_is_reused_only_at_same_provider_endpoint(runtime_client, p
     body = {'modelId': saved['id'], 'modelName': 'fixture', 'baseUrl': base + '/v1', 'provider': 'generic'}
     assert runtime_client.post('/api/v1/initialization/remote/check', json=body).json['data']['available']
     assert calls[-1]['headers']['authorization'] == 'Bearer saved-only-key'
+    # Provider/base edits keep the stored credential (official fillSecretsFromStoredModel);
+    # a typed key replaces it.
+    assert runtime_client.post('/api/v1/initialization/remote/check', json={**body, 'provider': 'aliyun'}).json['data']['available']
+    assert calls[-1]['headers']['authorization'] == 'Bearer saved-only-key'
     assert runtime_client.post('/api/v1/initialization/remote/check', json={**body, 'baseUrl': base + '/changed/v1'}).json['data']['available']
-    assert calls[-1]['headers']['authorization'] == 'Bearer not-required'
+    assert calls[-1]['headers']['authorization'] == 'Bearer saved-only-key'
+    assert runtime_client.post('/api/v1/initialization/remote/check', json={**body, 'apiKey': 'typed-key'}).json['data']['available']
+    assert calls[-1]['headers']['authorization'] == 'Bearer typed-key'
     assert 'saved-only-key' not in str(runtime_client.post('/api/v1/initialization/remote/check', json=body).json)
+
+
+def test_old_local_row_can_be_tested_and_saved_as_a_remote_model(authenticated_client, provider_server):
+    base, calls = provider_server
+    owner = os.environ['TEST_PLATFORM_USER']
+    legacy = registry.save_record('model', {'_kind': 'model', 'name': 'old', 'type': 'KnowledgeQA',
+        'source': 'local', 'parameters': {'provider': 'ollama', 'interface_type': 'ollama', 'model_name': 'old'}}, owner)
+    checked = authenticated_client.post('/api/v1/initialization/remote/check', json={
+        'modelId': legacy['id'], 'modelName': 'remote', 'baseUrl': base, 'provider': 'generic', 'source': 'remote'})
+    assert checked.json['data']['available'] and calls[-1]['payload']['model'] == 'remote'
+    assert registry.record('model', legacy['id'], owner)['source'] == 'local'
+    edited = authenticated_client.put('/api/v1/models/' + legacy['id'], json={'name': 'remote', 'source': 'remote',
+        'parameters': {'provider': 'generic', 'base_url': base}})
+    assert edited.status_code == 200 and edited.json['data']['parameters']['interface_type'] == ''
+    assert registry.model_config(legacy['id'], owner)['name'] == 'remote'
 
 
 @pytest.mark.parametrize('override,draft_override', [
@@ -82,27 +134,27 @@ def test_unsupported_model_configuration_is_rejected_on_save_check_and_execution
     from agent.graph import build_model
     from governance.store import StoreError
     owner = os.environ['TEST_PLATFORM_USER']
-    body = {'name': 'fixture', 'parameters': {'base_url': 'https://model.invalid/v1',
+    body = {'name': 'fixture', 'type': 'KnowledgeQA', 'source': 'remote', 'parameters': {'base_url': 'https://model.invalid/v1',
         'interface_type': 'openai', 'extra_config': {}}}
     incompatible = {**body, **override, 'parameters': {**body['parameters'], **override.get('parameters', {})}}
     rejected = authenticated_client.post('/api/v1/models', json=incompatible)
-    assert rejected.status_code == 501
+    assert rejected.status_code == 400
     assert registry.records('model', owner) == []
 
     accepted = authenticated_client.post('/api/v1/models', json=body)
-    assert accepted.status_code == 200 and accepted.json['data']['source'] == 'remote'
+    assert accepted.status_code == 201 and accepted.json['data']['source'] == 'remote'
     identifier = accepted.json['data']['id']
     before = registry.record('model', identifier, owner)
     updated = authenticated_client.patch(f'/api/v1/models/{identifier}', json=override)
-    assert updated.status_code == 501 and registry.record('model', identifier, owner) == before
+    assert updated.status_code == 400 and registry.record('model', identifier, owner) == before
     checked = runtime_client.post('/api/v1/initialization/remote/check', json={'modelId': identifier, **draft_override})
-    assert checked.status_code == 501 and checked.json['message'] == rejected.json['message']
+    assert checked.status_code == 400 and checked.json['message'] == rejected.json['error']['message']
 
     legacy = registry.save_record('model', {**before, **incompatible}, owner)
     assert authenticated_client.get(f'/api/v1/models/{identifier}').status_code == 200
-    with pytest.raises(StoreError, match=rejected.json['message']) as error:
+    with pytest.raises(StoreError, match=rejected.json['error']['message']) as error:
         build_model({'model_id': legacy['id']}, owner)
-    assert error.value.status == 501
+    assert error.value.status == 400
 
 
 def test_failed_provider_is_unavailable_without_leaking_its_error_body(runtime_client, provider_server):
@@ -113,7 +165,7 @@ def test_failed_provider_is_unavailable_without_leaking_its_error_body(runtime_c
     assert 'must-stay-secret' not in str(response.json)
 
 
-def test_litellm_qwen_stream_keeps_reasoning_and_fragmented_tool_arguments(provider_server):
+def test_native_qwen_stream_keeps_reasoning_and_fragmented_tool_arguments(provider_server):
     base, calls = provider_server
     @tool
     def lookup(query: str) -> str:

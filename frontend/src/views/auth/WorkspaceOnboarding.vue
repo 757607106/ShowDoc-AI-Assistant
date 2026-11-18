@@ -31,12 +31,13 @@
           <span>{{ $t('auth.workspaceOnboarding.inviteOnlyNotice') }}</span>
         </div>
 
-        <div class="workspace-actions" :class="{ 'workspace-actions--single': !authStore.canCreateTenant }">
+        <div class="workspace-actions" :class="{ 'workspace-actions--single': IS_CONTEXTDB || !authStore.canCreateTenant }">
           <t-button v-if="authStore.canCreateTenant" theme="primary" size="large" @click="createVisible = true">
             <template #icon><t-icon name="add" /></template>
             {{ $t('auth.workspaceOnboarding.create') }}
           </t-button>
           <t-button
+            v-if="!IS_CONTEXTDB"
             :theme="authStore.canCreateTenant ? 'default' : 'primary'"
             :variant="authStore.canCreateTenant ? 'outline' : 'base'"
             size="large"
@@ -51,10 +52,10 @@
         </div>
       </template>
 
-      <p v-if="!policyLoading && !policyLoadFailed && authStore.canCreateTenant" class="workspace-help">
+      <p v-if="!IS_CONTEXTDB && !policyLoading && !policyLoadFailed && authStore.canCreateTenant" class="workspace-help">
         {{ $t('auth.workspaceOnboarding.help') }}
       </p>
-      <p v-else-if="!policyLoading && !policyLoadFailed" class="workspace-help">
+      <p v-else-if="!IS_CONTEXTDB && !policyLoading && !policyLoadFailed" class="workspace-help">
         {{ $t('auth.workspaceOnboarding.inviteOnlyHelp') }}
       </p>
       <button class="logout-link" type="button" @click="handleLogout">
@@ -63,7 +64,7 @@
     </section>
 
     <CreateTenantDialog v-model:visible="createVisible" @created="onTenantCreated" />
-    <MyInvitationsDialog v-model:visible="invitationsVisible" />
+    <MyInvitationsDialog v-if="!IS_CONTEXTDB" v-model:visible="invitationsVisible" />
   </main>
 </template>
 
@@ -74,6 +75,7 @@ import CreateTenantDialog from '@/components/CreateTenantDialog.vue'
 import MyInvitationsDialog from '@/components/MyInvitationsDialog.vue'
 import { logout as logoutApi } from '@/api/auth'
 import type { TenantInfo } from '@/api/tenant'
+import { IS_CONTEXTDB } from '@/config/contextdb'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
@@ -92,7 +94,7 @@ async function loadPolicy() {
       policyLoadFailed.value = true
       return
     }
-    await authStore.fetchPendingInvitationCount()
+    if (!IS_CONTEXTDB) await authStore.fetchPendingInvitationCount()
   } finally {
     policyLoading.value = false
   }

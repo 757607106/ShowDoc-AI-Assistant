@@ -112,7 +112,7 @@ class TokenStorage:
         current = registry.record('mcp', self.value['id'], self.owner)
         state = _record('mcp-oauth', self.value['id'], self.owner)
         with database() as conn:
-            member = conn.execute('SELECT active FROM platform_users WHERE id=%s', (self.owner,)).fetchone()
+            member = conn.execute('SELECT active FROM workspace_users WHERE id=%s', (self.owner,)).fetchone()
         if not member or not member['active'] or fingerprint(current) != fingerprint(self.value) or not state or state.get('generation') != self.generation:
             raise OAuthRequired(self.value['id'])
         return state

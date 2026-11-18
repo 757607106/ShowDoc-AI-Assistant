@@ -115,7 +115,7 @@ def generate_usage(service_id):
         'server_description': snapshot['server_description'][:2000], 'server_instructions': snapshot['instructions'][:4000],
         'tools': tools, 'omitted_tools': omitted}
     from agent.graph import build_model
-    model_id = registry.default_model_id(user_id())
+    model_id = registry.default_model_id(user_id(), 'utility_model_id')
     try:
         model = build_model({'model_id': model_id, 'temperature': 0.2, 'max_completion_tokens': 512,
                              'llm_call_timeout': 60, 'thinking': False}, user_id())

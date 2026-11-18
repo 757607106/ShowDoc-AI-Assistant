@@ -37,18 +37,19 @@ def test_profile_uses_effective_limits_without_overwriting_editor_values():
     assert described['capabilities']['context_window'] == 65536
     saved = record()
     saved['name'] = 'gpt-4.1'
+    saved['parameters']['provider'] = 'openai'
     caps = model_capabilities(saved)
-    assert caps['cataloged'] and caps['context_window'] is None
+    assert caps['cataloged'] and caps['context_window'] == 1047576
     model = build_model_record(saved, {})
-    assert model.profile == {'max_output_tokens': caps['max_output_tokens']}
-    assert compute_summarization_defaults(model)['trigger'] == ('tokens', 170000)
+    assert model.profile == {'max_input_tokens': 1047576, 'max_output_tokens': caps['max_output_tokens']}
+    assert compute_summarization_defaults(model)['trigger'] == ('fraction', 0.85)
     assert 'context_window' not in describe_model(saved)['parameters']
 
 
 def test_unknown_model_and_deployment_alias_do_not_invent_a_window():
     saved = record(extra_config={'remote_model_name': 'gpt-4.1'})
     model = build_model_record(saved, {})
-    assert model_capabilities(saved)['context_window'] is None
+    assert 'context_window' not in model_capabilities(saved)
     assert model.profile is None
     assert compute_summarization_defaults(model)['trigger'] == ('tokens', 170000)
     model = build_model_record(record(max_output_tokens=4096), {})
@@ -56,19 +57,18 @@ def test_unknown_model_and_deployment_alias_do_not_invent_a_window():
     assert compute_summarization_defaults(model)['trigger'] == ('tokens', 170000)
 
 
-@pytest.mark.parametrize('name,output', [('qwen-plus-2025-01-25', 8192), ('qwen-plus-2025-04-28', 16384)])
+@pytest.mark.parametrize('name,output', [('qwen-plus-2025-01-25', None), ('qwen-plus-2025-04-28', None)])
 @pytest.mark.parametrize('limits,context', [({}, None), ({'context_window': 0}, None),
     ({'context_window': 131072}, 131072),
     ({'context_window': 65536, 'spec': {'context_window': 131072}}, 131072)])
 def test_catalog_input_limit_is_not_a_total_context_window(name, output, limits, context):
-    # Alibaba lists total C=131072 separately from input limits for these fixed snapshots.
-    # https://help.aliyun.com/en/model-studio/qwen-plus
+    # These snapshots match a family rule with no declared context or output cap.
     saved = record(provider='aliyun', **limits)
     saved['name'] = name
     caps = model_capabilities(saved)
-    assert caps['cataloged'] and caps['context_window'] == context
-    assert caps['max_output_tokens'] == output
-    assert describe_model(saved)['capabilities']['context_window'] == context
+    assert caps['cataloged'] and caps.get('context_window') == context
+    assert caps.get('max_output_tokens') == output
+    assert describe_model(saved)['capabilities'].get('context_window') == context
     app = Flask(__name__)
     app.register_blueprint(runtime_settings_bp)
     response = app.test_client().post('/api/v1/models/catalog/resolve', json={
@@ -76,8 +76,7 @@ def test_catalog_input_limit_is_not_a_total_context_window(name, output, limits,
     assert response.status_code == 200
     assert response.json['data']['capabilities'] == caps
     model = build_model_record(saved, {'max_completion_tokens': 4096})
-    assert model.profile == ({'max_input_tokens': context, 'max_output_tokens': output}
-        if context else {'max_output_tokens': output})
+    assert model.profile == ({'max_input_tokens': context} if context else None)
     assert model.max_tokens == 4096
     middleware = create_summarization_middleware(model, StateBackend())
     request = ModelRequest(model=model, messages=[])
@@ -257,5 +256,6 @@ def test_sdk_stream_timeout_measures_idle_gap_not_total_turn(provider):
         return content, time.monotonic() - start
     content, elapsed = asyncio.run(run('steady'))
     assert content == 'a' + 'b' * 7 and elapsed > 1
-    with pytest.raises(Exception, match='(?i)time.?out|timed out'):
+    import httpx
+    with pytest.raises(httpx.ReadTimeout):
         asyncio.run(run('idle'))

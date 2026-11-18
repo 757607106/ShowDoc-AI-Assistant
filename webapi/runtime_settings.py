@@ -24,109 +24,170 @@ def _require_model_admin():
         raise StoreError('模型配置仅限平台管理员管理', 403)
 
 
+def _model_access():
+    return {'admin': g.user['role'] == 'admin', 'system_admin': bool(g.user.get('is_system_admin'))}
+
+
+def _require_model_edit(value):
+    if value.get('is_builtin'):
+        if not g.user.get('is_system_admin'):
+            raise StoreError('only system administrators can update builtin models', 403)
+    else:
+        _require_model_admin()
+
+
 @runtime_settings_bp.route('/api/v1/models', methods=['GET', 'POST'])
 def models():
-    if request.method == 'POST':
-        _require_model_admin()
-    value = registry.public(registry.save_model(_body(), g.user['id'])) if request.method == 'POST' else registry.models(g.user['id'])
-    return jsonify(success=True, data=value)
+    owner = g.user['id']
+    if request.method == 'GET':
+        return jsonify(success=True, data=registry.models(owner, **_model_access()))
+    _require_model_admin()
+    body = _body()
+    missing = [key.title() for key in ('name', 'type', 'source') if not body.get(key)]
+    if body.get('parameters') is None:
+        missing.append('Parameters')
+    if missing:
+        raise StoreError('\n'.join(f"Key: 'CreateModelRequest.{field}' Error:Field validation for '{field}' failed on the 'required' tag"
+                                   for field in missing), 400)
+    if not isinstance(body['parameters'], dict):
+        raise StoreError('parameters 必须为 JSON 对象', 400)
+    with connection() as conn:
+        value = registry.save_model(body, owner, _connection=conn)
+        saved = registry.model_record(value['id'], owner, _connection=conn)
+    return jsonify(success=True, data=registry.model_response(saved, **_model_access())), 201
 
 
 @runtime_settings_bp.route('/api/v1/models/providers')
-def model_providers():
-    from agent.models import PROVIDERS
-    values = [{'value': provider, 'label': label,
-        'description': '用户提供的 OpenAI 兼容 API' if provider == 'generic' else f'{label} 模型服务',
-        'api': {'anthropic': 'anthropic-messages', 'gemini': 'google-generative-ai'}.get(provider, 'openai-completions'), 'requiresAuth': True,
-        'defaultUrls': {'KnowledgeQA': base, 'VLLM': base} if base else {},
-        'modelTypes': ['KnowledgeQA', 'VLLM', 'ASR', 'Embedding', 'Rerank'] if provider == 'generic' else ['KnowledgeQA', 'VLLM'],
-        'models': []} for provider, label, _, base in PROVIDERS]
-    requested = request.args.get('model_type')
-    requested = {'chat': 'KnowledgeQA', 'vllm': 'VLLM', 'embedding': 'Embedding', 'rerank': 'Rerank', 'asr': 'ASR'}.get(requested, requested)
-    return jsonify(success=True, data=[value for value in values if not requested or requested in value['modelTypes']])
+@runtime_settings_bp.route('/api/v1/models/providers/<provider>')
+def model_providers(provider=None):
+    from agent.model_catalog import PROVIDERS, TYPES, provider_option
+    short = request.args.get('model_type', '').lower()
+    short = 'chat' if short == 'knowledgeqa' else short
+    if short and short not in TYPES:
+        raise StoreError('模型类型无效', 400)
+    admin = getattr(g, 'user', {}).get('role') == 'admin'
+    if provider:
+        if provider not in PROVIDERS:
+            raise StoreError('provider not found', 404)
+        if short and short not in PROVIDERS[provider]['modelTypes']:
+            raise StoreError('provider does not offer this model_type', 400)
+        data = dict(provider_option(provider, short, admin))
+        keyword = request.args.get('keyword', '').strip().casefold()
+        if keyword and 'models' in data:
+            matches = [m for m in data.pop('models') if keyword in m['id'].casefold() or keyword in m['name'].casefold()]
+            if matches:
+                data['models'] = matches
+    else:
+        data = [provider_option(key, short, admin) for key, meta in PROVIDERS.items() if not short or short in meta['modelTypes']]
+    return jsonify(success=True, data=data)
 
 
-@runtime_settings_bp.route('/api/v1/models/catalog/resolve', methods=['POST'])
+@runtime_settings_bp.route('/api/v1/models/catalog/resolve', methods=['GET', 'POST'])
 def resolve_model_catalog():
-    from agent.models import model_capabilities, validate_model_runtime, remote_model_name
-    body = _body()
-    name = body.get('model') or ''
-    extra = dict(body.get('extra_config') or {})
-    for key in ('api', 'remote_model_name'):
-        if body.get(key):
-            extra[key] = body[key]
-    kind = {'chat': 'KnowledgeQA', 'vllm': 'VLLM', 'embedding': 'Embedding', 'rerank': 'Rerank', 'asr': 'ASR'}.get(body.get('model_type'), 'KnowledgeQA')
-    value = {'name': name, 'type': kind, 'parameters': {'provider': body.get('provider', 'generic'), 'base_url': body.get('base_url', ''),
-        'context_window': body.get('context_window'), 'max_output_tokens': body.get('max_output_tokens'),
-        'spec': body.get('spec') or {}, 'extra_config': extra}}
-    validate_model_runtime(value)
-    capabilities = model_capabilities(value)
-    return jsonify(success=True, data={'provider': capabilities['provider'], 'api': capabilities['api'],
-        'base_url': body.get('base_url', ''), 'remote_model': remote_model_name(value),
-        'cataloged': capabilities['cataloged'], 'model': {}, 'capabilities': capabilities})
+    from agent.model_catalog import PROVIDERS, TYPES, provider_id
+    from agent.models import validate_model_runtime
+    body = _body() if request.method == 'POST' else request.args
+    params = {key: body[key] for key in ('provider', 'base_url', 'context_window', 'max_output_tokens', 'spec') if key in body}
+    if not all(isinstance(params.get(k, ''), str) for k in ('provider', 'base_url')):
+        raise StoreError('服务商和地址必须为字符串', 400)
+    fields = PROVIDERS[provider_id(params)].get('extraFields', [])
+    keys = ['api', 'thinking_control', 'remote_model_name', *[f['key'] for f in fields if not f.get('secret') and f.get('type') != 'password']]
+    params['extra_config'] = {k: body[k] for k in keys if body.get(k)}
+    category = body.get('model_type') or 'chat'
+    if not isinstance(category, str):
+        raise StoreError('模型类型无效', 400)
+    kind = TYPES.get(category.lower(), 'KnowledgeQA')
+    r = validate_model_runtime({'name': body.get('model', ''), 'type': kind, 'parameters': params})
+    data = {k: r[k] for k in ('provider', 'remote_model', 'cataloged', 'model', 'capabilities')}
+    data['api'] = r['capabilities']['api']
+    if getattr(g, 'user', {}).get('role') == 'admin':
+        data['base_url'] = r['base_url']
+        if r['url']:
+            data['url'] = r['url']
+    return jsonify(success=True, data=data)
 
 
 @runtime_settings_bp.route('/api/v1/models/<model_id>', methods=['GET', 'PUT', 'PATCH', 'DELETE'])
 def model(model_id):
-    if request.method != 'GET':
-        _require_model_admin()
-    if model_id == 'agent-main':
-        if request.method != 'GET':
-            raise StoreError('环境模型请通过服务器环境配置；可以复制为个人模型', 400)
-        return jsonify(success=True, data=registry.environment_model())
-    if request.method == 'DELETE':
-        with registry.model_bindings_transaction(g.user['id']) as conn:
-            registry.record('model', model_id, g.user['id'], _connection=conn)
-            defaults = registry.default_model_references(model_id, g.user['id'], _connection=conn)
-            if defaults:
-                raise StoreError('模型正用于默认设置，请先更换：' + '、'.join(defaults), 409)
-            usage = registry.model_usage(model_id, g.user['id'], _connection=conn)
-            if usage['agent_total']:
-                return jsonify(success=False, error={'code': 2300,
-                    'message': '模型正被 Agent 使用，请先更换模型', 'details': usage}), 400
-            registry.delete_record('model', model_id, g.user['id'], _connection=conn)
-        return jsonify(success=True)
-    if request.method != 'GET':
-        body = _body()
-        if request.method == 'PUT' and isinstance(body.get('parameters'), dict):
-            # The upstream editor omits spec after its last override is cleared.
-            body['parameters'].setdefault('spec', {})
-        value = registry.save_model(body, g.user['id'], model_id)
+    owner = g.user['id']
+    if request.method == 'GET':
+        value = registry.model_record(model_id, owner)
     else:
-        value = registry.record('model', model_id, g.user['id'])
-    return jsonify(success=True, data=registry.public(value))
+        with registry.model_bindings_transaction(owner) as conn:
+            value = registry.model_record(model_id, owner, _connection=conn, lock=True)
+            if request.method == 'DELETE':
+                _require_model_admin()
+                if value.get('is_builtin'):
+                    raise StoreError('builtin models cannot be deleted', 400)
+                usage = registry.model_usage(model_id, owner, _connection=conn)
+                if registry.model_in_use(usage):
+                    counts = [(usage['knowledge_base_total'], 'knowledge base(s)'), (usage['agent_total'], 'agent(s)')]
+                    bindings = [f'{count} {label}' for count, label in counts if count]
+                    if usage['long_term_memory']['bindings']:
+                        bindings.append('long-term memory')
+                    message = 'model is used by ' + ' and '.join(bindings) + '; reconfigure or remove those references before deleting'
+                    return jsonify(success=False, error={'code': 2300,
+                        'message': message, 'details': usage}), 400
+                registry.delete_record('model', model_id, owner, _connection=conn)
+                return jsonify(success=True, message='Model deleted')
+            _require_model_edit(value)
+            body = _body()
+            if request.method == 'PATCH':
+                updates = {key: body[key] for key in ('display_name', 'description') if body.get(key) is not None}
+                if not updates or any(not isinstance(v, str) for v in updates.values()):
+                    raise StoreError('display_name or description is required', 400)
+                if 'display_name' in updates:
+                    updates['display_name'] = updates['display_name'].strip()
+                if value.get('_from_environment'):
+                    # A rename must keep following the environment endpoint and key.
+                    value = {k: value[k] for k in ('id','_kind','is_builtin','_from_environment','created_at',
+                                                   'display_name','description') if k in value}
+                    registry.save_record('model', {**value, **updates}, '', _connection=conn)
+                else:
+                    registry.persist_model({**value, **updates}, owner, conn)
+            else:
+                if isinstance(body.get('parameters'), dict):
+                    body['parameters'].setdefault('spec', {})
+                registry.save_model(body, owner, stored=value, _connection=conn)
+            value = registry.model_record(model_id, owner, _connection=conn)
+    return jsonify(success=True, data=registry.model_response(value, **_model_access()))
 
 
 @runtime_settings_bp.route('/api/v1/models/<model_id>/copy', methods=['POST'])
 def copy_model(model_id):
     _require_model_admin()
-    value = registry.model_config(model_id, g.user['id'])
-    value.pop('id', None)
-    if model_id == 'agent-main':
-        # A personal copy must never export shared server credentials to a user-controlled endpoint.
-        for key in ('api_key', 'app_secret', 'custom_headers'):
-            value['parameters'].pop(key, None)
-    value['display_name'] = _body().get('display_name') or value.get('display_name', value['name']) + ' (副本)'
-    return jsonify(success=True, data=registry.public(registry.save_model(value, g.user['id'])))
+    display_name = _body().get('display_name')
+    if not isinstance(display_name, str) or not display_name.strip():
+        raise StoreError('display_name is required', 400)
+    owner = g.user['id']
+    with registry.model_bindings_transaction(owner) as conn:
+        value = registry.model_record(model_id, owner, _connection=conn, lock=True)
+        if value.get('is_builtin'):
+            raise StoreError('builtin models cannot be copied', 400)
+        value['display_name'] = display_name.strip()
+        value['parameters'].update(registry.secrets(value))
+        saved = registry.save_model(value, owner, _connection=conn)
+        copied = registry.model_record(saved['id'], owner, _connection=conn)
+    return jsonify(success=True, data=registry.model_response(copied, **_model_access())), 201
 
 
 @runtime_settings_bp.route('/api/v1/models/<model_id>/usage')
 def model_usage(model_id):
-    registry.model_config(model_id, g.user['id'])
+    registry.model_record(model_id, g.user['id'])
     usage = registry.model_usage(model_id, g.user['id'])
-    return jsonify(success=True, data={'model_id': model_id, **usage,
-        'in_use': bool(usage['agent_total'] or registry.default_model_references(model_id, g.user['id']))})
+    return jsonify(success=True, data={'model_id': model_id, **usage, 'in_use': registry.model_in_use(usage)})
 
 
 @runtime_settings_bp.route('/api/v1/models/<model_id>/debug', methods=['POST'])
 def debug_model(model_id):
+    _require_model_admin()
     import asyncio
     import json
     import time
     from agent.config import validate_config
-    from agent.graph import build_model
-    from agent.models import model_capabilities, remote_model_name
-    from webapi.weknora_adapter import message_dict, reasoning_text, text
+    from agent.models import build_model_record
+    from agent.model_catalog import LEVELS, resolve
+    from webapi.model_runtime import debug_chat_stream, debug_nonchat_model, debug_preview
     if request.is_json:
         body = _body()
         options = body.get('options', body)
@@ -138,73 +199,68 @@ def debug_model(model_id):
             raise StoreError('调试 options 必须为 JSON 对象', 400) from exc
     if not isinstance(options, dict):
         raise StoreError('调试 options 必须为对象', 400)
+    options = {key: options[key] for key in ('system_prompt', 'temperature', 'top_p', 'max_tokens', 'thinking',
+                                             'reasoning_effort', 'similarity') if options.get(key) is not None}
+    if 'max_tokens' in options and (type(options['max_tokens']) is not int or not 1 <= options['max_tokens'] <= 8192):
+        raise StoreError('max_tokens must be between 1 and 8192', 400)
+    if 'top_p' in options and (type(options['top_p']) not in (float, int) or not 0 < options['top_p'] <= 1):
+        raise StoreError('top_p must be greater than 0 and at most 1', 400)
+    if 'temperature' in options and (type(options['temperature']) not in (float, int) or not 0 <= options['temperature'] <= 2):
+        raise StoreError('temperature must be between 0 and 2', 400)
+    if options.get('reasoning_effort', '') not in ('', *LEVELS):
+        raise StoreError(f"reasoning_effort must be one of [{' '.join(LEVELS)}]", 400)
+    if any(type(options[key]) is not bool for key in ('thinking', 'similarity') if key in options):
+        raise StoreError('thinking and similarity must be booleans', 400)
     saved = registry.model_config(model_id, g.user['id'])
     if saved['type'] not in ('KnowledgeQA', 'VLLM'):
-        from webapi.model_runtime import debug_nonchat_model
         return debug_nonchat_model(saved, body, options, request.files.get('file'))
     config = validate_config({'model_id': model_id, 'temperature': options.get('temperature', 0),
         'max_completion_tokens': options.get('max_tokens', 2048), 'thinking': options.get('thinking', False),
         'reasoning_effort': options.get('reasoning_effort', '')})
-    query = body.get('input') or body.get('query') or '请回复 OK'
-    if not isinstance(query, str) or len(query) > 100000:
-        raise StoreError('调试输入无效', 400)
+    query = body.get('input', body.get('query', ''))
+    if not isinstance(query, str) or len(query.encode()) > 64 * 1024:
+        raise StoreError('input is too long', 400)
     prompt = options.get('system_prompt', '')
     if not isinstance(prompt, str) or len(prompt) > 100000:
         raise StoreError('调试系统提示词无效', 400)
     messages = ([{'role': 'system', 'content': prompt}] if prompt else []) + [{'role': 'user', 'content': query}]
     file = request.files.get('file')
-    caps = model_capabilities(saved)
+    resolved = resolve(saved)
+    caps = resolved['capabilities']
+    if not file and not query.strip() and saved['type'] == 'KnowledgeQA':
+        raise StoreError('query cannot be empty', 400)
+    size = 0
     if saved['type'] == 'VLLM' and not file:
         raise StoreError('请提供视觉模型调试图片', 400)
-    if file and saved['type'] == 'KnowledgeQA' and not (saved['parameters'].get('supports_vision') or 'image' in caps['input']):
+    if file and saved['type'] == 'KnowledgeQA' and not (saved['parameters'].get('supports_vision') or 'image' in caps.get('input', [])):
         raise StoreError('当前对话模型不支持图片输入', 400)
     if file:
         import base64
-        from opensandbox.exceptions import SandboxException
-        from webapi.chat_resources import _image_mime
+        from webapi.chat_resources import debug_image
         data = file.read(10 * 1024 * 1024 + 1)
-        if len(data) > 10 * 1024 * 1024:
+        size = len(data)
+        if size > 10 * 1024 * 1024:
             raise StoreError('调试图片不能超过 10 MB', 400)
-        try:
-            mime = _image_mime(file.filename or 'image', data)
-        except StoreError as exc:
-            if exc.status != 422:
-                raise
-            raise StoreError('请提供有效图片', 400) from exc
-        except SandboxException as exc:
-            raise StoreError('隔离图片校验服务不可用', 503) from exc
-        except (KeyError, TypeError, ValueError) as exc:
-            raise StoreError('请提供有效图片', 400) from exc
+        mime, data = debug_image(file.filename or 'image', data)
         messages[-1]['content'] = [{'type': 'text', 'text': query}, {'type': 'image_url', 'image_url': {
             'url': f'data:{mime};base64,' + base64.b64encode(data).decode()}}]
-    model = build_model(config, g.user['id'])
-    caps = model_capabilities(saved)
-    if 'top_p' in options:
-        if type(options['top_p']) not in (int, float) or not 0 <= options['top_p'] <= 1:
-            raise StoreError('top_p 必须在 0 到 1 之间', 400)
-        if model.temperature is not None:
-            model = model.bind(top_p=options['top_p'])
+    model = build_model_record(saved, config)
+    if 'top_p' in options and model.temperature is not None and resolved['compat'].get('supports_top_p', True):
+        model = model.bind(top_p=options['top_p'])
     started = time.monotonic()
-    async def query_model():
-        result = None
-        async for chunk in model.astream(messages):
-            result = chunk if result is None else result + chunk
-        if result is None:
-            raise ValueError('Empty model response')
-        return result
-    observations = {'api': caps['api'], 'capabilities': caps, 'requested_reasoning_effort': config.get('reasoning_effort') or
-                    ('auto' if config['thinking'] else 'off')}
-    client = model.bound if hasattr(model, 'bound') else model
-    request_info = {'model': remote_model_name(saved), 'input': query,
-                    'system_prompt': prompt, 'options': dict(options), 'image_attached': bool(file),
-                    'effective_options': {'temperature': client.temperature, 'max_tokens': client.max_tokens,
-                        **client.model_kwargs, **(model.kwargs if hasattr(model, 'kwargs') else {})}}
+    request_info = debug_preview(saved, query, options, upload=file, size=size)
+    effort = config.get('reasoning_effort') or (('auto' if config['thinking'] else 'off') if 'thinking' in options else '')
+    control = caps['thinking_format'] if caps.get('thinking_levels') else 'none'
+    observations = {'api': caps['api'], 'capabilities': caps, 'requested_reasoning_effort': effort,
+                    'stream': True, 'requested_thinking': effort not in ('', 'off'), 'thinking_control': control,
+                    'thinking_parameter_sent': bool(effort) and control != 'none'} if saved['type'] == 'KnowledgeQA' else {}
     try:
-        output = asyncio.run(query_model())
-        native = message_dict(output)
-        reasoning = reasoning_text(native)
-        observations.update(answer_characters=len(text(output.content)), reasoning_characters=len(reasoning), reasoning_returned=bool(reasoning))
-        result = {'ok': True, 'raw_response': native, 'content': output.content, 'model_id': model_id}
+        raw = asyncio.run(debug_chat_stream(model, messages))
+        observations['answer_characters'] = len(raw['content'])
+        if saved['type'] == 'KnowledgeQA':
+            reasoning = raw.get('reasoning_content', '')
+            observations.update(reasoning_characters=len(reasoning), reasoning_returned=bool(reasoning.strip()))
+        result = {'ok': True, 'raw_response': raw if saved['type'] == 'KnowledgeQA' else raw['content']}
     except Exception as exc:
         result = {'ok': False, 'raw_response': None, 'error': f'模型调试失败（{type(exc).__name__}）'}
     return jsonify(success=True, data={**result, 'request': request_info, 'observations': observations,
@@ -323,14 +379,28 @@ def credentials(resource, resource_id, field=None):
     if not kind:
         raise StoreError('配置类型无效', 404)
     if kind == 'model':
-        _require_model_admin()
+        from agent import model_secrets
+        owner = g.user['id']
+        with registry.model_bindings_transaction(owner) as conn:
+            value = registry.model_record(resource_id, owner, _connection=conn, lock=True)
+            _require_model_edit(value)
+            updates = {field: ''} if field else _body()
+            if set(updates) - set(model_secrets.FIELDS) or any(not isinstance(v, str) for v in updates.values()):
+                raise StoreError('unknown credential field', 400)
+            private = model_secrets.read(value)
+            if any(private.get(k, '') != v for k,v in updates.items()):
+                private.update(updates)
+                registry.persist_model(model_secrets.store(value, private), owner, conn)
+        if field:
+            return '', 204
+        return jsonify(success=True, data={'fields': {k: {'configured': bool(private.get(k))} for k in model_secrets.FIELDS}})
     value = registry.record(kind, resource_id, g.user['id'])
     if kind == 'web-search':
         unavailable()
     from agent import mcp_auth
     previous_fingerprint = mcp_auth.fingerprint(value) if kind == 'mcp' else None
     private = registry.secrets(value)
-    allowed = ('api_key', 'app_secret') if kind == 'model' else ('api_key', 'token', 'client_secret')
+    allowed = ('api_key', 'token', 'client_secret')
     if field:
         if field not in allowed:
             raise StoreError('凭据字段无效', 400)
@@ -478,9 +548,13 @@ def test_search(provider_id=None):
 
 @runtime_settings_bp.route('/api/v1/tenants/kv/<key>', methods=['GET', 'PUT'])
 def settings(key):
-    defaults = {'default-settings': {'summary_model_id': 'agent-main', 'chat_model_id': 'agent-main', 'utility_model_id': 'agent-main',
-        'embedding_model_id': '', 'rerank_model_id': '', 'vlm_model_id': '', 'asr_model_id': '', 'agent_enabled': True},
-        'retrieval-config': {}, 'web-search-config': {'enabled': False}, 'skill-installer-model': {'model_id': ''},
+    if key == 'default-settings':
+        if request.method == 'GET':
+            return jsonify(success=True, data=registry.workspace_defaults(g.user['id']))
+        _require_model_admin()
+        value = registry.save_workspace_defaults(g.user['id'], _body())
+        return jsonify(success=True, data=value, message='Default settings updated successfully')
+    defaults = {'retrieval-config': {}, 'web-search-config': {'enabled': False}, 'skill-installer-model': {'model_id': ''},
         'memory-config': {'enabled': False, 'write_mode': 'explicit_only', 'extract_model_id': '',
             'max_items': 0, 'extract_delay_seconds': 0, 'extract_min_interval_seconds': 0,
             'extract_instructions': '', 'interest_threshold': 0, 'retrieval_conditioning': False,
@@ -513,8 +587,6 @@ def settings(key):
     if request.method == 'PUT':
         updates = _body()
         value.update(updates)
-        if key == 'default-settings' and 'chat_model_id' in updates and 'summary_model_id' not in updates:
-            value['summary_model_id'] = updates['chat_model_id']
         registry.save_record('settings', {'id': key, 'name': key, 'value': value}, g.user['id'])
     return jsonify(success=True, data=value)
 

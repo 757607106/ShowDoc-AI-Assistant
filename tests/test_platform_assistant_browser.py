@@ -13,7 +13,7 @@ import pytest
 
 from agent import registry
 from tests.test_platform_harness import call, harness, original_prepare
-from tests.test_platform_litellm import model_record, sdk_provider
+from tests.test_platform_model_protocols import model_record, sdk_provider
 from tests.test_platform_mcp_runtime import serve
 
 pytestmark = pytest.mark.skipif(
@@ -52,12 +52,12 @@ def browser_platform(harness, sdk_provider, original_prepare, monkeypatch):
         yield platform, runtime_model, tools, headers
 
 
-def _login(page, platform):
+def _login(page, platform, account='test@example.com', password='test-password-123', target='**/platform/**'):
     page.goto(platform + '/login')
-    page.locator('input[autocomplete="email"]').fill('test@example.com')
-    page.locator('input[autocomplete="current-password"]').fill('test-password-123')
+    page.locator('input[autocomplete="username"]').fill(account)
+    page.locator('input[autocomplete="current-password"]').fill(password)
     page.locator('button[type="submit"]').click()
-    page.wait_for_url('**/platform/**')
+    page.wait_for_url(target)
 
 
 def _get(page, platform, path, headers):
@@ -197,4 +197,62 @@ def test_sidebar_running_completion_and_reload_unread_use_real_message_history(b
             raise
         finally:
             release.set()
+            browser.close()
+
+
+def test_two_personal_workspaces_in_separate_browsers(browser_platform):
+    from playwright.sync_api import expect, sync_playwright
+    from webapi.auth import create_user
+
+    platform, _, _, headers = browser_platform
+    create_user('workspace-reader', 'Reader', 'reader-password', 'viewer')
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(channel='chrome', headless=True)
+        a = browser.new_page(locale='zh-CN')
+        b = browser.new_page(locale='zh-CN')
+        try:
+            _login(a, platform)
+            _login(b, platform, 'workspace-reader', 'reader-password')
+            result = a.request.post(platform + '/api/uploads', headers=headers,
+                multipart={'files': {'name':'note.md', 'mimeType':'text/markdown', 'buffer':b'workspace'}})
+            assert result.ok, result.text()
+            url = platform + '/platform/settings?section=tenant'
+            a.goto(url)
+            b.goto(url)
+            for page, used in [(a, '9 B'), (b, '0 B')]:
+                section = page.locator('.tenant-info')
+                expect(section.get_by_text('10 GB', exact=True)).to_be_visible()
+                expect(section.get_by_text(used, exact=True)).to_be_visible()
+                expect(section.get_by_role('button', name='删除空间', exact=True)).to_be_visible()
+            a.get_by_role('button', name='修改名称').click()
+            a.get_by_placeholder('请输入新的空间名称').fill('Alpha')
+            a.get_by_role('button', name='保存', exact=True).click()
+            a.get_by_role('button', name='修改描述').click()
+            a.get_by_placeholder('请输入新的空间描述').fill('Private files')
+            a.get_by_role('button', name='保存', exact=True).click()
+            a.reload()
+            section = a.locator('.tenant-info')
+            expect(section.get_by_text('Private files', exact=True)).to_be_visible()
+            expect(section.get_by_text('Alpha', exact=True)).to_be_visible()
+            expect(b.locator('.tenant-info').get_by_text("Reader's Workspace", exact=True)).to_be_visible()
+            section.get_by_role('button', name='删除空间', exact=True).click()
+            dialog = a.locator('.t-dialog').filter(has_text='删除当前空间？')
+            confirm = dialog.get_by_role('button', name='删除', exact=True)
+            expect(confirm).to_be_disabled()
+            dialog.get_by_placeholder('Alpha').fill('Alpha')
+            confirm.click()
+            a.wait_for_url('**/login**')
+            b.reload()
+            expect(b.locator('.tenant-info').get_by_text("Reader's Workspace", exact=True)).to_be_visible()
+            expect(b.locator('.tenant-info').get_by_text('0 B', exact=True)).to_be_visible()
+            _login(a, platform, target='**/onboarding/workspace')
+            a.get_by_role('button', name='创建空间', exact=True).click()
+            dialog = a.locator('.t-dialog').filter(has_text='创建新空间')
+            dialog.locator('input').fill('Fresh')
+            dialog.get_by_role('button', name='创建', exact=True).click()
+            a.wait_for_url('**/platform/**')
+            a.goto(url)
+            expect(a.locator('.tenant-info').get_by_text('Fresh', exact=True)).to_be_visible()
+            expect(a.locator('.tenant-info').get_by_text('0 B', exact=True)).to_be_visible()
+        finally:
             browser.close()

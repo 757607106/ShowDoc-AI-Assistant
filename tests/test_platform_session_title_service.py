@@ -137,7 +137,7 @@ def test_title_model_selection_prefers_explicit_then_utility_chat_environment(mo
     assert selected == [models['explicit']['id'], models['utility']['id'], models['chat']['id'], 'agent-main']
 
 
-def test_title_ainvoke_uses_litellm_http_contract_and_changes_only_title(provider_server):
+def test_title_ainvoke_uses_model_http_contract_and_changes_only_title(provider_server):
     owner, sid = empty_session()
     base, calls = provider_server
     model = registry.save_model({'name': 'fixture', 'type': 'KnowledgeQA', 'parameters': {

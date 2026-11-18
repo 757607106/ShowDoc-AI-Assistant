@@ -20,7 +20,7 @@ import urllib.parse
 import urllib.request
 
 import requests
-import litellm
+from common.model_api import chat_completion
 
 from html import escape
 
@@ -187,10 +187,9 @@ class CYBAuthenticator:
                 }
             ],
         }
-        result = litellm.completion(
+        result = chat_completion(
             **payload,
-            custom_llm_provider="openai",
-            api_base=DASHSCOPE_API_URL.rstrip('/').removesuffix('/chat/completions'),
+            base_url=DASHSCOPE_API_URL.rstrip('/').removesuffix('/chat/completions'),
             api_key=self.qwen_api_key,
             timeout=45,
         )

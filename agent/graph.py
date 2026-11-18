@@ -33,9 +33,10 @@ Shell 只能使用这个真实路径，不能把 /state/ 或 /memories/ 当作�
 
 def build_model(agent_config=None, owner_id=None):
     """Use the configured model verbatim; provider errors must not change models."""
-    from agent.registry import model_config
+    from agent.registry import default_model_id, model_config
     config = agent_config or {}
-    return build_model_record(model_config(config.get('model_id'), owner_id), config)
+    model_id = config.get('model_id') or (default_model_id(owner_id) if owner_id else 'agent-main')
+    return build_model_record(model_config(model_id, owner_id), config)
 
 
 async def build_agent(checkpointer, *, api_key, owner_id, role='viewer', knowledge_base_ids=(),

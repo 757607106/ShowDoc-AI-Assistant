@@ -35,9 +35,9 @@ test('clearing raw limits and the last request header sends explicit empty value
   assert.equal('api_key' in parameters, false)
 })
 
-test('the editor does not expose a background concurrency setting without a runtime consumer', () => {
+test('the editor exposes the upstream per-model background concurrency field', () => {
   const editor = readFileSync(new URL('../../components/ModelEditorDialog.vue', import.meta.url), 'utf8')
-  assert.equal(editor.includes('v-model.number="formData.maxConcurrency"'), false)
+  assert.equal(editor.includes('v-model.number="formData.maxConcurrency"'), true)
 })
 
 test('explicit model limits and masked request headers survive the same save path', async () => {

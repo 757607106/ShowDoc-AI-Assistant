@@ -115,12 +115,21 @@ async def graph(config: dict, runtime: ServerRuntime):
         raise StoreError('异步执行缺少原生线程标识', 400)
     async with async_store() as store:
         async with backend_for_session(sid, identity, child_config, user['role']) if execution else _no_backend() as backend:
-            yield await build_agent(None, api_key=key, owner_id=identity, role=user['role'],
+            child_graph = await build_agent(None, api_key=key, owner_id=identity, role=user['role'],
                 knowledge_base_ids=grant['knowledge_base_ids'], knowledge_ids=grant['knowledge_ids'],
                 tag_scopes=grant['tag_scopes'], agent_config=grant['agent_config'],
                 session_id=sid, agent_id=grant['agent_id'], load_tools=execution, store=store,
                 backend=backend, delegated_subagent=grant['subagent_name'],
                 additional_middleware=[_SkillFiles(identity, grant['agent_config'], backend)])
+            if execution:
+                from aegra_api.core.database import db_manager
+                from langgraph.constants import CONFIG_KEY_CHECKPOINTER
+                from agent.checkpointer import WorkspaceCheckpointer
+                # Aegra owns the child database. Lend the graph its quota-aware saver for this run.
+                saver = WorkspaceCheckpointer(db_manager.lg_pool)
+                saver.parent_session_id = grant['parent_session_id']
+                child_graph = child_graph.with_config(configurable={CONFIG_KEY_CHECKPOINTER: saver})
+            yield child_graph
 
 
 @asynccontextmanager

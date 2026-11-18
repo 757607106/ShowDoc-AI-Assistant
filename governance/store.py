@@ -128,26 +128,36 @@ class Store:
 
     def _create(self, kind, key, payload, metadata, *, _connection=None):
         from governance.database import connection
+        from governance.workspaces import record_sizes, set_file_sizes
         from psycopg.types.json import Jsonb
         from psycopg.errors import UniqueViolation
         owner_id = metadata.get('owner_id') or self.owner_id or ''
         metadata = {**metadata, 'type': kind, 'owner_id': owner_id}
         record_id = str(uuid.uuid4())
+        snapshot = None
         if kind == 'version':
             # Capture snapshots are source artifacts, never a local knowledge index or Wiki revision.
-            path = data_dir() / 'captures' / (owner_id or 'legacy') / f'{key}.json'
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix('.json.part')
-            temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
-            temporary.replace(path)
+            path = data_dir() / 'captures' / (owner_id or 'legacy') / f'{record_id}.json'
+            snapshot = json.dumps(payload, ensure_ascii=False).encode()
             payload = {'_capture_path': str(path)}
         try:
             with nullcontext(_connection) if _connection is not None else connection() as conn:
+                sizes = ({'file:' + str(path.relative_to(data_dir())): len(snapshot)} if snapshot is not None
+                         else record_sizes(kind, key, payload, metadata))
+                set_file_sizes(conn, owner_id, sizes)
                 row = conn.execute(
                     'INSERT INTO runtime_records(id, owner_id, kind, record_key, name, payload, metadata) '
                     'VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *',
                     (record_id, owner_id, kind, str(key), f'{kind}-{key}.json', Jsonb(payload), Jsonb(metadata)),
                 ).fetchone()
+                if snapshot is not None:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = path.with_suffix('.json.part')
+                    try:
+                        temporary.write_bytes(snapshot)
+                        temporary.replace(path)
+                    finally:
+                        temporary.unlink(missing_ok=True)
         except UniqueViolation as exc:
             raise StoreError('平台记录已存在', 409) from exc
         return self._record(row)
@@ -458,10 +468,19 @@ class Store:
 
     def ingest(self, job, documents, sources, chunks):
         from governance.database import connection
-        with connection() as conn:
-            return self._ingest(job, documents, sources, chunks, _connection=conn)
+        from governance.workspaces import disk_sizes, set_file_sizes
+        output = Path(job['output_dir'])
+        created_paths = []
+        try:
+            with connection() as conn:
+                set_file_sizes(conn, self.owner_id, disk_sizes([output, output.with_suffix('.zip')], 'jobs'))
+                return self._ingest(job, documents, sources, chunks, _connection=conn, created_paths=created_paths)
+        except BaseException:
+            for path in created_paths:
+                path.unlink(missing_ok=True)
+            raise
 
-    def _ingest(self, job, documents, sources, chunks, *, _connection):
+    def _ingest(self, job, documents, sources, chunks, *, _connection, created_paths):
         scope = job['scope']
         changed = False
         document_chunks = {}
@@ -473,7 +492,6 @@ class Store:
             scope_doc = self._create('scope', scope, {'scope': scope},
                                      {'type': 'scope', 'scope': scope, 'generation': 0},
                                      _connection=_connection)
-        created_version_ids = []
         for record in documents:
             record = dict(record)
             record['metadata'] = {**record.get('metadata', {}), 'scope': job.get('applicability', {})}
@@ -528,8 +546,8 @@ class Store:
                     'category': self._meta_text(record.get('category', ''), 100),
                     'source_format': self._meta_text(record.get('source_format', ''), 40),
                 }
-                self._create('version', version_id, payload, version_metadata, _connection=_connection)
-                created_version_ids.append(version_id)
+                version = self._create('version', version_id, payload, version_metadata, _connection=_connection)
+                created_paths.append(data_dir() / 'captures' / (self.owner_id or 'legacy') / f"{version['id']}.json")
             else:
                 version_metadata = dict(existing_version['metadata'])
                 version_metadata['is_current'] = True
@@ -650,16 +668,16 @@ class Store:
             conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',
                          (f'sync-delivery:{self.owner_id}:{scope}',))
             release_id = release_id or str(uuid.uuid4())
-            for other in self._list({'type': 'release', 'scope': scope}):
+            for other in self._list({'type': 'release', 'scope': scope}, _connection=conn):
                 if other['metadata'].get('active'):
                     metadata = dict(other['metadata'])
                     metadata['active'] = False
-                    self._update_metadata(metadata, document_id=other['id'])
+                    self._update_metadata(metadata, document_id=other['id'], _connection=conn)
             self._create('release', release_id,
                          {'version_ids': list(version_ids), 'job_id': job_id, 'scope': scope},
                          {'type': 'release', 'release_id': release_id, 'job_id': job_id, 'scope': scope,
                           'generation': generation, 'archive_path': str(archive_path)[:METADATA_TEXT_LIMIT],
-                          'active': True, 'created_at': now(), 'updated_at': now()})
+                          'active': True, 'created_at': now(), 'updated_at': now()}, _connection=conn)
             return release_id
 
     def list_releases(self, scope=None):

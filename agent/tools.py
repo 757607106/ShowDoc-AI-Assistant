@@ -80,7 +80,7 @@ async def load_knowledge_mcp_tools(*, api_key, role='viewer', owner_id=None, kno
         if owner_id:
             from governance.database import connection
             with connection() as conn:
-                user = conn.execute('SELECT role,active,contextdb_key_encrypted FROM platform_users WHERE id=%s', (owner_id,)).fetchone()
+                user = conn.execute('SELECT role,active,contextdb_key_encrypted FROM workspace_users WHERE id=%s', (owner_id,)).fetchone()
             from agent.credentials import cipher
             if not user or not user['active'] or not user['contextdb_key_encrypted'] or cipher().decrypt(user['contextdb_key_encrypted'].encode()).decode() != api_key:
                 raise StoreError('当前成员凭据已变更或账号已停用，请重新开始执行', 403)

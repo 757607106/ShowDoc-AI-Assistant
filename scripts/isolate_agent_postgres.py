@@ -14,6 +14,7 @@ from langgraph.store.postgres import PostgresStore
 
 PLATFORM_TABLES = ('platform_users', 'runtime_records', 'platform_tokens', 'agent_sessions',
                    'knowledge_sync', 'agent_runs', 'agent_run_events', 'agent_steers', 'platform_audit')
+WORKSPACE_TABLES = ('platform_workspaces', 'workspace_storage')
 AGENT_KEYS = {
     'checkpoint_migrations': ('v',),
     'checkpoints': ('thread_id', 'checkpoint_ns', 'checkpoint_id'),
@@ -108,11 +109,12 @@ def inspect(admin_url, platform_url, agent_url):
             raise ValueError('The bootstrap administrator must not be either application role')
         roles = {value['user']: _role(source, value['user']) is not None for value in (platform, agent)}
         expected = set(PLATFORM_TABLES) | set(AGENT_KEYS)
-        if _tables(source) != expected:
+        tables = _tables(source)
+        if tables != expected and tables != expected.union(WORKSPACE_TABLES):
             raise ValueError('Source public tables differ from the fixed platform and official Agent table set')
         _check_grants(source, AGENT_KEYS, (administrator, platform['user'], agent['user']))
         counts = {table: source.execute(sql.SQL('SELECT count(*) AS n FROM {}').format(
-            sql.Identifier('public', table))).fetchone()['n'] for table in PLATFORM_TABLES}
+            sql.Identifier('public', table))).fetchone()['n'] for table in (*PLATFORM_TABLES, *WORKSPACE_TABLES) if table in tables}
         original = {table: _fingerprint(source, table) for table in AGENT_KEYS}
         target_exists = source.execute('SELECT 1 FROM pg_database WHERE datname=%s', (agent['dbname'],)).fetchone() is not None
         target_stats = None
@@ -160,14 +162,21 @@ def _access(admin_url, database, owner, other, archive_owner=None):
             sql.Identifier(owner), sql.Identifier(other)))
         conn.execute(sql.SQL('REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC,{},{}').format(
             sql.Identifier(owner), sql.Identifier(other)))
-        owned_tables = PLATFORM_TABLES if archive_owner else tuple(table for table in AGENT_KEYS if table in _tables(conn))
+        tables = _tables(conn)
+        owned_tables = (*PLATFORM_TABLES, *WORKSPACE_TABLES) if archive_owner else AGENT_KEYS
         for table in owned_tables:
+            if table not in tables:
+                continue
             conn.execute(sql.SQL('ALTER TABLE {} OWNER TO {}').format(sql.Identifier('public', table), sql.Identifier(owner)))
             conn.execute(sql.SQL('GRANT ALL ON TABLE {} TO {}').format(sql.Identifier('public', table), sql.Identifier(owner)))
         if archive_owner:
+            if 'platform_workspaces' in tables:
+                conn.execute(sql.SQL('ALTER VIEW public.workspace_users OWNER TO {}').format(sql.Identifier(owner)))
             for table in AGENT_KEYS:
                 conn.execute(sql.SQL('ALTER TABLE {} OWNER TO {}').format(sql.Identifier('public', table), sql.Identifier(archive_owner)))
-            for table, column in (('agent_run_events', 'cursor'), ('platform_audit', 'id')):
+            for table, column in (('agent_run_events', 'cursor'), ('platform_audit', 'id'), ('platform_workspaces', 'id')):
+                if table not in tables:
+                    continue
                 sequence = conn.execute('SELECT pg_get_serial_sequence(%s,%s) AS name', ('public.' + table, column)).fetchone()['name']
                 if sequence:
                     parts = conn.execute('SELECT parse_ident(%s) AS parts', (sequence,)).fetchone()['parts']

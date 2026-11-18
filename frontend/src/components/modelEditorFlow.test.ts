@@ -109,13 +109,10 @@ async function fixture(options: {
         } },
       }
       if (name === '@/stores/modelProviders') return { useModelProvidersStore: () => providersStore }
-      if (name === '@/api/model') return { getWeKnoraCloudStatus: async () => {managementRequests.push('weknoracloud-status'); return {has_models: true, needs_reinit: false}} }
-      if (name === '@/utils/weknoraCloudModels') return require('../utils/weknoraCloudModels.ts')
       if (name === '@/utils/docsUrl') return require('../utils/docsUrl.ts')
       if (name === '@/stores/modelProvidersState') return require('../stores/modelProvidersState.ts')
       if (name === '@/utils/reasoningEffort') return require('../utils/reasoningEffort.ts')
       if (name === '@/utils/contextWindow') return require('../utils/contextWindow.ts')
-      if (name === '@/components/modelEditorSourceState') return require('./modelEditorSourceState.ts')
       return { default: {} }
     },
   })
@@ -152,21 +149,17 @@ test('ContextDB opening and browsing a saved local model never calls retired ser
   try {
     assert.equal(f.vm.formData.source, 'local')
     assert.equal(f.vm.formData.modelName, 'saved-ollama')
-    assert.equal(f.vm.ollamaManagementEnabled, false)
     assert.equal(f.vm.retiredLocalModel, true)
-    await f.vm.checkOllamaServiceStatus(); await f.vm.loadOllamaModels(); await f.vm.refreshOllamaModels()
-    await f.vm.checkModelStatus(); await f.vm.checkOllamaDimension(); await f.vm.startDownload('example')
-    await f.vm.goToOllamaSettings(); await f.vm.checkWkcCredentialStatus(); await f.vm.goToWeKnoraCloudSettings()
-    f.vm.searchKeyword = 'new-model'
-    assert.equal(f.vm.showDownloadOption, false)
     await f.vm.handleConfirm()
     assert.deepEqual(f.managementRequests, [])
     assert.deepEqual(f.settingsNavigations, [])
     assert.deepEqual(f.saves, [])
     assert.equal(f.props.visible, true)
-    assert.match(descriptor.template!.content, /v-if="ollamaManagementEnabled && activeModelType !== 'rerank'"/)
     assert.match(descriptor.template!.content, /v-if="retiredLocalModel"[\s\S]*?:model-value="formData\.modelName" readonly/)
-    assert.match(descriptor.template!.content, /v-if="ollamaManagementEnabled && shouldShowOllamaUnavailableTip/)
+    assert.doesNotMatch(descriptor.template!.content, /downloadOllama|ollamaManagementEnabled/)
+    f.vm.formData.source = 'remote'
+    await nextTick()
+    assert.equal(f.vm.retiredLocalModel, false)
   } finally {f.close()}
 })
 
@@ -266,11 +259,6 @@ for (const type of ['chat', 'embedding', 'rerank', 'vllm', 'asr']) {
       f.vm.remoteChecked = true
       f.vm.remoteAvailable = true
       f.vm.remoteMessage = 'old result'
-      f.vm.dimensionChecked = true
-      f.vm.dimensionSuccess = true
-      f.vm.dimensionMessage = 'old dimension'
-      f.vm.modelChecked = true
-      f.vm.modelAvailable = true
       f.vm.catalogFilled = { contextWindow: 64000 }
       f.vm.advancedOpen = true
       f.vm.saveError = 'old error'
@@ -295,10 +283,10 @@ for (const type of ['chat', 'embedding', 'rerank', 'vllm', 'asr']) {
       assert.equal(f.vm.formData.customHeaders.length, 0)
       assert.equal(Object.keys(f.vm.formData.extraConfig).length, 0)
       assert.equal(Object.keys(f.vm.catalogFilled).length, 0)
-      for (const field of ['remoteChecked', 'remoteAvailable', 'remoteStale', 'dimensionChecked', 'dimensionSuccess', 'modelChecked', 'modelAvailable', 'advancedOpen']) {
+      for (const field of ['remoteChecked', 'remoteAvailable', 'remoteStale', 'advancedOpen']) {
         assert.equal(f.vm[field], false, field)
       }
-      for (const field of ['remoteMessage', 'dimensionMessage', 'saveError']) assert.equal(f.vm[field], '', field)
+      for (const field of ['remoteMessage', 'saveError']) assert.equal(f.vm[field], '', field)
       assert.ok(cleared > 0)
     } finally { f.close() }
   })
@@ -495,26 +483,21 @@ test('closing and reopening the editor discards pending test responses', async (
   } finally { f.close() }
 })
 
-for (const source of ['remote', 'local']) {
-  test(`${source} embedding: detect dimensions without invalidating success or overwriting newer input`, async () => {
-    const response = deferred<Result>()
-    const f = await fixture({ type: 'embedding', check: () => response.promise })
-    try {
-      f.vm.formData.source = source
-      await nextTick()
-      const run = () => source === 'remote' ? f.vm.checkRemoteAPI() : f.vm.checkOllamaDimension()
-      const pending = run()
-      f.vm.formData.dimension = 2048
-      response.resolve({ available: true, dimension: 1024 })
-      await pending
-      assert.equal(f.vm.formData.dimension, 2048)
-      await run()
-      assert.equal(f.vm.formData.dimension, 1024)
-      assert.equal(source === 'remote' ? f.vm.remoteAvailable : f.vm.dimensionSuccess, true)
-      assert.equal(f.vm.checking, false)
-    } finally { f.close() }
-  })
-}
+test('remote embedding detects dimensions without overwriting newer input', async () => {
+  const response = deferred<Result>()
+  const f = await fixture({ type: 'embedding', check: () => response.promise })
+  try {
+    const pending = f.vm.checkRemoteAPI()
+    f.vm.formData.dimension = 2048
+    response.resolve({ available: true, dimension: 1024 })
+    await pending
+    assert.equal(f.vm.formData.dimension, 2048)
+    await f.vm.checkRemoteAPI()
+    assert.equal(f.vm.formData.dimension, 1024)
+    assert.equal(f.vm.remoteAvailable, true)
+    assert.equal(f.vm.checking, false)
+  } finally { f.close() }
+})
 
 test('save waits for success, blocks duplicate saves and cancellation, then closes and clears the draft', async () => {
   const response = deferred<void>()
@@ -1145,52 +1128,6 @@ test('the vision picker lists the vendor models the backend scoped to it', async
     await nextTick()
     assert.deepEqual(f.vm.catalogModelOptions.map((o: any) => o.value), ['sees-images'])
     assert.equal(f.vm.catalogModelOptions[0].vision, true)
-  } finally { f.close() }
-})
-
-const cloudProvider = {
-  value: 'weknoracloud', label: 'WeKnora Cloud', description: '', order: 1,
-  modelTypes: ['chat', 'embedding', 'rerank', 'vllm'],
-  defaultUrls: Object.fromEntries(['chat', 'embedding', 'rerank', 'vllm'].map(type => [type, 'https://weknora.weixin.qq.com'])),
-  models: [],
-}
-
-for (const [type, modelName] of [['chat', 'chat'], ['embedding', 'embedding'], ['rerank', 'rerank'], ['vllm', 'vlm']]) {
-  test(`WeKnora Cloud ${type}: an empty catalog still offers the managed model`, async () => {
-    const f = await fixture({ type, providers: [cloudProvider] })
-    try {
-      f.vm.formData.provider = 'weknoracloud'
-      f.vm.handleProviderChange('weknoracloud')
-      await nextTick()
-      await f.vm.checkWkcCredentialStatus()
-      assert.equal(f.vm.wkcCredentialState, 'configured')
-      assert.deepEqual(Array.from(f.vm.catalogModelOptions, (o: any) => o.value), [modelName])
-      assert.equal(f.vm.catalogModelOptions[0].vision, type === 'vllm')
-      f.vm.formData.modelName = modelName
-      f.vm.handleCatalogModelChange(modelName)
-      await nextTick()
-      await f.vm.checkRemoteAPI()
-      assert.equal(f.requests[0].modelName, modelName)
-      assert.equal(f.requests[0].provider, 'weknoracloud')
-      assert.equal(f.vm.formData.contextWindow, undefined)
-      assert.equal(f.vm.formData.dimension, undefined)
-    } finally { f.close() }
-  })
-}
-
-test('reselecting WeKnora Cloud after a type reset offers the new managed choices', async () => {
-  const f = await fixture({ providers: [cloudProvider] })
-  try {
-    f.vm.formData.provider = 'weknoracloud'
-    f.vm.handleProviderChange('weknoracloud')
-    await nextTick()
-    f.vm.formData.modelName = 'chat'
-    await f.vm.selectModelType('vllm')
-    assert.equal(f.vm.formData.modelName, '')
-    assert.equal(f.vm.formData.provider, 'generic')
-    f.vm.formData.provider = 'weknoracloud'
-    f.vm.handleProviderChange('weknoracloud')
-    assert.deepEqual(Array.from(f.vm.catalogModelOptions, (o: any) => o.value), ['vlm'])
   } finally { f.close() }
 })
 

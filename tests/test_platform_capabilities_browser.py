@@ -7,12 +7,29 @@ import pytest
 from tests.test_platform_agent_alignment_browser import alignment_page
 from tests.test_platform_assistant_browser import browser_platform
 from tests.test_platform_harness import harness, original_prepare
-from tests.test_platform_litellm import sdk_provider
+from tests.test_platform_model_protocols import sdk_provider
 
 pytestmark = pytest.mark.skipif(
     os.getenv('RUN_BROWSER_ACCEPTANCE') != '1',
     reason='Set RUN_BROWSER_ACCEPTANCE=1 after building the current frontend',
 )
+
+
+def test_old_cloud_bookmark_opens_without_cloud_controls_or_requests(browser_platform, alignment_page):
+    from playwright.sync_api import expect
+
+    platform, _, _, _ = browser_platform
+    page, _, requested = alignment_page
+    page.goto(platform + '/platform/settings?section=weknoracloud')
+    expect(page.get_by_role('heading', name='该设置已停用')).to_be_visible()
+    nav = page.locator('.settings-nav')
+    expect(nav.get_by_text('WeKnora Cloud', exact=True)).to_have_count(0)
+    expect(page.get_by_role('button', name='保存凭证')).to_have_count(0)
+    page.get_by_role('button', name='打开模型配置').click()
+    expect(page.locator('.model-settings')).to_be_visible()
+    nav.get_by_text('空间信息', exact=True).click()
+    expect(page.locator('.tenant-info').get_by_text('10 GB', exact=True)).to_be_visible()
+    assert not [path for _, path in requested if path.startswith('/api/') and 'weknoracloud' in path]
 
 
 def test_page_load_skips_unsupported_assistant_and_organization_apis(browser_platform, alignment_page):

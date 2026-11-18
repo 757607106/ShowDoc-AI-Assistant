@@ -16,6 +16,7 @@ from agent import sessions
 from governance.database import connection
 from governance.knowledge_names import KnowledgeNames
 from governance.store import StoreError
+from governance.workspaces import set_file_sizes
 from webapi.auth import client_for_user, user_id
 from webapi.legacy_runtime import unavailable
 
@@ -45,7 +46,7 @@ def attachment_parser_engines():
         'FileTypes': [*sorted(extension.lstrip('.') for extension in TEXT_EXTENSIONS), 'pdf', 'docx', 'pptx', 'xlsx', 'xlsm']}])
 
 
-def _attachment_parser_result(name, content, *, image=False):
+def _attachment_parser_result(name, content, *, image=False, image_limits=None):
     from opensandbox import SandboxSync
     from opensandbox.models import NetworkPolicy, WriteEntry
     from opensandbox.models.execd import RunCommandOpts
@@ -59,13 +60,18 @@ def _attachment_parser_result(name, content, *, image=False):
         path = '/tmp/input' + Path(name).suffix.lower()
         parser.files.write_files([WriteEntry(path=path, data=content, mode=644)])
         command = ['python', '/opt/attachment-parser.py', path]
-        if image:
+        if image_limits is not None:
+            command.extend(['--model-image', str(image_limits.get('max_image_bytes') or 0), *image_limits.get('image_mime_types', [])])
+        elif image:
             command.append('--image')
         result = parser.commands.run(command,
             opts=RunCommandOpts(timeout=timedelta(seconds=180), working_directory='/tmp'))
         if result.error is not None or result.exit_code != 0:
             raise StoreError('隔离附件解析失败，请检查文件格式', 422)
-        return json.loads(result.text)
+        value = json.loads(result.text)
+        if image_limits is not None and value.get('converted'):
+            value['data'] = parser.files.read_bytes('/tmp/model-image')
+        return value
     finally:
         parser.destroy()
 
@@ -82,6 +88,23 @@ def _image_mime(name, content):
     if mime not in IMAGE_MIMES:
         raise StoreError('请提供有效图片', 400)
     return mime
+
+
+def debug_image(name, data, limits=None):
+    from opensandbox.exceptions import SandboxException
+    try:
+        if limits is None:
+            return _image_mime(name, data), data
+        result = _attachment_parser_result(name, data, image_limits=limits)
+        return result['mime'], result.get('data', data)
+    except StoreError as exc:
+        if exc.status != 422:
+            raise
+        raise StoreError('图片无效或无法转换为模型接受的格式和大小', 400) from exc
+    except SandboxException as exc:
+        raise StoreError('隔离图片校验服务不可用', 503) from exc
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StoreError('请提供有效图片', 400) from exc
 
 
 def _attachment_bytes(item):
@@ -131,6 +154,10 @@ def _store_attachment(sid, owner, name, content, mime=None):
     except Exception as exc:
         item.update(status='failed', error_message=f'附件解析失败（{type(exc).__name__}），请检查格式或转为文本后重试')
     with connection() as conn:
+        if not conn.execute("""SELECT id FROM agent_sessions WHERE id=%s AND owner_id=%s
+                AND coalesce(agent_config->>'_deleting','false')<>'true' FOR SHARE""", (sid, owner)).fetchone():
+            raise StoreError('会话不存在', 404)
+        set_file_sizes(conn, owner, {f'attachment:{sid}:{attachment_id}': len(content)})
         conn.execute("INSERT INTO runtime_records(id,owner_id,kind,record_key,name,payload,metadata) VALUES (%s,%s,'chat_attachment',%s,%s,%s,'{}')",
                      (attachment_id, owner, attachment_id, name, Jsonb(item)))
     return item
@@ -154,11 +181,14 @@ def upload_attachment(sid):
 def attachment(sid, attachment_id):
     if request.method == 'DELETE' and sessions.get_session(sid)['agent_config'].get('runtime') != 'deepagents':
         unavailable()
-    item = _attachment(sid, attachment_id, user_id())
     if request.method == 'DELETE':
         with connection() as conn:
-            conn.execute("DELETE FROM runtime_records WHERE id=%s AND owner_id=%s AND kind='chat_attachment'", (attachment_id, user_id()))
+            set_file_sizes(conn, user_id(), {f'attachment:{sid}:{attachment_id}': 0})
+            if not conn.execute("""DELETE FROM runtime_records WHERE id=%s AND owner_id=%s
+                    AND kind='chat_attachment' AND payload->>'session_id'=%s""", (attachment_id, user_id(), sid)).rowcount:
+                raise StoreError('附件不存在', 404)
         return jsonify(success=True)
+    item = _attachment(sid, attachment_id, user_id())
     if request.path.endswith('/preview'):
         return send_file(io.BytesIO(_attachment_bytes(item)), download_name=item['file_name'], mimetype=item['mime_type'])
     return jsonify(success=True, data=_public_attachment(item))
@@ -374,13 +404,16 @@ def artifact_library():
 @chat_resources_bp.route('/api/v1/sessions/transcriptions', methods=['POST'])
 def transcribe():
     from agent.config import load_agent
-    from agent.registry import model_config
-    from agent.models import transcribe_model
+    from agent.registry import default_model_id, model_config
+    from agent.model_transport import transcribe_model
     agent = load_agent(request.form.get('agent_id'), user_id())
     config = agent['config']
-    if not config.get('audio_upload_enabled') or not config.get('asr_model_id'):
+    if not config.get('audio_upload_enabled'):
+        raise StoreError('当前 Agent 未启用语音输入', 400)
+    model_id = config.get('asr_model_id') or default_model_id(user_id(), 'asr_model_id')
+    if not model_id:
         raise StoreError('请先为 Agent 配置语音识别模型', 400)
-    model = model_config(config['asr_model_id'], user_id())
+    model = model_config(model_id, user_id())
     if model['type'] != 'ASR':
         raise StoreError('所选模型不是语音识别模型', 400)
     upload = request.files.get('file')
@@ -394,4 +427,4 @@ def transcribe():
             language=(request.form.get('locale') or 'zh').split('-')[0])
     except Exception as exc:
         raise StoreError(f'语音识别失败（{type(exc).__name__}）', 502) from exc
-    return jsonify(success=True, data={'text': result.text, 'duration': getattr(result, 'duration', None)})
+    return jsonify(success=True, data={'text': result['text'], 'duration': result.get('duration')})

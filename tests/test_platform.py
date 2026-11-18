@@ -404,7 +404,7 @@ def test_removed_legacy_wiki_routes_do_not_access_cloud(authenticated_client,mon
 
 
 def test_capture_bodies_never_written_to_postgres(tmp_path):
-    store=Store(owner_id='capture-owner')
+    store=Store(owner_id=os.environ['TEST_PLATFORM_USER'])
     store._create('version','source-v1',{'content':'SOURCE-BODY-ONLY-IN-ARTIFACT','id':'d'}, {'type':'version','version_id':'source-v1'})
     with connection() as conn:
         row=conn.execute("SELECT payload FROM runtime_records WHERE kind='version'").fetchone()

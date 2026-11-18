@@ -37,7 +37,10 @@ def settings_client(configured_owner):
     app = Flask(__name__)
     app.register_blueprint(agents_bp)
     app.register_blueprint(runtime_settings_bp)
-    app.before_request(lambda: setattr(g, 'user', {'id': configured_owner, 'role': 'admin'}))
+    from governance.database import connection
+    with connection() as conn:
+        user = conn.execute('SELECT * FROM workspace_users WHERE id=%s', (configured_owner,)).fetchone()
+    app.before_request(lambda: setattr(g, 'user', user))
     @app.errorhandler(StoreError)
     def error(exc):
         return {'success': False, 'message': str(exc)}, exc.status
@@ -347,7 +350,7 @@ def test_models_encrypt_secrets_and_real_configuration_selects_model(settings_cl
     assert 'private-model-key' not in str(stored)
     assert registry.model_config(value['id'], configured_owner)['parameters']['api_key'] == 'private-model-key'
     from agent import graph, models
-    monkeypatch.setattr(models, 'ChatLiteLLM', lambda **kwargs: kwargs)
+    monkeypatch.setattr(models, 'CompatibleChat', lambda **kwargs: kwargs)
     model = graph.build_model({'model_id': value['id'], 'temperature': 0.2, 'max_completion_tokens': 123}, configured_owner)
     assert model['model'] == 'my-model' and model['api_key'] == 'private-model-key'
     assert model['temperature'] == 0.2 and model['max_tokens'] == 123
@@ -359,9 +362,9 @@ def test_models_encrypt_secrets_and_real_configuration_selects_model(settings_cl
 
 def test_copy_environment_model_does_not_export_server_api_key(settings_client, configured_owner, monkeypatch):
     monkeypatch.setenv('BAILIAN_API_KEY', 'shared-server-key')
-    value = settings_client.post('/api/v1/models/agent-main/copy', json={'display_name': 'personal'}).json['data']
-    assert value['credentials']['api_key']['configured'] is False
-    assert not registry.model_config(value['id'], configured_owner)['parameters'].get('api_key')
+    response = settings_client.post('/api/v1/models/agent-main/copy', json={'display_name': 'personal'})
+    assert response.status_code == 400 and 'shared-server-key' not in response.text
+    assert registry.records('model', configured_owner) == []
 
 
 def test_image_turn_selects_configured_vlm_and_validates_asr_type(configured_owner):

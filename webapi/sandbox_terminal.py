@@ -22,7 +22,7 @@ from governance.store import StoreError
 
 def _authorize(claims, *, check_config=False, agent_id=None):
     with connection() as conn:
-        user = conn.execute('''SELECT u.* FROM platform_users u JOIN platform_tokens t ON t.owner_id=u.id
+        user = conn.execute('''SELECT u.* FROM workspace_users u JOIN platform_tokens t ON t.owner_id=u.account_id
             WHERE t.id=%s AND u.id=%s AND t.expires_at>now() AND u.active''',
             (claims['auth_session'], claims['owner_id'])).fetchone()
     if not user or user['role'] == 'viewer':

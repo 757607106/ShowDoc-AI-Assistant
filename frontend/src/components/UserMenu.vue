@@ -76,7 +76,7 @@
           <t-icon name="user" class="menu-icon" />
           <span>{{ $t('general.personalSettings') }}</span>
         </div>
-        <div v-if="!IS_CONTEXTDB && !authStore.isLiteMode" class="menu-item" @click="handleQuickNav('tenant')">
+        <div v-if="!authStore.isLiteMode" class="menu-item" @click="handleQuickNav('tenant')">
           <t-icon name="user-circle" class="menu-icon" />
           <span>{{ $t('settings.workspaceSettings') }}</span>
         </div>
@@ -173,7 +173,6 @@
 </template>
 
 <script setup lang="ts">
-import { IS_CONTEXTDB } from '@/config/contextdb'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUIStore } from '@/stores/ui'

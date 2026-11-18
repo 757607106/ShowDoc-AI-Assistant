@@ -59,7 +59,6 @@ langchain==1.5.0
 langchain-anthropic==1.7.10
 langchain-core==1.8.1
 langchain-google-genai==4.5.0
-langchain-litellm==0.11.1
 langchain-mcp-adapters==0.3.2
 langchain-openai==1.7.4
 langchain-protocol==0.0.21
@@ -70,7 +69,6 @@ langgraph-checkpoint-postgres==3.2.0
 langgraph-prebuilt==1.1.2
 langgraph-sdk==0.4.14
 langsmith==0.14.17
-litellm==1.109.1
 mako==1.4.3
 markupsafe==3.0.4
 mcp==1.30.0

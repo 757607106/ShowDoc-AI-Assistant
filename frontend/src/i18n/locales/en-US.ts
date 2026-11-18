@@ -2386,59 +2386,6 @@ export default {
       desc: 'Your role can\'t access this settings page. Ask an admin of this workspace to grant the required role.'
     },
     capabilityUnavailable: 'This feature is not supported by the current deployment. You have been returned to an available page.',
-    weknoraCloud: {
-      title: 'WeKnora Cloud',
-      description: 'Configure WeKnora Cloud APPID and APPSECRET credentials. Credentials are used for model services and document parsing engine.',
-      viewDocs: 'View Docs',
-      unconfigured: 'Credentials not configured. Please fill in APPID and APPSECRET.',
-      configured: 'Credentials configured and working.',
-      expired: 'WeKnora Cloud credentials expired',
-      expiredDefault: 'Encryption key changed after service restart. Saved credentials cannot be decrypted. Please re-enter credentials.',
-      reconfigure: 'Reconfigure',
-      appIdLabel: 'APPID',
-      appIdDesc: 'WeKnora Cloud application ID',
-      appIdPlaceholder: 'Enter APPID',
-      appSecretLabel: 'APPSECRET',
-      appSecretDesc: 'WeKnora Cloud application secret',
-      appSecretPlaceholder: 'Enter APPSECRET',
-      saveHint: 'Credentials will be validated and encrypted before saving.',
-      saveBtn: 'Save Credentials',
-      usageTitle: 'Usage Guide',
-      usageSteps: '1. Save APPID and APPSECRET\n2. Register chat, embedding, rerank, and vlm in Cloud Models below\n3. Parser: Knowledge Base Settings → Parser Engine → WeKnora Cloud',
-      fillRequired: 'Please fill in APPID and APPSECRET',
-      saveSuccess: 'Credentials saved successfully',
-      saveFailed: 'Failed to save credentials',
-      credentialConfigured: 'WeKnoraCloud credentials configured.',
-      credentialExpired: 'Credentials expired. Please reconfigure.',
-      credentialUnconfigured: 'WeKnoraCloud credentials not configured. Please set up APPID and APPSECRET first.',
-      checkingStatus: 'Checking credential status...',
-      goToSettings: 'Go to Settings',
-      modelHintConfigured: 'WeKnoraCloud credentials configured. See supported models in',
-      modelHintDocsLink: 'API docs',
-      modelsSection: {
-        title: 'Cloud Models',
-        descReady: 'Register the four standard WeKnora Cloud models for chat, retrieval, reranking, and vision.',
-        descPending: 'Save credentials above before adding cloud models here.',
-        statusAdded: 'Added',
-        statusPending: 'Credentials required',
-        addOne: 'Add',
-        addAllBtn: 'Add all missing ({count})',
-        addAllConfirm: 'Confirm',
-        confirmAddOne: 'Add {type} model "{name}"?',
-        confirmAddAll: 'Add all {count} missing cloud models at once?',
-        allReady: 'All four cloud models are ready'
-      },
-      addModelsSuccess: 'Successfully added {count} model(s)',
-      addModelsPartial: 'Added {success}, {failed} failed',
-      addModelsFailed: 'Failed to add models',
-      addModelsEmbeddingFailed: 'Embedding connection test failed; could not detect vector dimension',
-      addModelsDisplayName: {
-        chat: 'WeKnoraCloud Chat',
-        embedding: 'WeKnoraCloud Embedding',
-        rerank: 'WeKnoraCloud ReRank',
-        vllm: 'WeKnoraCloud Vision'
-      }
-    },
     system: 'System Settings',
     parser: {
       title: 'Parser Engine',
@@ -2798,11 +2745,11 @@ export default {
   },
   defaultSettings: {
     loadFailed: 'Could not load defaults. Retry before editing.',
-    title: "Personal defaults",
-    description: "Set the default chat model for your account.",
-    introTitle: "Used when no model is selected explicitly",
-    introDescription: "Explicit agent, subagent and conversation selections take priority, followed by your personal default and then the deployment default.",
-    readOnly: "Your account cannot edit this setting.",
+    title: 'Defaults',
+    description: 'Manage the models and search engine this workspace uses by default, in one place.',
+    introTitle: 'Used whenever a resource does not pick its own',
+    introDescription: 'A model chosen on an agent, knowledge base or conversation always wins. Otherwise the workspace default here applies, and if none is set, the deployment\'s built-in default is used.',
+    readOnly: 'Only workspace admins can change these. You can see which defaults are in effect.',
     modelGroup: 'Models',
     webSearchGroup: 'Web search',
     unsetPlaceholder: 'Not set (system default)',
@@ -3046,7 +2993,7 @@ export default {
     registerError: 'Registration error, please try again later',
     workspaceOnboarding: {
       title: 'Choose your workspace',
-      description: 'Create a workspace to get started, or accept an invitation to join one that already exists.',
+      description: 'Create a personal workspace to continue.',
       create: 'Create workspace',
       invitations: 'View invitations',
       loadingPolicy: 'Checking the available workspace options…',
@@ -4706,7 +4653,7 @@ export default {
     create: {
       action: 'Create new workspace',
       dialogTitle: 'Create new workspace',
-      dialogSubtitle: 'A workspace has its own knowledge bases and members. You will become the owner of the new workspace.',
+      dialogSubtitle: 'This personal workspace includes 10 GB for your files. Accounts share the ContextDB knowledge bases.',
       nameLabel: 'Workspace name',
       namePlaceholder: 'e.g. My new project',
       nameRequired: 'Please enter a workspace name',
@@ -4748,7 +4695,7 @@ export default {
       quotaLabel: 'Storage Quota',
       quotaDescription: 'Total storage capacity allocated to the workspace',
       usedLabel: 'Used Storage',
-      usedDescription: 'Storage space that has been used',
+      usedDescription: 'Space used by original uploads, capture archives, chat attachments, skill bundles and saved agent files',
       usageLabel: 'Storage Usage',
       usageDescription: 'Percentage of storage capacity used'
     },
@@ -4759,10 +4706,10 @@ export default {
     },
     deleteDangerZone: {
       title: 'Delete this workspace',
-      desc: 'Delete the whole workspace and its configuration. Members will no longer be able to access its knowledge bases, agents, or API key.',
+      desc: 'Deleting this workspace removes access to its personal files, conversations and agent settings. You keep your account and shared knowledge bases.',
       button: 'Delete workspace',
       confirmTitle: 'Delete this workspace?',
-      confirmBody: 'This will delete "{name}" and make its knowledge bases, agents, members, and API key unavailable. This action cannot be undone.',
+      confirmBody: 'Permanently delete “{name}”? You keep your account and shared knowledge bases.',
       confirmHint: 'Type the workspace name "{name}" to confirm deletion.',
       confirm: 'Delete workspace',
       nameMismatch: 'Workspace name does not match',
@@ -5875,7 +5822,7 @@ export default {
     },
     modelSettings: {
       title: 'Model Settings',
-      description: 'Manage remote AI models and API configurations for your account',
+      description: 'Manage remote AI models and API configurations for this workspace',
       typeShort: {
         chat: 'Chat',
         embedding: 'Embedding',
@@ -6639,12 +6586,6 @@ export default {
           q2: 'How do I add its models to this workspace after connecting?',
           q3: 'What should I check if Ollama will not connect?',
         },
-        weknoracloud: {
-          description: 'I can explain which models WeKnora Cloud offers, and how to bind and choose them.',
-          q1: 'Which models does WeKnora Cloud provide?',
-          q2: 'How do I enable or bind a Cloud account?',
-          q3: 'When should I use Cloud models versus ones I connect myself?',
-        },
         vectorstore: {
           description: 'I can explain the current vector engine, what changing it does, and how to check it.',
           q1: 'Which vector search engine is in use now?',
@@ -7179,10 +7120,6 @@ export default {
         paddleocr_vl_cloud: {
           name: 'PaddleOCR-VL Cloud',
           desc: 'PaddleOCR-VL Cloud API'
-        },
-        weknoracloud: {
-          name: 'WeKnora Cloud',
-          desc: 'Document parsing via WeKnora Cloud'
         },
         markitdown: {
           name: 'MarkItDown',
@@ -8796,7 +8733,7 @@ export default {
       capabilityMessageHistory: 'Message history',
       capabilityMessageHistoryHint: 'Let this key search workspace chat history and read chat-history stats. It does not grant workspace configuration access.',
       capabilityManageModels: 'Manage models',
-      capabilityManageModelsHint: 'Manage model definitions, credentials, connectivity checks, and WeKnoraCloud credentials.',
+      capabilityManageModelsHint: 'Manage model definitions, credentials, and connectivity checks.',
       capabilityManageMcpServices: 'Manage MCP services',
       capabilityManageMcpServicesHint: 'Manage MCP services, credentials, tool approval policies, and OAuth state for this principal.',
       capabilityManageDatasources: 'Manage data sources',

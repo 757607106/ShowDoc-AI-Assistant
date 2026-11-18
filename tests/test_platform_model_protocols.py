@@ -1,4 +1,4 @@
-"""Real LiteLLM transports against local provider protocols and PostgreSQL checkpoints."""
+"""Native model transports against local provider protocols and PostgreSQL checkpoints."""
 import asyncio
 import io
 import json
@@ -18,7 +18,7 @@ from agent.checkpointer import async_checkpointer
 from agent.models import build_model_record, model_capabilities
 from governance.store import StoreError
 from tests.test_platform_mcp_runtime import serve
-from webapi.weknora_adapter import StreamProjection, history
+from webapi.weknora_adapter import StreamProjection, history, reasoning_text
 
 
 MODELS = [('openai', 'gpt-5.1'), ('aliyun', 'qwen-plus'), ('deepseek', 'deepseek-v4-pro'),
@@ -132,12 +132,12 @@ def test_sdk_stream_thinking_tools_usage_and_native_replay(sdk_provider, provide
         full = chunks[0]
         for chunk in chunks[1:]:
             full += chunk
-        assert full.additional_kwargs['reasoning_content'] == REASONING
+        assert reasoning_text(full.model_dump()) == REASONING
         assert full.tool_calls[0]['args'] == {'query': 'fixture'}
         assert full.usage_metadata['total_tokens'] == 12
         answer = await model.bind_tools([lookup]).ainvoke([{'role': 'user', 'content': 'Read a fixture'}, full,
             ToolMessage(content='fixture result', tool_call_id=full.tool_calls[0]['id'])])
-        assert answer.content == 'fixture answer'
+        assert answer.text == 'fixture answer'
     asyncio.run(run())
     first, replay = calls[0]['payload'], calls[-1]['payload']
     if provider == 'aliyun':
@@ -146,13 +146,14 @@ def test_sdk_stream_thinking_tools_usage_and_native_replay(sdk_provider, provide
         assert first['thinking']['type'] in ('enabled', 'adaptive')
         assert SIGNATURE in json.dumps(replay)
     elif provider == 'gemini':
-        assert first['generationConfig']['thinkingConfig']['includeThoughts'] is True
+        thinking = first['generationConfig']['thinkingConfig']
+        assert thinking.get('includeThoughts', thinking.get('include_thoughts')) is True
         assert SIGNATURE in json.dumps(replay)
     elif provider == 'deepseek':
         assert first['thinking'] == {'type': 'enabled'}
         assert 'reasoning_effort' not in first
     else:
-        assert first['reasoning_effort'] == 'medium'
+        assert 'reasoning_effort' not in first  # auto leaves the provider's intensity unset
     if provider in ('aliyun', 'deepseek', 'openai'):
         assert any(message.get('reasoning_content') == REASONING for message in replay['messages'])
 
@@ -165,7 +166,8 @@ def test_sdk_postgres_approval_resume_rebuilds_graph_without_losing_model_metada
     saved = registry.save_model(model_record(provider, name, base), owner)
     config = {'model_id': saved['id'], 'reasoning_effort': 'auto', 'max_completion_tokens': 8192,
         'allowed_tools': [], 'mcp_selection_mode': 'none', 'memory_enabled': False, 'access_level': 'confirm'}
-    thread = {'configurable': {'thread_id': 'sdk-resume'}}
+    from agent.sessions import create_session
+    thread = {'configurable': {'thread_id': create_session(owner_id=owner)['id']}}
     async def build(saver):
         return await graph.build_agent(saver, api_key='', owner_id=owner, role='admin', agent_config=config)
     async def run():
@@ -179,7 +181,7 @@ def test_sdk_postgres_approval_resume_rebuilds_graph_without_losing_model_metada
             interrupt_id = waiting.interrupts[0].id
             message = next(message for message in waiting.values['messages'] if getattr(message, 'tool_calls', []))
             call_id = message.tool_calls[0]['id']
-            assert message.additional_kwargs['reasoning_content'] == REASONING
+            assert reasoning_text(message.model_dump()) == REASONING
             projection = StreamProjection('sdk-resume', 'assistant')
             events = [event for part in chunks for event in projection.feed(part)]
             assert any(event['response_type'] == 'thinking' and REASONING in event['content'] for event in events)
@@ -195,7 +197,7 @@ def test_sdk_postgres_approval_resume_rebuilds_graph_without_losing_model_metada
             assert not complete.interrupts and not complete.next
             assert file_data_to_string(complete.values['files']['/sdk.txt']) == 'SDK file'
             assert len([m for m in complete.values['messages'] if m.type == 'tool' and m.tool_call_id == call_id]) == 1
-            assert complete.values['messages'][-1].content == 'fixture answer'
+            assert complete.values['messages'][-1].text == 'fixture answer'
         async with async_checkpointer() as saver:
             reader = await graph.build_agent(saver, api_key='', owner_id=owner, role='admin', agent_config=config, load_tools=False)
             reloaded = await reader.aget_state(thread)
@@ -208,12 +210,13 @@ def test_sdk_postgres_approval_resume_rebuilds_graph_without_losing_model_metada
     asyncio.run(run())
 
 
-def test_capabilities_disable_qwen_max_and_reject_unsupported_effort():
-    saved = model_record('aliyun', 'qwen-max', 'https://fixture.invalid')
+def test_catalog_disables_nonreasoning_models_and_respects_level_overrides():
+    saved = model_record('openai', 'gpt-4.1', 'https://fixture.invalid')
     assert model_capabilities(saved)['thinking_levels'] == []
     with pytest.raises(StoreError, match='未声明支持'):
         build_model_record(saved, {'reasoning_effort': 'auto'})
-    saved['name'] = 'qwen-plus'
+    saved = model_record('aliyun', 'qwen-plus', 'https://fixture.invalid')
+    saved['parameters']['spec'] = {'thinking_levels': {'high': None}}
     with pytest.raises(StoreError, match='不支持此思考强度'):
         build_model_record(saved, {'reasoning_effort': 'high'})
 
@@ -232,10 +235,13 @@ def test_model_editor_catalog_connection_and_multipart_debug_match_frontend(auth
     client = authenticated_client
     available = client.get('/api/v1/models/providers?model_type=chat').json['data']
     assert provider in {item['value'] for item in available}
-    assert {item['value'] for item in client.get('/api/v1/models/providers?model_type=embedding').json['data']} == {'generic'}
+    embedding = client.get('/api/v1/models/providers?model_type=embedding').json['data']
+    assert {'aliyun', 'openai', 'generic', 'jina'} <= {item['value'] for item in embedding}
+    assert all(item['type'] == 'embedding' for vendor in embedding for item in vendor.get('models', []))
+    assert 'models' not in next(v for v in embedding if v['value'] == 'gpustack')
     draft = model_record(provider, name, base)
     created = client.post('/api/v1/models', json=draft)
-    assert created.status_code == 200, created.json
+    assert created.status_code == 201, created.json
     saved = created.json['data']
     identifier = saved['id']
     assert saved['capabilities']['reasoning'] is True
@@ -256,8 +262,9 @@ def test_model_editor_catalog_connection_and_multipart_debug_match_frontend(auth
     assert result['ok'], result
     assert result['observations']['reasoning_returned'] is True
     assert result['observations']['reasoning_characters'] == len(REASONING)
-    assert result['raw_response']['usage_metadata']['total_tokens'] == 12
-    assert result['content'] == 'fixture answer'
+    assert result['raw_response']['usage']['total_tokens'] == 12
+    assert result['raw_response']['content'] == 'fixture answer'
+    assert result['raw_response']['stream_events'][-1]['done']
     assert 'Fixture system prompt' in json.dumps(calls[-1]['payload'])
     assert 'fixture-key' not in json.dumps(result)
     if provider == 'aliyun':
@@ -277,7 +284,8 @@ def test_explicit_off_reaches_provider(sdk_provider, provider, name):
     elif provider == 'anthropic':
         assert 'thinking' not in payload or payload['thinking']['type'] == 'disabled'
     elif provider == 'gemini':
-        assert payload['generationConfig']['thinkingConfig']['thinkingBudget'] == 0
+        thinking = payload['generationConfig']['thinkingConfig']
+        assert thinking.get('thinkingBudget', thinking.get('thinking_budget')) == 0
     else:
         assert payload['reasoning_effort'] == 'none'
 
@@ -289,7 +297,7 @@ def test_debug_omits_sampling_for_always_on_reasoning_model(authenticated_client
         'input': 'Reply briefly', 'options': {'max_tokens': 128, 'temperature': 0.7, 'top_p': 0.9}})
     assert response.status_code == 200 and response.json['data']['ok'], response.json
     assert 'temperature' not in calls[-1]['payload'] and 'top_p' not in calls[-1]['payload']
-    assert response.json['data']['request']['effective_options']['temperature'] is None
+    assert response.json['data']['request']['options']['temperature'] == 0.7
 
 
 def test_debug_picture_and_headers_use_saved_owner_credentials(authenticated_client, sdk_provider, monkeypatch):
@@ -353,7 +361,7 @@ def test_catalog_preview_resolves_draft_limits_with_same_precedence_as_runtime(a
     assert client.post('/api/v1/models/catalog/resolve', json=draft).status_code == 400
     draft.update(context_window=0, max_output_tokens=0, spec={})
     result = client.post('/api/v1/models/catalog/resolve', json=draft)
-    assert result.status_code == 200 and result.json['data']['capabilities']['context_window'] is None
+    assert result.status_code == 200 and 'context_window' not in result.json['data']['capabilities']
 
 
 def test_frontend_responses_protocol_streams_summaries_and_replays_encrypted_items(sdk_provider):
@@ -367,12 +375,12 @@ def test_frontend_responses_protocol_streams_summaries_and_replays_encrypted_ite
         full = chunks[0]
         for chunk in chunks[1:]:
             full += chunk
-        assert full.content == 'fixture answer'
-        assert full.additional_kwargs['reasoning_content'] == REASONING
-        assert full.additional_kwargs['reasoning_items'][0]['encrypted_content'] == 'fixture-encrypted-reasoning'
+        assert full.text == 'fixture answer'
+        assert reasoning_text(full.model_dump()) == REASONING
+        assert next(block for block in full.content if block['type'] == 'reasoning')['encrypted_content'] == 'fixture-encrypted-reasoning'
         await model.ainvoke([{'role': 'user', 'content': 'Explain the fixture'}, full, {'role': 'user', 'content': 'Continue'}])
     asyncio.run(run())
     assert calls[0]['path'] == '/v1/responses'
-    assert calls[0]['payload']['reasoning'] == {'effort': 'medium', 'summary': 'auto'}
+    assert calls[0]['payload']['reasoning'] == {'summary': 'auto'}
     assert calls[0]['payload']['store'] is False
     assert 'fixture-encrypted-reasoning' in json.dumps(calls[-1]['payload'])

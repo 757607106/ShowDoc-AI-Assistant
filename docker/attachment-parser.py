@@ -43,8 +43,40 @@ def parse(path):
     return DocumentConverter().convert(path).document.export_to_markdown()
 
 
+def model_image(path, limit, formats):
+    from io import BytesIO
+    from PIL import Image
+    with Image.open(path) as image:
+        mime = Image.MIME.get(image.format)
+        if mime not in {'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff'}:
+            raise ValueError('Unsupported model image')
+        if (not formats or mime in formats) and (not limit or path.stat().st_size <= limit):
+            image.verify()
+            return {'mime': mime}
+        pixels = image.convert('RGBA')
+    target = next((fmt for fmt in ('image/jpeg', 'image/png') if not formats or fmt in formats), None)
+    if not target:
+        raise ValueError('No supported output format')
+    if target == 'image/jpeg':
+        background = Image.new('RGB', pixels.size, 'white')
+        background.paste(pixels, mask=pixels.getchannel('A'))
+        pixels = background
+    while True:
+        output = BytesIO()
+        pixels.save(output, 'JPEG' if target == 'image/jpeg' else 'PNG', quality=85)
+        if not limit or output.tell() <= limit:
+            path.with_name('model-image').write_bytes(output.getvalue())
+            return {'mime': target, 'converted': True}
+        size = tuple(int(side * 0.75) for side in pixels.size)
+        if min(size) < 64:
+            raise ValueError('Image exceeds the model size limit')
+        pixels = pixels.resize(size, Image.Resampling.BILINEAR)
+
+
 if __name__ == '__main__':
-    if sys.argv[2:] == ['--image']:
+    if sys.argv[2:3] == ['--model-image']:
+        print(json.dumps(model_image(Path(sys.argv[1]), int(sys.argv[3]), sys.argv[4:])))
+    elif sys.argv[2:] == ['--image']:
         from PIL import Image
         with Image.open(sys.argv[1]) as image:
             mime = Image.MIME.get(image.format)

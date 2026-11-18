@@ -7,11 +7,11 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import httpx
-import litellm
+from openai.resources.chat.completions import AsyncCompletions
 from sse_starlette.sse import EventSourceResponse
 
 from agent import registry, sessions
-from tests.test_platform_litellm import model_record, sdk_provider
+from tests.test_platform_model_protocols import model_record, sdk_provider
 from tests.test_platform_mcp_runtime import serve
 
 
@@ -42,7 +42,7 @@ def test_json_heartbeat_survives_wait_for_first_model_chunk(authenticated_client
             await asyncio.sleep(.1)
 
     monkeypatch.setattr(harness, 'async_runtime', slow_cleanup)
-    native_completion = litellm.acompletion
+    native_completion = AsyncCompletions.create
     waiting = threading.Event()
 
     async def slow_completion(*args, **kwargs):
@@ -53,7 +53,7 @@ def test_json_heartbeat_survives_wait_for_first_model_chunk(authenticated_client
         finally:
             waiting.clear()
 
-    monkeypatch.setattr(litellm, 'acompletion', slow_completion)
+    monkeypatch.setattr(AsyncCompletions, 'create', slow_completion)
     events, heartbeats_during_wait = [], 0
     headers = {'Authorization': authenticated_client.environ_base['HTTP_AUTHORIZATION']}
     with serve(create_app(app_module.app)) as platform, httpx.Client(timeout=10) as client:

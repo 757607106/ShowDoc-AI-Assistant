@@ -10,7 +10,9 @@ from starlette.routing import Mount
 @asynccontextmanager
 async def lifespan(app):
     from agent.checkpointer import initialize_checkpoints
+    from governance.database import initialize
     await anyio.to_thread.run_sync(initialize_checkpoints)
+    await anyio.to_thread.run_sync(initialize)
     yield
 
 

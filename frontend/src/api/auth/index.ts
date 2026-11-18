@@ -113,6 +113,7 @@ export interface UserPreferences {
 
 // 用户信息接口
 export interface UserInfo {
+  platform_role?: 'admin' | 'editor' | 'viewer'
   id: string
   username: string
   account?: string
@@ -156,6 +157,7 @@ export function userInfoFromApi(
   return {
     id: u?.id || '',
     username: u?.username || '',
+    ...(u?.platform_role ? { platform_role: u.platform_role } : {}),
     account: u?.account || u?.email || '',
     email: u?.email || '',
     avatar: u?.avatar,

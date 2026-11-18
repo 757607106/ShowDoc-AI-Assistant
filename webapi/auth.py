@@ -12,6 +12,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from governance.database import connection, initialize
 from governance.store import StoreError
+from governance.workspaces import create_workspace, current_workspace
 from integrations.contextdb import ContextDBClient
 from agent.credentials import cipher
 
@@ -31,11 +32,13 @@ def user_id():
 
 
 def client_for_user(owner_id=None):
-    owner_id = owner_id or user_id()
-    if not owner_id:
-        raise StoreError('请先登录', 401)
-    with connection() as conn:
-        row = conn.execute('SELECT contextdb_key_encrypted FROM platform_users WHERE id = %s AND active', (owner_id,)).fetchone()
+    if owner_id is None and has_request_context() and getattr(g, 'user', None):
+        row = g.user
+    else:
+        if not owner_id:
+            raise StoreError('请先登录', 401)
+        with connection() as conn:
+            row = conn.execute('SELECT contextdb_key_encrypted FROM workspace_users WHERE id = %s AND active', (owner_id,)).fetchone()
     if row is None or not row['contextdb_key_encrypted']:
         raise StoreError('请由管理员绑定该账号的 ContextDB 成员凭据', 503)
     return ContextDBClient(api_key=cipher().decrypt(row['contextdb_key_encrypted'].encode()).decode())
@@ -51,7 +54,7 @@ def normalize_account(value):
     return account
 
 
-def create_user(account, username, password, role='viewer', api_key=None):
+def create_user(account, username, password, role='viewer', api_key=None, *, is_system_admin=False):
     if role not in ('admin', 'editor', 'viewer') or not isinstance(password, str) or not 8 <= len(password) <= 1024:
         raise StoreError('角色无效或密码长度不在 8 至 1024 位之间', 400)
     account = normalize_account(account)
@@ -67,14 +70,15 @@ def create_user(account, username, password, role='viewer', api_key=None):
     try:
         with connection() as conn:
             # Retain the unique legacy column for existing users and WeKnora clients.
-            conn.execute('INSERT INTO platform_users(id,email,username,password_hash,role,contextdb_member_id,contextdb_key_encrypted) VALUES (%s,%s,%s,%s,%s,%s,%s)',
-                         (uid, account, username.strip(), generate_password_hash(password), role, member_id, encrypted))
+            conn.execute('INSERT INTO platform_users(id,email,username,password_hash,role,contextdb_member_id,contextdb_key_encrypted,is_system_admin) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                         (uid, account, username.strip(), generate_password_hash(password), role, member_id, encrypted, is_system_admin))
+            create_workspace(conn, uid, uid, username.strip()[:52] + "'s Workspace")
     except UniqueViolation as exc:
         raise StoreError('账号或 ContextDB 成员已绑定其他平台账号', 409) from exc
     return uid
 
 
-def validate_access_token(token, *, secret_key=None):
+def validate_access_token(token, *, secret_key=None, require_workspace=True):
     """Validate the same platform session from Flask or an ASGI request."""
     secret_key = secret_key or os.getenv('FLASK_SECRET_KEY')
     if not secret_key:
@@ -86,9 +90,16 @@ def validate_access_token(token, *, secret_key=None):
     if not isinstance(claims, dict) or not isinstance(claims.get('session'), str) or not claims['session']:
         raise StoreError('登录已失效，请重新登录', 401)
     with connection() as conn:
-        row = conn.execute('SELECT u.* FROM platform_users u JOIN platform_tokens t ON t.owner_id=u.id WHERE t.id=%s AND t.expires_at>now() AND u.active', (claims['session'],)).fetchone()
+        row = conn.execute("""SELECT u.*,u.id AS account_id,w.id AS workspace_id,w.principal_id
+            FROM platform_users u JOIN platform_tokens t ON t.owner_id=u.id
+            LEFT JOIN platform_workspaces w ON w.account_id=u.id AND w.deleted_at IS NULL
+            WHERE t.id=%s AND t.expires_at>now() AND u.active""", (claims['session'],)).fetchone()
     if row is None:
         raise StoreError('登录已失效，请重新登录', 401)
+    if require_workspace and row['workspace_id'] is None:
+        raise StoreError('当前账号没有可用空间', 403)
+    # Workspace data uses its own principal. Existing accounts keep their historical owner ID.
+    row['id'] = row['principal_id'] or ('account:' + row['account_id'])
     return row, claims['session']
 
 
@@ -98,7 +109,12 @@ def require_login():
     if request.path in PUBLIC_PATHS:
         return None
     token = request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
-    row, session_id = validate_access_token(token, secret_key=current_app.secret_key)
+    account_route = request.path.startswith('/api/v1/auth/') or request.path in (
+        '/api/v1/tenants', '/api/v1/me/invitations')
+    shared_read = ((request.method in ('GET', 'HEAD') and
+                    (request.path.startswith(('/api/contextdb/', '/api/kb/documents')) or request.path == '/api/kb/bases'))
+                   or request.method == 'POST' and request.path in ('/api/kb/search', '/api/contextdb/v1/knowledge/query'))
+    row, session_id = validate_access_token(token, secret_key=current_app.secret_key, require_workspace=not (account_route or shared_read))
     g.user = row
     g.auth_session = session_id
     if request.path.startswith('/showdoc/') and row['role'] != 'admin':
@@ -107,14 +123,19 @@ def require_login():
         read_posts = ('/search', '/chat', '/query', '/load')
         batch_download = request.method == 'POST' and re.fullmatch(r'/api/v1/knowledge-bases/[^/]+/knowledge/batch-download', request.path)
         revoke_grant = request.method == 'DELETE' and request.path.startswith('/api/v1/agent/grants/')
-        personal = (request.path.startswith(('/api/v1/me/env-vars/', '/api/v1/memory/', '/api/v1/agent/mcp-oauth-resolutions/'))
-                    or request.method == 'PUT' and request.path == '/api/v1/tenants/kv/default-settings')
+        personal = ((request.method == 'POST' and request.path == '/api/v1/tenants')
+                    or (request.method in ('PUT', 'DELETE') and re.fullmatch(r'/api/v1/tenants/\d+', request.path))
+                    or request.path.startswith(('/api/v1/me/env-vars/', '/api/v1/memory/', '/api/v1/agent/mcp-oauth-resolutions/'))
+                    or request.method == 'POST' and request.path == '/api/v1/models/catalog/resolve')
         oauth = bool(re.fullmatch(r'/api/v1/mcp-services/[^/]+/oauth/(authorize-url|token)', request.path))
         metadata = re.fullmatch(r'/api/v1/mcp-services/([^/]+)/metadata/refresh', request.path)
         if metadata and request.method == 'POST':
             from agent.registry import record
             oauth = record('mcp', metadata[1], row['id']).get('auth_config', {}).get('auth_type') == 'oauth'
-        if not batch_download and not revoke_grant and not personal and not oauth and not request.path.endswith(read_posts) and '/sessions' not in request.path and not request.path.startswith(('/api/v1/agent-chat/', '/api/v1/knowledge-chat/', '/api/v1/agent/prompts/', '/api/v1/agent/tool-approvals/')):
+        builtin_edit = row['is_system_admin'] and (
+            request.method in ('PUT','PATCH') and re.fullmatch(r'/api/v1/models/[^/]+(?:/credentials)?', request.path)
+            or request.method == 'DELETE' and re.fullmatch(r'/api/v1/models/[^/]+/credentials/[^/]+', request.path))
+        if not builtin_edit and not batch_download and not revoke_grant and not personal and not oauth and not request.path.endswith(read_posts) and '/sessions' not in request.path and not request.path.startswith(('/api/v1/agent-chat/', '/api/v1/knowledge-chat/', '/api/v1/agent/prompts/', '/api/v1/agent/tool-approvals/')):
             raise StoreError('当前账号为只读账号', 403)
     if request.method not in ('GET', 'HEAD', 'OPTIONS'):
         with connection() as conn:
@@ -136,13 +157,15 @@ def finish_audit(response):
 
 
 def _identity(row):
-    role = {'admin': 'owner', 'editor': 'contributor', 'viewer': 'viewer'}[row['role']]
+    account_id = row.get('account_id', row['id'])
+    with connection() as conn:
+        tenant = current_workspace(account_id, conn)
     user = {k: row[k] for k in ('id', 'email', 'username', 'active', 'created_at', 'updated_at')}
-    user.update(account=row['email'], tenant_id=1, is_active=row['active'], is_system_admin=False, preferences=row.get('preferences', {}))
-    tenant = {'id': 1, 'name': os.getenv('PLATFORM_NAME', '企业知识库'), 'status': 'active',
-              'owner_id': row['id'] if row['role'] == 'admin' else '', 'created_at': row['created_at'], 'updated_at': row['updated_at']}
-    return {'user': user, 'tenant': tenant, 'memberships': [{'tenant_id': 1, 'tenant_name': tenant['name'], 'role': role}],
-            'capabilities': {'can_create_tenant': False, 'auto_accept_invitation': False}, 'tenant_required': False}
+    user.update(id=account_id, account=row['email'], tenant_id=tenant['id'] if tenant else 0,
+                platform_role=row['role'], is_active=row['active'], is_system_admin=row['is_system_admin'], preferences=row.get('preferences', {}))
+    memberships = [{'tenant_id': tenant['id'], 'tenant_name': tenant['name'], 'role': 'owner'}] if tenant else []
+    return {'user': user, 'tenant': tenant, 'memberships': memberships,
+            'capabilities': {'can_create_tenant': tenant is None, 'auto_accept_invitation': False}, 'tenant_required': tenant is None}
 
 
 def _issue(row, existing_session=None):
@@ -198,12 +221,12 @@ def change_password():
     if not isinstance(old_password, str) or len(old_password) > 1024:
         raise StoreError('当前密码错误', 400)
     with connection() as conn:
-        row = conn.execute('SELECT password_hash FROM platform_users WHERE id=%s FOR UPDATE', (g.user['id'],)).fetchone()
+        row = conn.execute('SELECT password_hash FROM platform_users WHERE id=%s FOR UPDATE', (g.user['account_id'],)).fetchone()
         if not check_password_hash(row['password_hash'], old_password):
             raise StoreError('当前密码错误', 400)
         conn.execute('UPDATE platform_users SET password_hash=%s,updated_at=now() WHERE id=%s',
-                     (generate_password_hash(password), g.user['id']))
-        conn.execute('DELETE FROM platform_tokens WHERE owner_id=%s', (g.user['id'],))
+                     (generate_password_hash(password), g.user['account_id']))
+        conn.execute('DELETE FROM platform_tokens WHERE owner_id=%s', (g.user['account_id'],))
     return jsonify(success=True)
 
 
@@ -275,7 +298,7 @@ def preferences():
             value = value.strip()
             body['browser_search_instructions'] = None if not value or value == DEFAULT_BROWSER_SEARCH_INSTRUCTIONS else value
     with connection() as conn:
-        row = conn.execute('UPDATE platform_users SET preferences=preferences || %s,updated_at=now() WHERE id=%s RETURNING preferences', (Jsonb(body), user_id())).fetchone()
+        row = conn.execute('UPDATE platform_users SET preferences=preferences || %s,updated_at=now() WHERE id=%s RETURNING preferences', (Jsonb(body), g.user['account_id'])).fetchone()
     return jsonify(success=True, data=row['preferences'])
 
 
@@ -295,7 +318,7 @@ def update_user(uid):
         if not isinstance(body['active'], bool):
             raise StoreError('active 必须为布尔值', 400)
         fields['active'] = body['active']
-    if uid == user_id() and (fields.get('role', 'admin') != 'admin' or fields.get('active') is False):
+    if uid == g.user['account_id'] and (fields.get('role', 'admin') != 'admin' or fields.get('active') is False):
         raise StoreError('不能撤销当前管理员自己的权限', 409)
     if 'password' in body and body['password'] not in (None, ''):
         if not isinstance(body['password'], str) or not 8 <= len(body['password']) <= 1024:
@@ -336,7 +359,7 @@ def main():
                 return
         account = os.getenv('PLATFORM_ADMIN_ACCOUNT') or os.getenv('PLATFORM_ADMIN_EMAIL') or 'admin'
         password = os.getenv('PLATFORM_ADMIN_PASSWORD', 'admin123')
-        create_user(account, '管理员', password, 'admin', os.getenv('CONTEXTDB_API_KEY'))
+        create_user(account, '管理员', password, 'admin', os.getenv('CONTEXTDB_API_KEY'), is_system_admin=True)
         print('平台管理员已创建，账号和密码请以本机配置为准。')
 
 

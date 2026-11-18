@@ -1,12 +1,13 @@
 """Official LangGraph PostgreSQL persistence; checkpoints are not knowledge documents."""
 import os
+import sys
 from contextlib import asynccontextmanager
 
 import anyio
 from psycopg.conninfo import conninfo_to_dict
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from langgraph.store.postgres import PostgresStore
+from agent.file_storage import WorkspaceFileStore, checkpoint_charge
 
 
 def database_url():
@@ -27,12 +28,40 @@ def make_checkpointer():
     return PostgresSaver.from_conn_string(database_url())
 
 
+class WorkspaceCheckpointer(AsyncPostgresSaver):
+    parent_session_id = None
+    charge_connection = None
+
+    async def aput(self, config, checkpoint, metadata, new_versions):
+        values = checkpoint['channel_values']
+        writes = [(k, values[k]) for k in ('files', 'messages') if k in new_versions and k in values]
+        async with self._charge(config, writes):
+            return await super().aput(config, checkpoint, metadata, new_versions)
+
+    async def aput_writes(self, config, writes, task_id, task_path=''):
+        async with self._charge(config, [(k, v) for k, v in writes if k in ('files', 'messages')]):
+            return await super().aput_writes(config, writes, task_id, task_path)
+
+    @asynccontextmanager
+    async def _charge(self, config, writes):
+        if not writes:
+            yield
+            return
+        transaction = checkpoint_charge(config['configurable']['thread_id'], writes, self.parent_session_id, self.charge_connection)
+        await anyio.to_thread.run_sync(transaction.__enter__)
+        try:
+            yield
+        finally:
+            with anyio.CancelScope(shield=True):
+                await anyio.to_thread.run_sync(transaction.__exit__, *sys.exc_info(), limiter=anyio.CapacityLimiter(1))
+
+
 def async_checkpointer():
-    return AsyncPostgresSaver.from_conn_string(database_url())
+    return WorkspaceCheckpointer.from_conn_string(database_url())
 
 
 def sync_store():
-    return PostgresStore.from_conn_string(database_url())
+    return WorkspaceFileStore.from_conn_string(database_url())
 
 
 @asynccontextmanager

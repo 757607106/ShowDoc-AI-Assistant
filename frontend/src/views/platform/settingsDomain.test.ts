@@ -17,8 +17,7 @@ test('platform retains the assistant bridge while shared knowledge context is mi
   assert.doesNotMatch(source,/assistant\.takePendingRequest\(\)/)
 })
 
-test('ContextDB user menu cannot navigate to retired workspace settings',()=>{
+test('user menu opens the personal workspace settings',()=>{
   const menu=readFileSync(new URL('../../components/UserMenu.vue',import.meta.url),'utf8')
-  assert.match(menu,/<div v-if="!IS_CONTEXTDB && !authStore\.isLiteMode"[^>]*@click="handleQuickNav\('tenant'\)"/)
-  assert.doesNotMatch(menu,/<div v-if="!authStore\.isLiteMode"[^>]*@click="handleQuickNav\('tenant'\)"/)
+  assert.match(menu,/<div v-if="!authStore\.isLiteMode"[^>]*@click="handleQuickNav\('tenant'\)"/)
 })

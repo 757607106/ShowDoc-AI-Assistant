@@ -10,7 +10,7 @@ from webapi import auth
 
 @pytest.fixture
 def database(monkeypatch):
-    state = {'row': {'id': 'actual-owner', 'role': 'viewer', 'active': True}, 'queries': []}
+    state = {'row': {'id': 'actual-owner', 'workspace_id': 10000, 'principal_id': 'actual-owner', 'account_id': 'actual-owner', 'role': 'viewer', 'active': True}, 'queries': []}
 
     class Connection:
         def execute(self, query, params):

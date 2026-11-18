@@ -50,7 +50,7 @@ test('MCP and skills settings use the original toolbox panels', async t => {
 
 test('retired bookmarks show an explicit notice without mounting their old controls', t => {
   const f=setup(t)
-  for(const section of ['websearch','chathistory','ollama','weknoracloud','parser','storage','vectorstore','assistant','system-global','integration-api','integration-cli','tenant','browserconnection','envvars']){
+  for(const section of ['websearch','chathistory','ollama','weknoracloud','parser','storage','vectorstore','assistant','system-global','integration-api','integration-cli','browserconnection','envvars']){
     assert.equal(f.vm.groups.some((group:any)=>group.items.some((item:any)=>item.key===section)),false)
     f.vm.selectSection(section)
     assert.equal(f.vm.section,'retired')
@@ -65,6 +65,7 @@ test('file memory aliases and native runtime are available without legacy worksp
     f.vm.selectSection(section)
     assert.equal(f.vm.section,'memory')
   }
+  f.vm.selectSection('tenant');assert.equal(f.vm.section,'tenant')
   f.vm.selectSection('sandbox');assert.equal(f.vm.section,'sandbox')
   f.vm.selectSection('system');assert.equal(f.vm.section,'runtime')
   f.vm.selectSection('general');assert.equal(f.vm.section,'general')

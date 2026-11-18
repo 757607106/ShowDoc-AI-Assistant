@@ -17,7 +17,7 @@ ENV_PATH = ROOT / '.runtime/async-agent.env'
 DATABASE = 'showdoc_async_agent'
 ROLE = 'showdoc_async_agent_app'
 ROLE_FLAGS = ('rolsuper', 'rolcreatedb', 'rolcreaterole', 'rolinherit', 'rolreplication', 'rolbypassrls')
-COPY_ENV = ('CREDENTIAL_ENCRYPTION_KEY', 'FLASK_SECRET_KEY', 'CONTEXTDB_BASE_URL',
+COPY_ENV = ('SYSTEM_AES_KEY', 'CREDENTIAL_ENCRYPTION_KEY', 'FLASK_SECRET_KEY', 'CONTEXTDB_BASE_URL',
             'CONTEXTDB_MCP_URL', 'AGENT_MAIN_MODEL', 'AGENT_SUB_MODEL', 'BAILIAN_API_KEY',
             'DASHSCOPE_API_KEY', 'DASHSCOPE_API_URL', 'QWEN_API_KEY', 'AGENT_BAILIAN_BASE_URL',
             'OPEN_SANDBOX_API_KEY', 'OPEN_SANDBOX_PROTOCOL', 'OPEN_SANDBOX_IMAGE')

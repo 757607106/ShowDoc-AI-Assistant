@@ -1,6 +1,7 @@
 """WeKnora wire projections of official LangGraph messages; no execution state."""
 from types import SimpleNamespace
 
+from agent.artifacts import answer_blocks, media_file, media_files, message_dict
 from agent.citations import AnswerCitations
 from governance.knowledge_names import KnowledgeNames
 
@@ -40,63 +41,19 @@ def text(content):
                    and part.get('type') in (None, 'text', 'output_text'))
 
 
-def _answer_blocks(message):
-    from deepagents.middleware.async_subagents import _final_content
-    return [{key: value for key, value in block.items() if key != 'id'}
-            for block in _final_content({'messages': [message]})
-            if block.get('type') in ('text', 'image', 'audio', 'video', 'file')]
-
-
-def _media_file(message, index, block):
-    import base64
-    import hashlib
-    import mimetypes
-    if block.get('type') not in ('audio', 'video', 'file'):
-        return None
-    encoded, mime = block.get('base64'), block.get('mime_type')
-    url = block.get('url', '')
-    if isinstance(url, str) and url.startswith('data:') and ';base64,' in url:
-        mime, encoded = url[5:].split(';base64,', 1)
-    if not isinstance(encoded, str) or not isinstance(mime, str) or not message.get('id'):
-        return None
-    try:
-        base64.b64decode(encoded, validate=True)
-    except ValueError:
-        return None
-    identifier = hashlib.sha256(str(message['id']).encode()).hexdigest()[:16]
-    mime = mime.split(';', 1)[0].lower()
-    extension = '.wav' if mime in ('audio/wav', 'audio/x-wav') else mimetypes.guess_extension(mime) or '.bin'
-    path = f'/response-media/{block["type"]}-{identifier}-{index}{extension}'
-    return path, {'content': encoded, 'encoding': 'base64'}
-
-
-def media_files(messages):
-    """Read-only artifact projections of bytes already persisted in native messages."""
-    result = {}
-    for raw in messages:
-        message = message_dict(raw)
-        if message.get('type', message.get('role')) not in ('ai', 'assistant') or message.get('tool_calls'):
-            continue
-        if isinstance(message.get('content'), list):
-            for index, block in enumerate(_answer_blocks(message)):
-                if item := _media_file(message, index, block):
-                    result[item[0]] = item[1]
-    return result
-
-
 def answer_content(message):
     """Keep SDK answer blocks and reuse Markdown images and native artifact downloads."""
     if not isinstance(message.get('content'), list):
         return text(message.get('content')), []
     from urllib.parse import quote, urlsplit
-    blocks = _answer_blocks(message)
+    blocks = answer_blocks(message)
     output = []
     for index, block in enumerate(blocks):
         kind = block.get('type')
         if kind == 'text':
             output.append(block.get('text', ''))
             continue
-        if item := _media_file(message, index, block):
+        if item := media_file(message, index, block):
             output.append(f'\n\n[{kind}](sandbox:{item[0]})\n\n')
             continue
         url = block.get('url')
@@ -120,10 +77,6 @@ def answer_content(message):
     return ''.join(output), blocks
 
 
-def message_dict(message):
-    return message.model_dump(mode='json') if hasattr(message, 'model_dump') else message
-
-
 def reasoning_text(message):
     """Project visible reasoning without exposing signatures or encrypted replay data."""
     kwargs = message.get('additional_kwargs', {})
@@ -132,8 +85,12 @@ def reasoning_text(message):
     blocks = kwargs.get('thinking_blocks') or message.get('content') or []
     if isinstance(blocks, str):
         return ''
-    return ''.join(block.get('reasoning') or block.get('thinking') or '' for block in blocks
-                   if isinstance(block, dict) and block.get('type') in ('reasoning', 'thinking'))
+    parts = []
+    for block in blocks:
+        if isinstance(block, dict) and block.get('type') in ('reasoning', 'thinking'):
+            summary = ''.join(item.get('text', '') for item in block.get('summary', []) if isinstance(item, dict))
+            parts.append(block.get('reasoning') or block.get('thinking') or summary)
+    return ''.join(parts)
 
 
 def assistant_id(message):

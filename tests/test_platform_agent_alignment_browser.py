@@ -14,7 +14,7 @@ from langchain_core.tools import tool
 from agent import config, registry
 from tests.test_platform_assistant_browser import browser_platform
 from tests.test_platform_harness import call, harness, original_prepare
-from tests.test_platform_litellm import sdk_provider
+from tests.test_platform_model_protocols import sdk_provider
 
 pytestmark = pytest.mark.skipif(
     os.getenv('RUN_BROWSER_ACCEPTANCE') != '1',

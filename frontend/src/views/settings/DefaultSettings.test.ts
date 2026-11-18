@@ -11,7 +11,7 @@ const initial: DefaultSettings = {
   rerank_model_id: 'rerank', vlm_model_id: 'vision', asr_model_id: 'asr',
 }
 
-function setup(t: TestContext, read = async () => ({ data: { ...initial } }), managed = false, admin = true) {
+function setup(t: TestContext, read = async () => ({ data: { ...initial } }), admin = true) {
   const f = fixture(t)
   const api = {
     getTenantDefaultSettings: t.mock.fn(read),
@@ -24,7 +24,6 @@ function setup(t: TestContext, read = async () => ({ data: { ...initial } }), ma
     ensureWebSearchProviders: t.mock.fn(async (_force?: boolean) => {}),
   })
   const { vm } = f.component(new URL('./DefaultSettings.vue', import.meta.url), {
-    '@/config/contextdb': { IS_CONTEXTDB: managed },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
     'tdesign-vue-next': { MessagePlugin: { success() {}, error() {} } },
     '@/api/default-settings': api,
@@ -37,15 +36,15 @@ function setup(t: TestContext, read = async () => ({ data: { ...initial } }), ma
   return { vm, store, api }
 }
 
-test('managed defaults expose only the personal main model', t => {
+test('workspace defaults expose all six model slots', t => {
   const { vm } = setup(t, undefined, true)
   const fields = Array.from(vm.modelSlots, (slot: any) => slot.field)
-  assert.deepEqual(fields, ['chat_model_id'])
+  assert.deepEqual(fields, Object.keys(initial))
 })
 
-test('personal defaults preserve hidden legacy bindings and accept missing model status', async t => {
+test('changing one workspace default preserves the other five', async t => {
   const { vm, api, store } = setup(t, undefined, true)
-  store.allModels = [{ id: 'chat', name: 'Chat', type: 'KnowledgeQA' }] as any
+  store.allModels = [{ id: 'chat', name: 'Chat', type: 'KnowledgeQA', status: 'active' }] as any
   await flush()
   assert.equal(vm.effective.chat_model_id.model.id, 'chat')
   assert.equal(vm.effective.chat_model_id.stale, false)
@@ -55,12 +54,13 @@ test('personal defaults preserve hidden legacy bindings and accept missing model
   })
 })
 
-test('a read-only platform member can change their own default model', async t => {
-  const { vm, api } = setup(t, undefined, true, false)
+test('a viewer can read all workspace defaults and cannot submit changes', async t => {
+  const { vm, api } = setup(t, undefined, false)
   await flush()
-  assert.equal(vm.canEdit, true)
+  assert.equal(vm.canEdit, false)
+  assert.equal(vm.settings.chat_model_id, initial.chat_model_id)
   await vm.onModelChange('chat_model_id', 'agent-main')
-  assert.equal(api.updateTenantDefaultSettings.mock.callCount(), 1)
+  assert.equal(api.updateTenantDefaultSettings.mock.callCount(), 0)
 })
 
 test('blocks saves until all persisted slots have loaded', async t => {

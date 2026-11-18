@@ -95,7 +95,7 @@ function verifyAgentUi(read = readSource, adaptations: Adaptations = baseline.ad
       assert.notEqual(adaptation[field], expected[field], `${path}: unchanged ${field} must retain upstream hash`)
     }
     if (adaptation.styles) {
-      assert.ok(['src/components/Input-field.vue', 'src/views/agent/AgentEditorModal.vue', 'src/views/chat/components/tool-results/DocMarkdown.vue',
+      assert.ok(['src/components/Input-field.vue', 'src/components/ModelEditorDialog.vue', 'src/views/agent/AgentEditorModal.vue', 'src/views/chat/components/tool-results/DocMarkdown.vue',
         'src/views/settings/Settings.vue', 'src/views/settings/MemorySettings.vue',
         'src/views/settings/SkillSettings.vue', 'src/views/toolbox/Toolbox.vue',
         'src/views/chat/components/BackgroundWorkChip.vue',

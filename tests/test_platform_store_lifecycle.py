@@ -19,7 +19,7 @@ def pending_batch_tasks():
 def test_official_store_native_async_methods_persist_without_background_batch():
     async def exercise():
         async with checkpointer.async_store() as store:
-            assert type(store) is PostgresStore
+            assert isinstance(store, PostgresStore)
             await store.aput(('lifecycle', 'native'), 'proof', {'content': 'native-async'}, index=False)
             assert (await store.aget(('lifecycle', 'native'), 'proof')).value == {'content': 'native-async'}
             assert len(await store.asearch(('lifecycle', 'native'))) == 1

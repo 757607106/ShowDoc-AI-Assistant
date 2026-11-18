@@ -33,6 +33,23 @@ def test_parser_uses_official_sandbox_files_and_argv_with_no_credentials_or_host
     native.destroy.assert_called_once()
 
 
+def test_model_image_preparation_converts_transparent_input_and_respects_size(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+    from PIL import Image
+    path = tmp_path / 'input.png'
+    Image.new('RGBA', (128, 128), (0, 0, 0, 0)).save(path)
+    parser = Path(__file__).resolve().parents[1] / 'docker' / 'attachment-parser.py'
+    def run(limit, mime):
+        return subprocess.run([sys.executable, str(parser), str(path), '--model-image', str(limit), mime], capture_output=True)
+    assert json.loads(run(3000, 'image/png').stdout) == {'mime': 'image/png'}
+    assert json.loads(run(3000, 'image/jpeg').stdout) == {'mime': 'image/jpeg', 'converted': True}
+    with Image.open(tmp_path / 'model-image') as converted:
+        assert converted.format == 'JPEG' and converted.getpixel((0, 0)) == (255, 255, 255)
+    assert run(1, 'image/jpeg').returncode != 0
+
+
 @pytest.mark.parametrize('output', ['not JSON', '{"text": ""}', '{"text": 123}'])
 def test_invalid_parser_output_fails_and_always_destroys_environment(monkeypatch, output):
     native = Mock()

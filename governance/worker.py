@@ -15,7 +15,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from common.env_sanitize import sanitize_no_proxy
 from governance.contextdb_sync import enqueue_sync
-from governance.store import Store, data_dir, now
+from governance.store import Store, StoreError, data_dir, now
 from governance.database import connection
 
 
@@ -63,10 +63,10 @@ def process_job(store, job):
     job_id = job['task_id']
     capture_message = None
     submission_queued = False
+    output = None
+    captured = False
     if job.get('owner_id'):
-        from webapi.auth import client_for_user
         store.owner_id = job['owner_id']
-        store.client = client_for_user(job['owner_id'])
     if job.get('attempt_token'):
         store.active_attempt = (job_id, job['attempt_token'])
 
@@ -89,6 +89,9 @@ def process_job(store, job):
                   current_item=message.partition(':')[2].strip())
 
     try:
+        if job.get('owner_id'):
+            from webapi.auth import client_for_user
+            store.client = client_for_user(job['owner_id'])
         cancel_check()
         if job['kind'] == 'ctxdb_sync':
             if 'target_modes' in job['params'] and (not isinstance(job['params']['target_modes'], list)
@@ -134,7 +137,6 @@ def process_job(store, job):
         documents = read_jsonl(output / 'rag_documents.jsonl')
         sources = {str(r['id']): r for r in read_jsonl(output / 'source_documents.jsonl')}
         chunks = read_jsonl(output / 'rag_chunks.jsonl')
-        store.ingest(job, documents, sources, chunks)
         partial = bool(summary.get('failed_documents') or summary.get('error_count'))
         video_references = summary.get('video_reference_documents', 0)
         message = f"来源检查完成：成功 {len(documents)} 条，失败 {summary.get('failed_documents', 0)} 条"
@@ -144,6 +146,8 @@ def process_job(store, job):
             message += '；请查看失败明细后重试'
         archive = output.with_suffix('.zip')
         create_zip_file(output, archive, cancel_check)
+        store.ingest(job, documents, sources, chunks)
+        captured = True
         store.update_job(job_id, status='partial' if partial else 'completed',
                          summary=summary, capture_complete=not partial,
                          failed_pages=summary.get('failed_documents', 0),
@@ -170,6 +174,23 @@ def process_job(store, job):
                 end_time=now(), message=f'{capture_message}；{detail}')
         else:
             store.update_job(job_id, status='failed', phase='failed', end_time=now(), message=f'处理失败: {message[:1500]}')
+    finally:
+        # Partial captures remain available for retry and consume space too.
+        if not captured and output is not None and job.get('owner_id') and output.is_dir():
+            from governance.workspaces import disk_sizes, set_file_sizes
+            paths = [output, output.with_suffix('.zip')]
+            with connection() as conn:
+                sizes = disk_sizes(paths, 'jobs')
+                try:
+                    set_file_sizes(conn, store.owner_id, sizes)
+                except StoreError as exc:
+                    if exc.status not in (410, 413):
+                        raise
+                    if output.resolve() == data_dir() / 'jobs' / job_id:
+                        shutil.rmtree(output)
+                        paths[1].unlink(missing_ok=True)
+                    if exc.status == 413:
+                        set_file_sizes(conn, store.owner_id, dict.fromkeys(sizes, 0))
 
 
 def publish(store, job_id):
@@ -229,7 +250,11 @@ def _publish(store, job_id):
         archive.writestr('rag_documents.jsonl', '\n'.join(json.dumps(r, ensure_ascii=False) for r in records) + '\n')
         archive.writestr('rag_chunks.jsonl', '\n'.join(json.dumps(r, ensure_ascii=False) for r in chunks) + '\n')
     temporary.replace(archive_path)
-    store.create_release(job_id, scope, generation, manifest['version_ids'], archive_path, release_id)
+    try:
+        store.create_release(job_id, scope, generation, manifest['version_ids'], archive_path, release_id)
+    except Exception:
+        archive_path.unlink(missing_ok=True)
+        raise
     enqueue_sync(store, release_id, scope)
     return release_id
 
