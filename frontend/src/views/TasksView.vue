@@ -182,7 +182,7 @@ onUnmounted(() => { stopped = true; requestId++; spaceRequest++; closeDetails();
         <template #scope="{row}"><span :title="row.scope">{{spaceName(row.scope,spaces)}}</span></template>
         <template #status="{row}"><t-tag size="small" variant="light" :theme="taskFilter(row)==='action'?'danger':taskFilter(row)==='done'?'success':'default'">{{statusLabel(row)}}</t-tag></template>
         <template #result="{row}">
-          <div>{{currentTask(row).kind==='ctxdb_sync'?'资料提交':'已处理'}} {{currentTask(row).completed_pages || 0}} / {{currentTask(row).total_pages || 0}} 份<span v-if="currentTask(row).failed_pages"> · 失败 {{currentTask(row).failed_pages}} 份</span></div>
+          <div class="result-title">{{currentTask(row).kind==='ctxdb_sync'?'资料提交':'已处理'}} {{currentTask(row).completed_pages || 0}} / {{currentTask(row).total_pages || 0}} 份<span v-if="currentTask(row).failed_pages"> · 失败 {{currentTask(row).failed_pages}} 份</span></div>
           <p v-if="currentTask(row).message" class="task-message" :title="currentTask(row).message">{{currentTask(row).message}}</p>
           <small v-if="row.submission_task">采集已完成 · 关联全库资料提交</small>
           <t-progress v-if="taskFilter(row)==='active'" :percentage="currentTask(row).progress || 0" size="small" :label="false" class="task-progress" />
@@ -244,14 +244,20 @@ onUnmounted(() => { stopped = true; requestId++; spaceRequest++; closeDetails();
 
 <style scoped>
 .material-workspace { height: 100%; overflow: auto; }
+.material-workspace :deep(.t-card__title) { font-size: var(--app-text-4xl); line-height: 32px; }
+.material-workspace :deep(.t-card__description) { font-size: var(--app-text-md); }
 .workspace-navigation { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 20px; border-bottom: 1px solid var(--td-component-stroke); }
+.workspace-navigation :deep(.t-tabs__nav-container.t-is-top::after) { display: none; }
 .workspace-navigation > .t-tabs { flex: 1; min-width: 0; }
 .scope-filter { display: flex; align-items: center; gap: 10px; flex: none; color: var(--td-text-color-secondary); font-size: var(--app-text-sm); }
 .scope-filter .t-select__wrap { width: 210px; }
 .task-toolbar,.task-pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 18px 0; flex-wrap: wrap; }
+.task-pagination { margin-bottom: 0; }
+.t-table td small { display: block; line-height: 18px; }
 .source-name { font-weight: 500; overflow-wrap: anywhere; }
+.result-title { font-weight: 500; }
 small,.hint,.log-line span { color: var(--td-text-color-secondary); font-size: var(--app-text-sm); }
-.task-message { color: var(--td-text-color-secondary); font-size: var(--app-text-sm); margin: 4px 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.task-message { color: var(--td-text-color-secondary); font-size: var(--app-text-sm); line-height: 18px; margin: 4px 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .task-progress { max-width: 200px; margin-top: 8px; }
 .detail-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .detail-heading h3 { margin: 0; font-size: var(--app-text-xl); }

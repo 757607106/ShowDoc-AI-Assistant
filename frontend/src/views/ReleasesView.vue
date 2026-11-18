@@ -92,7 +92,7 @@ defineExpose({ refresh })
     <h2 v-if="!embedded">提交记录</h2>
     <div class="snapshot-heading">
       <div><h3>知识库资料快照</h3><p class="hint">每个批次包含该知识库当时全部当前资料；不是本次新增文件清单。</p></div>
-      <t-button variant="outline" :loading="loading" @click="refresh">刷新历史</t-button>
+      <t-button variant="outline" :loading="loading" @click="refresh"><template #icon><t-icon name="refresh" /></template>刷新历史</t-button>
     </div>
     <t-alert v-if="error" theme="error" :message="error" />
     <t-loading :loading="loading">
@@ -108,7 +108,7 @@ defineExpose({ refresh })
 
     <t-collapse v-model="expanded" class="document-status">
       <t-collapse-panel value="documents" header="文档处理状态">
-        <div class="document-status-heading"><p class="hint">评审、入库与生成分别推进；快照已提交不代表文档处理完成。</p><t-button variant="outline" :loading="mappingLoading" @click="loadMappings">刷新状态</t-button></div>
+        <div class="document-status-heading"><p class="hint">评审、入库与生成分别推进；快照已提交不代表文档处理完成。</p><t-button variant="outline" :loading="mappingLoading" @click="loadMappings"><template #icon><t-icon name="refresh" /></template>刷新状态</t-button></div>
         <t-alert v-if="mappingError" theme="error" :message="mappingError" />
         <t-table row-key="row_key" :data="mappings" :loading="mappingLoading" :columns="[{colKey:'scope',title:'知识库'},{colKey:'document',title:'文档'},{colKey:'target_mode',title:'处理目标'},{colKey:'review',title:'文档评审'},{colKey:'ingest',title:'文档入库'},{colKey:'derived',title:'生成状态'},{colKey:'error',title:'失败原因'}]">
           <template #scope="{row}">{{spaceName(row.scope,spaces)}}</template>
