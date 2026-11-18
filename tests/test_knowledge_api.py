@@ -49,6 +49,85 @@ def test_kb_search_proxies_query(client):
     assert '配置连接池' in payload['chunks'][0]['content']
 
 
+def _capture_query(monkeypatch, fake):
+    captured = {}
+    original = fake.query
+
+    def spy(question, **kwargs):
+        captured.update(kwargs)
+        return original(question, **kwargs)
+
+    monkeypatch.setattr(fake, 'query', spy)
+    return captured
+
+
+def _cleanup_retrieval_config():
+    from governance.database import connection
+    with connection() as conn:
+        conn.execute("DELETE FROM runtime_records WHERE kind='settings' AND record_key='retrieval-config'")
+
+
+def test_kb_search_applies_workspace_retrieval_overrides(client, monkeypatch):
+    fake, http = client
+    captured = _capture_query(monkeypatch, fake)
+    kb = fake.ensure_knowledge_base('k1')
+    fake.create_text_document(kb['id'], 'doc.md', '如何配置连接池')
+    try:
+        saved = http.put('/api/v1/tenants/kv/retrieval-config',
+                         json={'top_k': 3, 'similarity_threshold': 0.7, 'vector_weight': 0.5, 'query_rewrite': False})
+        assert saved.status_code == 200
+        resp = http.post('/api/kb/search', json={'question': '配置', 'kb_ids': [kb['id']]})
+        assert resp.get_json()['success'] is True
+        assert captured['top_k'] == 3 and captured['similarity_threshold'] == 0.7
+        assert captured['vector_weight'] == 0.5 and captured['query_rewrite'] is False
+    finally:
+        _cleanup_retrieval_config()
+
+
+def test_kb_search_request_params_take_precedence_over_workspace_defaults(client, monkeypatch):
+    fake, http = client
+    captured = _capture_query(monkeypatch, fake)
+    kb = fake.ensure_knowledge_base('k1')
+    fake.create_text_document(kb['id'], 'doc.md', '如何配置连接池')
+    try:
+        saved = http.put('/api/v1/tenants/kv/retrieval-config',
+                         json={'top_k': 3, 'vector_weight': 0.5})
+        assert saved.status_code == 200
+        resp = http.post('/api/kb/search', json={'question': '配置', 'kb_ids': [kb['id']], 'top_k': 5, 'threshold': 0.9})
+        assert resp.get_json()['success'] is True
+        assert captured['top_k'] == 5 and captured['similarity_threshold'] == 0.9
+        assert captured['vector_weight'] == 0.5 and captured['query_rewrite'] is True
+    finally:
+        _cleanup_retrieval_config()
+
+
+def test_retrieval_config_kv_rejects_fields_outside_official_contract(client):
+    _, http = client
+    try:
+        assert http.put('/api/v1/tenants/kv/retrieval-config', json={'rrf_k': 60}).status_code == 400
+        assert http.put('/api/v1/tenants/kv/retrieval-config', json={'top_k': 11}).status_code == 400
+        assert http.put('/api/v1/tenants/kv/retrieval-config', json={'top_k': 0}).status_code == 400
+        assert http.put('/api/v1/tenants/kv/retrieval-config', json={'vector_weight': 1.5}).status_code == 400
+        assert http.put('/api/v1/tenants/kv/retrieval-config', json={'query_rewrite': 'yes'}).status_code == 400
+        saved = http.put('/api/v1/tenants/kv/retrieval-config', json={'top_k': 6, 'query_rewrite': False})
+        assert saved.status_code == 200 and saved.get_json()['data']['top_k'] == 6
+    finally:
+        _cleanup_retrieval_config()
+
+
+def test_retrieval_overrides_filter_values_outside_official_contract(monkeypatch):
+    from agent import registry
+    monkeypatch.setattr(registry, 'records', lambda kind, owner, **kwargs: [
+        {'id': 'retrieval-config', 'value': {'top_k': 12, 'similarity_threshold': 1.5, 'vector_weight': 'x',
+                                             'query_rewrite': 'yes', 'rrf_k': 60}}])
+    assert registry.retrieval_overrides('u') == {}
+    monkeypatch.setattr(registry, 'records', lambda kind, owner, **kwargs: [
+        {'id': 'other-config', 'value': {'top_k': 2}}, {'id': 'retrieval-config', 'value': None}])
+    assert registry.retrieval_overrides('u') == {}
+    monkeypatch.setattr(registry, 'records', lambda kind, owner, **kwargs: [])
+    assert registry.retrieval_overrides('u') == {}
+
+
 def test_global_search_maps_question_without_expanding_scope(client, monkeypatch):
     from unittest.mock import Mock
     fake, http = client

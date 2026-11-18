@@ -113,17 +113,22 @@ def kb_search():
         raise StoreError('请指定要检索的知识库(kb_ids 或 kb_names)', 400)
     if not isinstance(kb_ids, list) or not isinstance(kb_names, list):
         raise StoreError('kb_ids / kb_names 必须是列表', 400)
+    # 请求显式参数 > 空间检索设置(retrieval-config KV) > 平台现行默认。
+    from agent.registry import retrieval_overrides
+    defaults = retrieval_overrides(user_id())
+    threshold = body.get('threshold')
+    vector_weight = body.get('vector_weight')
     result = _client().query(
         question,
         knowledge_base_ids=kb_ids or None,
         knowledge_base_names=kb_names or None,
         knowledge_view=body.get('view') or 'auto',
-        top_k=int(body.get('top_k', 10)),
-        similarity_threshold=body.get('threshold'),
+        top_k=int(body.get('top_k') or defaults.get('top_k') or 10),
+        similarity_threshold=threshold if threshold is not None else defaults.get('similarity_threshold'),
         metadata_condition=body.get('metadata_condition'),
         document_ids=body.get('document_ids') or None,
-        query_rewrite=body.get('query_rewrite', True),
-        vector_weight=body.get('vector_weight'),
+        query_rewrite=body.get('query_rewrite', defaults.get('query_rewrite', True)),
+        vector_weight=vector_weight if vector_weight is not None else defaults.get('vector_weight'),
         context_token_budget=body.get('context_token_budget'),
         images=body.get('images') or None,
     )

@@ -245,7 +245,7 @@ def runtime_config_issues(value):
                 issues.append({'field': key, 'message': f'{key} 的本地算法未启用；检索处理由 ContextDB 管理'})
         for key in ('embedding_top_k', 'keyword_threshold', 'vector_threshold', 'rerank_top_k', 'rerank_threshold', 'rerank_model_id'):
             if value.get(key) not in (None, ''):
-                issues.append({'field': key, 'message': f'{key} 请在 ContextDB 中配置，当前平台不能覆盖其检索管线'})
+                issues.append({'field': key, 'message': f'{key} 请在空间设置的检索参数中配置，当前平台不覆盖 ContextDB 检索管线'})
         for key in ('context_template', 'context_template_id', 'fallback_prompt', 'fallback_response', 'intent_prompts'):
             if value.get(key):
                 issues.append({'field': key, 'message': f'{key} 尚未接入当前官方 Harness'})

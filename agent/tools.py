@@ -74,6 +74,8 @@ async def load_knowledge_mcp_tools(*, api_key, role='viewer', owner_id=None, kno
     config = agent_config or {}
     document_bases = config.get('_document_bases', {})
     whole_bases = set(config.get('_whole_knowledge_bases', knowledge_base_ids))
+    from agent.registry import retrieval_overrides
+    retrieval_defaults = retrieval_overrides(owner_id) if owner_id else {}
     async def authorize(request, handler):
         if request.name not in allowed:
             raise StoreError('该工具未获当前会话授权', 403)
@@ -90,6 +92,11 @@ async def load_knowledge_mcp_tools(*, api_key, role='viewer', owner_id=None, kno
                 raise StoreError('当前账号没有知识库管理权限', 403)
         arguments = scoped_arguments(request.args, knowledge_base_ids, schemas.get(request.name, {}))
         properties = schemas[request.name]
+        if request.name == 'knowledge.search':
+            # 空间检索设置作为默认值注入；只注入官方 schema 存在且模型未显式指定的参数。
+            for name, value in retrieval_defaults.items():
+                if name in properties and name not in arguments:
+                    arguments[name] = value
         requested_bases = set(arguments.get('knowledge_base_ids') or [arguments.get('knowledge_base_id')]) - {None}
         restricted = requested_bases - whole_bases
         if restricted:

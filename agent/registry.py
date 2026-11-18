@@ -53,6 +53,30 @@ def record(kind, record_id, owner_id, *, _connection=None):
     return row['payload']
 
 
+def retrieval_overrides(owner_id, *, _connection=None):
+    """空间级检索参数：读取 retrieval-config KV，只返回 ContextDB 官方 query 支持的键。
+
+    top_k 上限取 REST 契约的 1–10（MCP 面 1–20 可被其覆盖）；未配置的键不返回，
+    由 ContextDB 使用官方默认值。
+    """
+    saved = next((item for item in records('settings', owner_id, _connection=_connection)
+                  if item.get('id') == 'retrieval-config'), None)
+    value = (saved or {}).get('value') or {}
+    if not isinstance(value, dict):
+        return {}
+    overrides = {}
+    top_k = value.get('top_k')
+    if isinstance(top_k, int) and not isinstance(top_k, bool) and 1 <= top_k <= 10:
+        overrides['top_k'] = top_k
+    for key in ('similarity_threshold', 'vector_weight'):
+        item = value.get(key)
+        if isinstance(item, (int, float)) and not isinstance(item, bool) and 0 <= float(item) <= 1:
+            overrides[key] = float(item)
+    if isinstance(value.get('query_rewrite'), bool):
+        overrides['query_rewrite'] = value['query_rewrite']
+    return overrides
+
+
 def agent_model_references(config):
     values = [(config.get(field), binding, types) for field, (binding, types) in AGENT_MODEL_FIELDS.items()]
     subagents = config.get('subagents', [])

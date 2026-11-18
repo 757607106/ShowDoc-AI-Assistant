@@ -178,7 +178,8 @@ def official_mcp(monkeypatch):
     fixture = SimpleNamespace(calls=[], lookups=[], documents={}, clients=[], discovered=[], discovery_error=None)
     specs = [
         ('knowledge.search', {'query': {'type': 'string'}, 'knowledge_base_ids': {'type': 'array', 'items': {'type': 'string'}},
-                              'knowledge_base_names': {'type': 'array', 'items': {'type': 'string'}}}, True),
+                              'knowledge_base_names': {'type': 'array', 'items': {'type': 'string'}},
+                              'top_k': {'type': 'integer'}, 'similarity_threshold': {'type': 'number'}}, True),
         ('knowledge.get_base', {'knowledge_base_id': {'type': 'string'}}, True),
         ('knowledge.wiki_search', {'knowledge_base_ids': {'type': 'array'}, 'query': {'type': 'string'}}, True),
         ('knowledge.list_graph_entities', {'knowledge_base_id': {'type': 'string'}, 'query': {'type': 'string'}}, True),
@@ -326,6 +327,33 @@ def test_mcp_document_tools_verify_official_ownership_before_calling(official_mc
         assert official_mcp.calls == [('knowledge.get_document', {'document_id': 'inside'})]
         assert official_mcp.lookups == ['inside', 'outside', 'unknown', 'denied', 'inside', 'outside']
     asyncio.run(exercise())
+
+
+def test_workspace_retrieval_defaults_inject_into_official_knowledge_search(official_mcp):
+    from agent import registry
+    from governance.database import connection
+    owner = os.environ['TEST_PLATFORM_USER']
+    registry.save_record('settings', {'id': 'retrieval-config', 'name': 'retrieval-config',
+        'value': {'top_k': 4, 'similarity_threshold': 0.5, 'vector_weight': 0.9, 'query_rewrite': False}}, owner)
+    try:
+        async def exercise():
+            tools = await official_mcp.load(['kb1'], owner_id=owner)
+            await tools['knowledge.search'].ainvoke({'query': '部署'})
+            await tools['knowledge.search'].ainvoke({'query': '部署', 'top_k': 2})
+            await tools['knowledge.wiki_search'].ainvoke({'knowledge_base_ids': ['kb1'], 'query': '部署'})
+        asyncio.run(exercise())
+        search_defaults, search_explicit, wiki = official_mcp.calls[-3:]
+        assert search_defaults[0] == 'knowledge.search'
+        assert search_defaults[1]['top_k'] == 4 and search_defaults[1]['similarity_threshold'] == 0.5
+        assert search_defaults[1]['knowledge_base_ids'] == ['kb1']
+        # REST 独有参数不在官方 MCP schema 中，不能注入。
+        assert 'vector_weight' not in search_defaults[1] and 'query_rewrite' not in search_defaults[1]
+        assert search_explicit[1]['top_k'] == 2, '模型显式参数必须覆盖空间默认'
+        assert search_explicit[1]['similarity_threshold'] == 0.5
+        assert wiki[0] == 'knowledge.wiki_search' and 'top_k' not in wiki[1]
+    finally:
+        with connection() as conn:
+            conn.execute("DELETE FROM runtime_records WHERE kind='settings' AND record_key='retrieval-config'")
 
 
 def test_mcp_scope_does_not_replace_member_permissions(official_mcp):

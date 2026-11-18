@@ -554,7 +554,8 @@ def settings(key):
         _require_model_admin()
         value = registry.save_workspace_defaults(g.user['id'], _body())
         return jsonify(success=True, data=value, message='Default settings updated successfully')
-    defaults = {'retrieval-config': {}, 'web-search-config': {'enabled': False}, 'skill-installer-model': {'model_id': ''},
+    defaults = {'retrieval-config': {'top_k': 10, 'similarity_threshold': 0.6, 'vector_weight': 0.7, 'query_rewrite': True},
+        'web-search-config': {'enabled': False}, 'skill-installer-model': {'model_id': ''},
         'memory-config': {'enabled': False, 'write_mode': 'explicit_only', 'extract_model_id': '',
             'max_items': 0, 'extract_delay_seconds': 0, 'extract_min_interval_seconds': 0,
             'extract_instructions': '', 'interest_threshold': 0, 'retrieval_conditioning': False,
@@ -586,6 +587,20 @@ def settings(key):
             value['enabled'] = False
     if request.method == 'PUT':
         updates = _body()
+        if key == 'retrieval-config':
+            # 只接受 ContextDB 官方 query 契约支持的透传参数；top_k 上限取 REST 的 1–10。
+            allowed_keys = {'top_k', 'similarity_threshold', 'vector_weight', 'query_rewrite'}
+            if set(updates) - allowed_keys:
+                raise StoreError(f'retrieval-config 仅支持 {sorted(allowed_keys)}', 400)
+            for name, item in updates.items():
+                if name == 'top_k':
+                    if not isinstance(item, int) or isinstance(item, bool) or not 1 <= item <= 10:
+                        raise StoreError('top_k 必须是 1–10 的整数', 400)
+                elif name == 'query_rewrite':
+                    if not isinstance(item, bool):
+                        raise StoreError('query_rewrite 必须是布尔值', 400)
+                elif not isinstance(item, (int, float)) or isinstance(item, bool) or not 0 <= float(item) <= 1:
+                    raise StoreError(f'{name} 必须是 0–1 的数值', 400)
         value.update(updates)
         registry.save_record('settings', {'id': key, 'name': key, 'value': value}, g.user['id'])
     return jsonify(success=True, data=value)

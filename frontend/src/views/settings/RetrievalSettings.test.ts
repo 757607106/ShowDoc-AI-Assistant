@@ -14,19 +14,15 @@ const compiled = ts.transpileModule(script, {
 }).outputText
 
 const baseConfig = {
-  embedding_top_k: 50,
-  vector_threshold: 0.15,
-  keyword_threshold: 0.3,
-  rerank_top_k: 10,
-  rerank_threshold: 0.2,
-  rerank_model_id: 'existing-model',
+  top_k: 8,
+  similarity_threshold: 0.55,
+  vector_weight: 0.65,
+  query_rewrite: false,
 }
 
-type RrfField = 'rrf_k' | 'rrf_vector_weight' | 'rrf_keyword_weight'
 type SettingsState = {
   localConfig: Record<string, unknown>
   handleParamChange: () => void
-  handleRrfChange: (field: RrfField, value: number | string) => void
 }
 
 async function editConfig(
@@ -48,7 +44,6 @@ async function editConfig(
     vue: { ...vue, onMounted: (callback: () => Promise<void>) => { mounted = callback }, onUnmounted() {} },
     'tdesign-vue-next': { MessagePlugin: { success() {}, error() {} } },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
-    '@/components/ModelSelector.vue': {},
     '@/stores/auth': { useAuthStore: () => ({ hasRole: () => canEdit }) },
     '@/api/retrieval': {
       getTenantRetrievalConfig: async () => ({ data: config }),
@@ -85,53 +80,53 @@ async function editConfig(
   return writes
 }
 
-for (const [name, rrf] of [
-  ['custom RRF parameters', { rrf_k: 90, rrf_vector_weight: 0.2, rrf_keyword_weight: 0.8 }],
-  ['omitted RRF parameters', {}],
-  ['explicit zero RRF parameters', { rrf_k: 0, rrf_vector_weight: 0, rrf_keyword_weight: 0 }],
-] as const) {
-  test(`editing Top K preserves ${name} in the serialized PUT body`, async () => {
-    const config = { ...baseConfig, ...rrf }
-    const writes = await editConfig(config, state => {
-      state.localConfig.embedding_top_k = 25
-      state.handleParamChange()
-    })
-    assert.equal(writes.length, 1)
-    assert.deepEqual(writes[0], { ...config, embedding_top_k: 25 })
+test('editing Top K preserves the other ContextDB query parameters in the serialized PUT body', async () => {
+  const writes = await editConfig(baseConfig, state => {
+    state.localConfig.top_k = 5
+    state.handleParamChange()
   })
-}
+  assert.equal(writes.length, 1)
+  assert.deepEqual(writes[0], { ...baseConfig, top_k: 5 })
+})
 
 for (const [field, value] of [
-  ['rrf_k', 90],
-  ['rrf_vector_weight', 1.25],
-  ['rrf_keyword_weight', 0.45],
+  ['similarity_threshold', 0.25],
+  ['vector_weight', 0.45],
 ] as const) {
   test(`editing ${field} saves the new value and preserves the other settings`, async () => {
-    const config = { ...baseConfig, rrf_k: 75, rrf_vector_weight: 0.85, rrf_keyword_weight: 0.15 }
-    const writes = await editConfig(config, state => state.handleRrfChange(field, value))
-    assert.deepEqual(writes, [{ ...config, [field]: value }])
+    const writes = await editConfig(baseConfig, state => {
+      state.localConfig[field] = value
+      state.handleParamChange()
+    })
+    assert.deepEqual(writes, [{ ...baseConfig, [field]: value }])
   })
 }
 
-test('RRF edits coalesce into one save and zero selects the server default', async () => {
+test('toggling query rewrite saves the new value and preserves the other settings', async () => {
   const writes = await editConfig(baseConfig, state => {
-    state.handleRrfChange('rrf_k', 80)
-    state.handleRrfChange('rrf_k', 0)
-    state.handleRrfChange('rrf_vector_weight', 0)
-    state.handleRrfChange('rrf_keyword_weight', 0)
+    state.localConfig.query_rewrite = true
+    state.handleParamChange()
   })
-  assert.deepEqual(writes, [{ ...baseConfig, rrf_k: 0, rrf_vector_weight: 0, rrf_keyword_weight: 0 }])
+  assert.deepEqual(writes, [{ ...baseConfig, query_rewrite: true }])
 })
 
-test('cleared, invalid and fractional K inputs do not overwrite saved values', async () => {
-  const writes = await editConfig({ ...baseConfig, rrf_k: 75, rrf_vector_weight: 0.8 }, state => {
-    for (const value of ['', -1, NaN, Infinity]) state.handleRrfChange('rrf_vector_weight', value)
-    state.handleRrfChange('rrf_k', 1.5)
+test('a partial server response falls back to the platform defaults for missing keys', async () => {
+  const writes = await editConfig({ top_k: 7 }, state => {
+    state.localConfig.top_k = 3
+    state.handleParamChange()
   })
-  assert.deepEqual(writes, [])
+  assert.deepEqual(writes[0], {
+    top_k: 3,
+    similarity_threshold: 0.6,
+    vector_weight: 0.7,
+    query_rewrite: true,
+  })
 })
 
-test('non-admins cannot change RRF configuration', async () => {
-  const writes = await editConfig(baseConfig, state => state.handleRrfChange('rrf_k', 90), false)
+test('non-admins cannot change retrieval configuration', async () => {
+  const writes = await editConfig(baseConfig, state => {
+    state.localConfig.top_k = 3
+    state.handleParamChange()
+  }, false)
   assert.deepEqual(writes, [])
 })

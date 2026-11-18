@@ -47,7 +47,6 @@ import {
 import { isBatchDownloadableKnowledge } from './knowledgeDownloadFileName';
 import { waitForKnowledgeDeletion } from '@/utils/knowledgeDeletion';
 import { knowledgeSpansPayloadHasTrace } from '@/utils/knowledgeTrace';
-import FAQEntryManager from './components/FAQEntryManager.vue';
 import DocumentListView from './components/DocumentListView.vue';
 import DocumentCardView from './components/DocumentCardView.vue';
 import DocumentBatchBar from './components/DocumentBatchBar.vue';
@@ -99,7 +98,6 @@ const uploadSourceRef = ref<InstanceType<typeof KbUploadSourceDropdown> | null>(
 const kbLoading = ref(false);
 const kbLoadError = ref<{ title: string; message: string } | null>(null);
 const docListLoading = ref(true);
-const isFAQ = computed(() => (kbInfo.value?.type || '') === 'faq');
 const isWiki = computed(() => !!kbInfo.value?.indexing_strategy?.wiki_enabled);
 const validTabs = ['documents', 'wiki', 'graph', 'gallery'] as const
 type KbTab = typeof validTabs[number]
@@ -127,7 +125,7 @@ const shownKbTab = computed<KbTab>(() =>
 )
 const missingStorageEngine = computed(() => {
   if (IS_CONTEXTDB) return false
-  if (!kbInfo.value || isFAQ.value) return false
+  if (!kbInfo.value) return false
   // storage_backend_id is authoritative; storage_provider_config.provider is a
   // compatibility projection for older clients. Either being present means the
   // KB has a bound storage instance and uploads should not be blocked.
@@ -308,7 +306,6 @@ let { cardList, total, moreIndex, details, getKnowled, onVisibleChange: _onVisib
 
 const showKbDetailContextualGuide = computed(() => {
   return Boolean(kbId.value)
-    && !isFAQ.value
     && canEdit.value
     && !docListLoading.value
     && cardList.value.length === 0;
@@ -371,7 +368,6 @@ useAssistantPageContext(() => {
   const docOpen = isCardDetails.value && !!details.id;
   return {
     page: 'knowledge_base',
-    section: kbInfo.value?.id === kbId.value && isFAQ.value ? 'faq' : undefined,
     knowledgeBaseId: kbId.value,
     knowledgeBaseName: kbInfo.value?.id === kbId.value ? kbInfo.value?.name : undefined,
     chatModelId: kbInfo.value?.id === kbId.value ? kbInfo.value?.summary_model_id || undefined : undefined,
@@ -762,7 +758,7 @@ const folderTreeCollapsed = ref(readStoredFlag(FOLDER_TREE_COLLAPSED_KEY));
 const hasFolders = computed(() => (folderTree.value?.folders?.length ?? 0) > 0);
 // The folder column only earns its space once the knowledge base actually has
 // folders, so knowledge bases filled with single-file uploads look unchanged.
-const showFolderTree = computed(() => !isFAQ.value && hasFolders.value);
+const showFolderTree = computed(() => hasFolders.value);
 // Browsing lists one folder's own contents; filtering searches its whole
 // subtree. There is no mode switch: the list follows what the user is doing.
 const isFiltering = computed(() =>
@@ -851,7 +847,7 @@ const handleDocumentSortSelect = (value: DocumentSortValue) => {
   if (knowledgeScroll.value) {
     knowledgeScroll.value.scrollTop = 0;
   }
-  if (kbId.value && !isFAQ.value) {
+  if (kbId.value) {
     loadKnowledgeFiles(kbId.value);
   }
 };
@@ -874,9 +870,7 @@ getPageSize()
 
 const loadKnowledgeFiles = (kbIdValue: string): Promise<void> => {
   if (!kbIdValue) return Promise.resolve();
-  if (!isFAQ.value) {
-    docListLoading.value = true;
-  }
+  docListLoading.value = true;
   return getKnowled(
     {
       page: 1,
@@ -885,7 +879,7 @@ const loadKnowledgeFiles = (kbIdValue: string): Promise<void> => {
     },
     kbIdValue,
   ).finally(() => {
-    if (isCurrentKb(kbIdValue) && !isFAQ.value) {
+    if (isCurrentKb(kbIdValue)) {
       docListLoading.value = false;
     }
   });
@@ -894,7 +888,7 @@ const loadKnowledgeFiles = (kbIdValue: string): Promise<void> => {
 const isCurrentKb = (targetKbId: string) => targetKbId === kbId.value;
 
 const loadFolderTree = async (kbIdValue: string) => {
-  if (IS_CONTEXTDB || !kbIdValue || isFAQ.value) {
+  if (IS_CONTEXTDB || !kbIdValue) {
     folderTree.value = null;
     return;
   }
@@ -1097,14 +1091,8 @@ const loadKnowledgeBaseInfo = async (targetKbId: string, force = false) => {
     uiStore.clearSelectedTagIds();
     // 重置store中的标签选择状态，避免上传文档时自动带上之前选择的标签
     uiStore.clearSelectedTagIds();
-    if (!isFAQ.value) {
-      loadKnowledgeFiles(targetKbId);
-      void loadFolderTree(targetKbId);
-    } else {
-      cardList.value = [];
-      total.value = 0;
-      folderTree.value = null;
-    }
+    loadKnowledgeFiles(targetKbId);
+    void loadFolderTree(targetKbId);
     loadTags(targetKbId, true);
   } catch (error: any) {
     if (!isCurrentKb(targetKbId) || request !== kbMetadataRequest) return;
@@ -1255,7 +1243,7 @@ watch([selectedParseStatus, selectedSource, updatedTimeRange], () => {
 // 切换目录只改变列表范围，行为与其他筛选一致。浏览态与筛选态之间的切换由各筛选项
 // 自身的 watcher 触发刷新，这里不重复请求。
 watch(selectedFolderPath, () => {
-  if (!kbId.value || isFAQ.value) return;
+  if (!kbId.value) return;
   clearSelection();
   resetPage();
   loadKnowledgeFiles(kbId.value);
@@ -1265,7 +1253,7 @@ watch(selectedFolderPath, () => {
 const handleFileUploaded = (event: CustomEvent) => {
   const uploadedKbId = event.detail.kbId;
   console.log('接收到文件上传事件，上传的知识库ID:', uploadedKbId, '当前知识库ID:', kbId.value);
-  if (uploadedKbId && uploadedKbId === kbId.value && !isFAQ.value) {
+  if (uploadedKbId && uploadedKbId === kbId.value) {
     // Mid-batch refreshes (settled === false) only bring new rows and folders
     // in, and are skipped once the user scrolled past the first page because
     // reloading resets the list to it. The batch's final event refreshes fully.
@@ -1287,7 +1275,7 @@ const handleFileUploaded = (event: CustomEvent) => {
 const handleOpenURLImportDialog = (event: CustomEvent) => {
   const eventKbId = event.detail.kbId;
   console.log('接收到URL导入对话框打开事件，知识库ID:', eventKbId, '当前知识库ID:', kbId.value);
-  if (eventKbId && eventKbId === kbId.value && !isFAQ.value) {
+  if (eventKbId && eventKbId === kbId.value) {
     if (ensureDocumentKbReady()) {
       uploadSourceRef.value?.openUrlDialog();
     }
@@ -1300,7 +1288,7 @@ const handleOpenURLImportDialog = (event: CustomEvent) => {
 const handleKnowledgeFileDrop = (event: CustomEvent) => {
   const eventKbId = event.detail?.kbId;
   const files = Array.isArray(event.detail?.files) ? event.detail.files : [];
-  if (eventKbId !== kbId.value || isFAQ.value || files.length === 0) return;
+  if (eventKbId !== kbId.value || files.length === 0) return;
   handleUploadSourceFiles(files);
 };
 
@@ -1389,7 +1377,6 @@ onUnmounted(() => {
   resetStatusPolling();
 });
 watch(() => cardList.value, (newValue) => {
-  if (isFAQ.value) return;
   // 排序、筛选或上传后的列表刷新，可能读到后台尚未更新的旧状态。
   // 保留已提交文档的 pending，但不延长原来的等待期限。
   for (const card of newValue) {
@@ -1755,7 +1742,7 @@ const stopMovePoll = () => {
 };
 
 const manualEditorSuccess = ({ kbId: savedKbId }: { kbId: string; knowledgeId: string; status: 'draft' | 'publish' }) => {
-  if (savedKbId === kbId.value && !isFAQ.value) {
+  if (savedKbId === kbId.value) {
     resetPage(); // Reset page counter when reloading files after manual edit
     loadKnowledgeFiles(savedKbId);
     void loadFolderTree(savedKbId);
@@ -1763,10 +1750,6 @@ const manualEditorSuccess = ({ kbId: savedKbId }: { kbId: string; knowledgeId: s
 };
 
 const ensureDocumentKbReady = () => {
-  if (isFAQ.value) {
-    MessagePlugin.warning(t('knowledgeBase.operationNotSupportedForType'));
-    return false;
-  }
   if (!kbId.value) {
     MessagePlugin.warning(t('knowledgeEditor.messages.missingId'));
     return false;
@@ -1954,7 +1937,6 @@ const handleKnowledgeDropdownSelect = (data: { value: string }) => {
 };
 
 const handleManualEdit = (index: number, item: KnowledgeCard) => {
-  if (isFAQ.value) return;
   if (cardList.value[index]) {
     cardList.value[index].isMore = false;
   }
@@ -1989,7 +1971,6 @@ const handleViewTrace = (index: number, item: KnowledgeCard) => {
 };
 
 const confirmRebuildKnowledge = async (index: number, item: KnowledgeCard) => {
-  if (isFAQ.value) return;
   if (!canEdit.value) return;
   if (!item?.id) {
     MessagePlugin.warning(t('knowledgeEditor.messages.missingId'));
@@ -2051,7 +2032,6 @@ const submitReparse = async (id: string, processConfig?: KnowledgeProcessOverrid
 };
 
 const handleScroll = () => {
-  if (isFAQ.value) return;
   if (docListLoading.value) return;
   if (scrollLoading) return;
   const currentKbId = kbId.value;
@@ -2164,7 +2144,7 @@ const {
   itemSelector: '.knowledge-card[data-select-id], .doc-list-row[data-select-id]',
   selectedIds,
   getItemId: (el) => el.dataset.selectId || null,
-  enabled: computed(() => (canEdit.value || canDownloadKnowledge.value) && !isFAQ.value && cardList.value.length > 0),
+  enabled: computed(() => (canEdit.value || canDownloadKnowledge.value) && cardList.value.length > 0),
   onSelectionStart: () => {
     batchMode.value = true;
   },
@@ -2404,7 +2384,7 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
     <p class="knowledge-unavailable-view">当前视图：{{ activeKbTab === 'wiki' ? 'Wiki' : activeKbTab === 'graph' ? '知识图谱' : activeKbTab === 'gallery' ? '图片' : '文档' }}</p>
     <t-space><t-button :loading="kbLoading" @click="loadKnowledgeBaseInfo(kbId, true)">重试读取</t-button><t-button variant="outline" @click="handleNavigateToKbList">返回知识库列表</t-button></t-space>
   </section>
-  <template v-else-if="!isFAQ">
+  <template v-else>
     <div class="knowledge-layout" :class="{'knowledge-layout--embedded':embedded}">
       <div v-if="!embedded" class="document-header">
         <div class="document-header-title">
@@ -2776,11 +2756,6 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
         :canDownloadKB="canDownloadKnowledge" :kbId="kbId"
         @closeDoc="closeDoc" @getDoc="getDoc" @summaryStateChange="syncDocumentSummaryState">
       </DocContent>
-    </div>
-  </template>
-  <template v-else>
-    <div class="faq-manager-wrapper">
-      <FAQEntryManager v-if="kbId" :kb-id="kbId" />
     </div>
   </template>
 
@@ -3483,14 +3458,6 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
   :deep(.t-icon) {
     font-size: var(--app-text-2xl);
   }
-}
-
-.faq-manager-wrapper {
-  flex: 1;
-  min-height: 0;
-  padding: 24px 32px;
-  overflow-y: auto;
-  margin: 0 16px 0 4px;
 }
 
 @keyframes contentFadeIn {

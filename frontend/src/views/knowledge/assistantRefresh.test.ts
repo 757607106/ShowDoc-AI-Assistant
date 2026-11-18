@@ -33,44 +33,6 @@ test('refreshes data source controls after assistant changes and stops on unmoun
   assert.equal(listDataSources.mock.callCount(), 1)
 })
 
-test('refreshes the FAQ entries and tags once per burst for its own KB only', async t => {
-  const f = fixture(t)
-  const listFAQEntries = t.mock.fn(async (_id: string, _params: unknown) => ({ data: { data: [], total: 1 } }))
-  const listKnowledgeTags = t.mock.fn(async (_id: string, _params: unknown) => ({ data: { data: [], total: 0 } }))
-  f.component(new URL('./components/FAQEntryManager.vue', import.meta.url), {
-    'vue-router': { useRouter: () => ({}) },
-    'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
-    'tdesign-vue-next': { MessagePlugin: { error: assert.fail } },
-    '@/components/settings/useConfirmDelete': { useConfirmDelete: () => ({}) },
-    '@/stores/auth': { useAuthStore: () => ({ hasRole: () => true }) },
-    '@/stores/ui': { useUIStore: () => ({ clearSelectedTagIds() {} }) },
-    '@/stores/organization': { useOrganizationStore: () => ({ sharedKnowledgeBases: [], async fetchSharedKnowledgeBases() {} }) },
-    '@/stores/chatResources': { useChatResourcesStore: () => ({ rawKnowledgeBases: [], async ensureKnowledgeBases() {} }) },
-    '@/api/knowledge-base': {
-      listFAQEntries, listKnowledgeTags,
-      getKnowledgeBaseById: async () => ({ data: { id: 'kb', type: 'faq' } }),
-    },
-    xlsx: {}, papaparse: {},
-  }, { kbId: 'kb' })
-  await flush()
-  listFAQEntries.mock.resetCalls()
-  listKnowledgeTags.mock.resetCalls()
-  f.emit(change('faq.update_entry', { knowledge_base_id: ['other'] }))
-  f.emit(change('agent.create', { knowledge_base_id: ['kb'] }))
-  t.mock.timers.tick(300)
-  assert.equal(listFAQEntries.mock.callCount(), 0)
-  assert.equal(listKnowledgeTags.mock.callCount(), 0)
-  f.emit(change('faq.batch_update', { knowledge_base_id: ['kb'] }))
-  f.emit(change('faq.delete_entries', { knowledge_base_id: ['kb'] }))
-  t.mock.timers.tick(300)
-  await flush()
-  assert.equal(listFAQEntries.mock.callCount(), 1)
-  assert.equal(listKnowledgeTags.mock.callCount(), 1)
-  assert.equal(listFAQEntries.mock.calls[0].arguments[0], 'kb')
-  assert.equal(listKnowledgeTags.mock.calls[0].arguments[0], 'kb')
-  assert.equal((listKnowledgeTags.mock.calls[0].arguments[1] as any).page, 1)
-})
-
 test('refreshes the mounted KB list with force for knowledge_base changes only', async t => {
   const f = fixture(t)
   const fetchKnowledgeBasesForList = t.mock.fn(async (_params: unknown, _force: boolean) => [{ id: 'kb', name: 'Updated KB' }])
