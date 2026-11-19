@@ -85,24 +85,32 @@ test('official renderer uses the measured canvas, G6 force, node sizes, labels a
   assert.deepEqual(plain(options.layout), { type: 'force', preventOverlap: true, nodeSize: 64, nodeStrength: -420, linkDistance: 170, alphaDecay: 0.05 })
   assert.deepEqual(plain(options.modes.default), ['drag-canvas', 'zoom-canvas', 'drag-node'])
   assert.equal(options.defaultNode.labelCfg.style.fontSize, 14); assert.equal(options.defaultNode.labelCfg.offset, 9)
-  assert.equal(options.defaultEdge.labelCfg.autoRotate, true); assert.equal(options.defaultEdge.labelCfg.style.fontSize, 12)
+  assert.equal(options.defaultEdge.labelCfg, undefined)
   assert.equal(options.defaultNode.labelCfg.style.fontFamily, 'WeKnora Sans')
   assert.equal(options.nodeStateStyles.selected.stroke, '#07c05f')
+  assert.equal(options.nodeStateStyles.muted.opacity, 0.12)
   assert.deepEqual(engine.dataValue.nodes.map((node: any) => node.size), [46, 32])
   assert.equal(engine.dataValue.edges[0].source, '产品甲'); assert.equal(engine.dataValue.edges[0].target, '组件乙')
   assert.equal(f.parallel[0][1], 24)
 })
 
-test('node and edge clicks retain opaque IDs, and selecting details never rebuilds or mutes the graph', async t => {
+test('node and edge clicks retain opaque IDs, and entity selection highlights only the one-hop subgraph', async t => {
   const f = fixture(); t.after(f.dispose)
-  const engine = f.instances[0]!
+  f.props.nodes = [...f.props.nodes, { id: '孤立节点', label: '孤立节点', group: 'concept' }]
+  await f.flush()
+  const engine = f.instances.at(-1)!, instanceCount = f.instances.length
   engine.trigger('node:click', { item: { getID: () => '产品甲' } })
   engine.trigger('edge:click', { item: { getID: () => 'relation' } })
   assert.deepEqual(plain(f.events.filter((event: any[]) => event[0] === 'select')), [['select', '产品甲', false], ['select', 'relation', true]])
+  f.props.selectedId = '产品甲'; f.props.isRelation = false; await f.flush()
+  assert.equal(f.instances.length, instanceCount)
+  assert.deepEqual(plain(engine.selections.filter((event: any[]) => event[0] === 'select')), [
+    ['select', '产品甲', 'selected', true], ['select', '组件乙', 'selected', true],
+    ['select', '孤立节点', 'muted', true], ['select', 'relation', 'selected', true],
+  ])
   f.props.selectedId = 'relation'; f.props.isRelation = true; await f.flush()
-  assert.equal(f.instances.length, 1)
+  assert.equal(f.instances.length, instanceCount)
   assert.deepEqual(plain(engine.selections.at(-1)), ['select', 'relation', 'selected', true])
-  assert.ok(engine.dataValue.nodes.every((node: any) => node.style.opacity === undefined))
 })
 
 test('locating preserves zoom, fit uses official padding and zoom anchors the measured canvas center', t => {
@@ -194,6 +202,6 @@ test('theme and font changes update canvas appearance without changing entity co
   assert.equal(engine.dataValue.nodes[0].labelCfg.style.fill, '#eee'); assert.equal(engine.dataValue.nodes[0].labelCfg.style.fontFamily, 'User Sans')
   assert.equal(engine.dataValue.nodes[0].labelCfg.style.background.fill, '#181818')
   assert.equal(engine.dataValue.edges[0].style.stroke, '#5e5e5e'); assert.equal(engine.dataValue.edges[0].style.endArrow.fill, '#5e5e5e')
-  assert.equal(engine.dataValue.edges[0].labelCfg.style.fill, '#aaa'); assert.equal(engine.dataValue.edges[0].stateStyles.selected.stroke, '#06b04d')
+  assert.equal(engine.dataValue.edges[0].labelCfg.style, undefined); assert.equal(engine.dataValue.edges[0].stateStyles.selected.stroke, '#06b04d')
   assert.deepEqual(plain(engine.selections.at(-1)), ['select', 'relation', 'selected', true])
 })

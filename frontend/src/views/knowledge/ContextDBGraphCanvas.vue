@@ -25,24 +25,36 @@ function appearance() {
   return {
     brand, surface: css.getPropertyValue('--td-bg-color-container').trim(),
     nodeLabel: { fill: css.getPropertyValue('--td-text-color-primary').trim(), fontFamily: css.fontFamily, fontSize: parseFloat(css.getPropertyValue('--app-text-base')), background: { fill: css.getPropertyValue('--td-bg-color-sidebar').trim(), padding: [2, 4] } },
-    edgeLabel: { fill: css.getPropertyValue('--td-text-color-secondary').trim(), fontFamily: css.fontFamily, fontSize: parseFloat(css.getPropertyValue('--app-text-sm')) },
     edge: { stroke, lineWidth: 1, endArrow: { path: G6.Arrow.triangle(5, 7, 0), fill: stroke } },
     selected: { stroke: brand, lineWidth: 3 },
+    muted: { opacity: 0.12 },
   }
 }
 function updateAppearance() {
   if (!graph || !stage.value) return
   const theme = appearance()
-  for (const node of graph.getNodes()) graph.updateItem(node, { style: { stroke: node.getID() === props.rootId ? theme.brand : theme.surface }, stateStyles: { selected: theme.selected }, labelCfg: { style: theme.nodeLabel } })
-  for (const edge of graph.getEdges()) graph.updateItem(edge, { style: theme.edge, stateStyles: { selected: theme.selected }, labelCfg: { style: theme.edgeLabel } })
+  for (const node of graph.getNodes()) graph.updateItem(node, { style: { stroke: node.getID() === props.rootId ? theme.brand : theme.surface }, stateStyles: { selected: theme.selected, muted: theme.muted }, labelCfg: { style: theme.nodeLabel } })
+  for (const edge of graph.getEdges()) graph.updateItem(edge, { style: theme.edge, stateStyles: { selected: theme.selected, muted: theme.muted } })
   selectItem()
 }
 function reportZoom() { if (graph) emit('zoom', graph.getZoom()) }
 function selectItem() {
   if (!graph) return
-  for (const item of [...graph.getNodes(), ...graph.getEdges()]) graph.clearItemStates(item, ['selected'])
+  const items = [...graph.getNodes(), ...graph.getEdges()]
+  for (const item of items) graph.clearItemStates(item, ['selected', 'muted'])
   const selected = props.selectedId && graph.findById(props.selectedId)
-  if (selected) graph.setItemState(selected, 'selected', true)
+  if (!selected) return
+  graph.setItemState(selected, 'selected', true)
+  if (props.isRelation) return
+  const relatedIds = new Set<string>()
+  for (const edge of props.edges) {
+    if (edge.from !== props.selectedId && edge.to !== props.selectedId) continue
+    relatedIds.add(edge.id); relatedIds.add(edge.from); relatedIds.add(edge.to)
+  }
+  for (const item of items) {
+    if (item.getID() === props.selectedId) continue
+    graph.setItemState(item, relatedIds.has(item.getID()) ? 'selected' : 'muted', true)
+  }
 }
 function disposeGraph() {
   graph?.destroy(); graph = undefined
@@ -73,10 +85,9 @@ function renderGraph() {
       defaultEdge: {
         type: 'quadratic',
         style: theme.edge,
-        labelCfg: { autoRotate: true, style: theme.edgeLabel },
       },
-      nodeStateStyles: { selected: theme.selected },
-      edgeStateStyles: { selected: theme.selected },
+      nodeStateStyles: { selected: theme.selected, muted: theme.muted },
+      edgeStateStyles: { selected: theme.selected, muted: theme.muted },
       modes: { default: ['drag-canvas', 'zoom-canvas', 'drag-node'] },
     })
     graph = instance

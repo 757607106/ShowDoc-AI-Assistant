@@ -86,7 +86,9 @@ test('deletion requires confirmation then deletes the exact entity or relation',
   const deleted = f.calls.find((call: Call) => call.method === 'DELETE')!
   assert.deepEqual(Object.fromEntries(new URLSearchParams(deleted.path.split('?')[1])), { knowledge_base_id: 'kb-a', entity_id: '中文ID' })
   assert.deepEqual(deleted.data, {})
-  f.deleteRelation({ relation_id: 'relation-1', relation_type: 'uses' }); await f.remove()
+  f.deleteRelation({ relation_id: 'relation-1', relation_type: 'uses' })
+  assert.equal(f.deleting.value.name, '当前关系')
+  await f.remove()
   assert.deepEqual(Object.fromEntries(new URLSearchParams(f.calls.filter((call: Call) => call.method === 'DELETE').at(-1)!.path.split('?')[1])), { knowledge_base_id: 'kb-a', relation_id: 'relation-1' })
 })
 

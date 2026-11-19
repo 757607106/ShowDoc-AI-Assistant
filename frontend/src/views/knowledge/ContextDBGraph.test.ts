@@ -119,6 +119,23 @@ test('canvas actions use the official renderer without replacing the query scope
   assert.equal(f.calls.filter((call: Call) => call.path === 'knowledge/graph-visual').length, 1)
 })
 
+test('canvas hides has_module relations without changing official graph data', async t => {
+  const f = fixture(); t.after(f.dispose); await f.flush()
+  f.graph.value = { ...sampleGraph, edges: [...sampleGraph.edges, { id: 'module', from: '产品甲', to: '组件乙', label: 'has_module' }] }
+  await f.flush()
+  assert.deepEqual(f.edges.value.map((edge: any) => edge.id), ['产品甲→组件乙'])
+  assert.equal(f.graph.value.edges.length, 2)
+})
+
+test('readonly graph UI hides relation type identifiers and opaque ID fallbacks', () => {
+  const template = source.slice(source.indexOf('<template>'))
+  assert.ok(!template.includes('{{ relation.relation_type }}'))
+  assert.ok(!template.includes('detail?.relation_type'))
+  assert.ok(!template.includes('detail.source_entity_name || detail.source_entity_id'))
+  assert.ok(!template.includes('detail.target_entity_name || detail.target_entity_id'))
+  assert.ok(!template.includes('搜索实体名称、ID'))
+})
+
 test('document overview uses plain scope guidance while truncated and neighbor notes retain official detail', async t => {
   const f = fixture(); t.after(f.dispose); await f.flush()
   f.documentId.value = 'doc-1'; f.graph.value = { ...sampleGraph, truncated: false, note: 'graph_subgraph / graph_entity / source_document_ids' }

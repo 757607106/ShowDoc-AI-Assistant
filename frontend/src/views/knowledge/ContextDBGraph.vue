@@ -16,6 +16,7 @@ const emit = defineEmits<{ (e: 'open-source-doc', id: string): void }>()
 const auth = useAuthStore()
 const modeId = useId()
 const graph = ref<any>(null), root = ref(''), hops = ref(2), documentId = ref('')
+const hiddenRelationTypes = new Set(['has_module'])
 const view = ref('graph'), settingsOpen = ref(false), maxNodes = ref(100), maxEdges = ref(200)
 const appliedHops = ref(2)
 const settingsError = ref(''), locatedId = ref(''), graphScale = ref(1)
@@ -96,7 +97,7 @@ function displayName(label: string) { return graphDocumentLabel(label || '', doc
 const nodes = computed(() => (graph.value?.nodes || []).map((node: any) => ({ ...node, label: displayName(node.label) })))
 const edges = computed(() => {
   const ids = new Set(nodes.value.map((node: any) => node.id))
-  return (graph.value?.edges || []).filter((edge: any) => ids.has(edge.from) && ids.has(edge.to))
+  return (graph.value?.edges || []).filter((edge: any) => !hiddenRelationTypes.has(edge.label) && ids.has(edge.from) && ids.has(edge.to))
 })
 const types = computed<string[]>(() => [...new Set<string>(nodes.value.map((node: any) => node.group || ''))])
 function fit() { graphCanvas.value?.fit() }
@@ -104,8 +105,8 @@ function zoom(factor: number) { graphCanvas.value?.zoom(factor) }
 const scopeLabel = computed(() => {
   const document = documents.value.find(item => item.id === documentId.value)
   const entity = entities.value.find(item => item.entity_id === root.value)
-  if (root.value) return `知识库内 · 以“${displayName(entity?.entity_name || root.value)}”为中心展开 ${appliedHops.value} 跳（不受文件范围限制）`
-  return documentId.value ? `文档：${document ? documentDisplayName(document) : documentId.value}` : '当前知识库图谱'
+  if (root.value) return `知识库内 · 以“${displayName(entity?.entity_name) || '当前实体'}”为中心展开 ${appliedHops.value} 跳（不受文件范围限制）`
+  return documentId.value ? `文档：${document ? documentDisplayName(document) : '当前文档'}` : '当前知识库图谱'
 })
 const graphNotice = computed(() => {
   if (!graph.value) return ''
@@ -200,7 +201,7 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
     </div>
     <div v-show="view === 'graph'" class="graph-toolbar">
       <div class="graph-search-row">
-        <label class="graph-field"><span>以实体展开</span><t-select v-model="root" :filter="() => true" filterable clearable placeholder="搜索实体名称、ID、类型或别名" aria-label="以实体展开" :popup-props="{ attach: dialogAttach }" :loading="entityLoading" :options="entities.map(item => ({ value: item.entity_id, label: displayName(item.entity_name) }))" @search="searchEntities" @change="load" /></label>
+        <label class="graph-field"><span>以实体展开</span><t-select v-model="root" :filter="() => true" filterable clearable placeholder="搜索实体名称、类型或别名" aria-label="以实体展开" :popup-props="{ attach: dialogAttach }" :loading="entityLoading" :options="entities.map(item => ({ value: item.entity_id, label: displayName(item.entity_name) }))" @search="searchEntities" @change="load" /></label>
         <label class="graph-field"><span>文件范围</span><t-select v-model="documentId" filterable clearable placeholder="全部文件" aria-label="文件范围" :disabled="!!root" :popup-props="{ attach: dialogAttach }" :loading="documentLoading" :options="documents.map(item => ({ value: item.id, label: documentDisplayName(item) }))" @change="changeDocument"><template #panelBottomContent><t-button v-if="documents.length < documentTotal" variant="text" block :loading="documentLoading" @click.stop="loadDocuments(true)">加载更多文档（{{ documents.length }} / {{ documentTotal }}）</t-button></template></t-select></label>
         <t-button variant="outline" :aria-expanded="settingsOpen" @click="settingsOpen = !settingsOpen"><t-icon name="setting" />展示设置</t-button>
         <t-button variant="outline" aria-label="刷新图谱" :loading="busy" @click="load"><t-icon name="refresh" />刷新</t-button>
@@ -233,12 +234,12 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
       <ContextDBGraphManagement ref="manager" :attach="dialogAttach" :kb-id="kbId" :active="view === 'entities'" :can-edit="props.canEdit" :documents="documents" @inspect="inspect" @expand="expandEntity" @changed="changed" />
       <aside v-if="detailOpen" class="graph-inspector" :aria-label="isRelation ? '关系详情' : '实体详情'"
         @keydown.esc.stop.prevent="dismissDetail">
-        <div class="inspector-heading"><div><span class="inspector-kicker">{{ isRelation ? '关系详情' : '实体详情' }}</span><h3>{{ isRelation ? detail?.relation_type || edges.find((edge: any) => edge.id === selectedId)?.label || '加载中' : selectedId ? displayName(detail?.entity_name || nodes.find((node: any) => node.id === selectedId)?.label || '加载中') : '实体详情' }}</h3><t-tag v-if="!isRelation && detail?.entity_type" variant="light">{{ detail.entity_type }}</t-tag></div><button ref="inspectorClose" type="button" class="inspector-close" aria-label="关闭详情" @click="dismissDetail"><t-icon name="close" /></button></div>
+        <div class="inspector-heading"><div><span class="inspector-kicker">{{ isRelation ? '关系详情' : '实体详情' }}</span><h3>{{ isRelation ? '关系详情' : selectedId ? displayName(detail?.entity_name || nodes.find((node: any) => node.id === selectedId)?.label || '加载中') : '实体详情' }}</h3><t-tag v-if="!isRelation && detail?.entity_type" variant="light">{{ detail.entity_type }}</t-tag></div><button ref="inspectorClose" type="button" class="inspector-close" aria-label="关闭详情" @click="dismissDetail"><t-icon name="close" /></button></div>
         <div class="inspector-body">
           <t-loading v-if="detailLoading" text="正在读取详情…" role="status" />
           <t-alert v-if="detailError" theme="error" :message="detailError"><template #operation><t-button variant="text" @click="loadDetail">重试详情</t-button></template></t-alert>
           <template v-if="detail">
-            <template v-if="isRelation"><dl class="relation-endpoints"><dt>起点实体</dt><dd><button type="button" class="graph-text-action" @click="inspect(detail.source_entity_id)">{{ displayName(detail.source_entity_name || detail.source_entity_id) }}</button></dd><dt>终点实体</dt><dd><button type="button" class="graph-text-action" @click="inspect(detail.target_entity_id)">{{ displayName(detail.target_entity_name || detail.target_entity_id) }}</button></dd><dt>权重</dt><dd>{{ detail.weight ?? '—' }}</dd><dt>关键词</dt><dd>{{ detail.keywords?.join('、') || '—' }}</dd></dl></template>
+            <template v-if="isRelation"><dl class="relation-endpoints"><dt>起点实体</dt><dd><button type="button" class="graph-text-action" @click="inspect(detail.source_entity_id)">{{ displayName(detail.source_entity_name) || '未命名实体' }}</button></dd><dt>终点实体</dt><dd><button type="button" class="graph-text-action" @click="inspect(detail.target_entity_id)">{{ displayName(detail.target_entity_name) || '未命名实体' }}</button></dd><dt>权重</dt><dd>{{ detail.weight ?? '—' }}</dd><dt>关键词</dt><dd>{{ detail.keywords?.join('、') || '—' }}</dd></dl></template>
             <div v-else-if="detail.aliases?.length" class="detail-aliases"><span>别名</span><t-tag v-for="alias in detail.aliases" :key="alias" variant="light">{{ displayName(alias) }}</t-tag></div>
             <h4>描述</h4><DocMarkdown :content="detail.description || '暂无描述'" /><p class="graph-scope">更新时间：{{ dateTime(detail.updated_at) }}</p>
             <div class="detail-actions"><t-button v-if="!isRelation" @click="expandEntity()">查看子图</t-button><template v-if="(props.canEdit ?? auth.hasRole('contributor'))"><t-button variant="outline" @click="isRelation ? manager?.editRelation(detail) : manager?.editEntity(detail)">编辑</t-button><t-button variant="outline" theme="danger" @click="isRelation ? manager?.deleteRelation(detail) : manager?.deleteEntity(detail)">删除</t-button></template></div>
@@ -247,7 +248,7 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
             <section class="detail-section"><div class="section-heading"><h4>关联关系 <span>{{ relationTotal }}</span></h4><t-button v-if="(props.canEdit ?? auth.hasRole('contributor')) && detail" variant="text" size="small" @click="manager?.editRelation(undefined, detail)">新建关系</t-button></div>
               <div class="relation-search"><t-input v-model="relationType" placeholder="按关系类型精确查询" aria-label="按关系类型精确查询" clearable @enter="loadRelations()" /><t-button variant="outline" @click="loadRelations()">查询</t-button></div>
               <t-alert v-if="relationError" theme="error" :message="relationError"><template #operation><t-button variant="text" @click="loadRelations()">重试</t-button></template></t-alert>
-              <ul class="relation-list"><li v-for="relation in relations" :key="relation.relation_id"><div><t-tag size="small" variant="light">{{ relation.source_entity_id === selectedId ? '出向' : '入向' }}</t-tag><button type="button" class="graph-text-action" @click="inspect(relation.relation_id, true)">{{ relation.relation_type }}</button><button type="button" class="graph-text-action" @click="inspect(relation.source_entity_id === selectedId ? relation.target_entity_id : relation.source_entity_id)">{{ displayName(relation.source_entity_id === selectedId ? relation.target_entity_name || relation.target_entity_id : relation.source_entity_name || relation.source_entity_id) }}</button></div><p>{{ relation.description }}</p></li></ul>
+              <ul class="relation-list"><li v-for="relation in relations" :key="relation.relation_id"><div><t-tag size="small" variant="light">{{ relation.source_entity_id === selectedId ? '出向' : '入向' }}</t-tag><button type="button" class="graph-text-action" @click="inspect(relation.relation_id, true)">查看关系</button><button type="button" class="graph-text-action" @click="inspect(relation.source_entity_id === selectedId ? relation.target_entity_id : relation.source_entity_id)">{{ displayName(relation.source_entity_id === selectedId ? relation.target_entity_name : relation.source_entity_name) || '未命名实体' }}</button></div><p>{{ relation.description }}</p></li></ul>
               <t-loading v-if="relationLoading" text="正在读取关联关系" /><t-empty v-else-if="!relations.length && !relationError" description="暂无关联关系" />
               <t-pagination v-if="relationTotal > 10" size="small" :current="relationPage" :total="relationTotal" :page-size="10" :show-page-size="false" :show-page-number="false" @current-change="changeRelationPage" />
             </section>

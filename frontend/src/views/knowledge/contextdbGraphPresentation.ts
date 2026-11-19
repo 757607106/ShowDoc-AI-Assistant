@@ -23,6 +23,6 @@ export function buildGraphData(nodes: EntityNode[], edges: EntityEdge[], root = 
       size: node.id === root ? 46 : 32,
       style: { fill: graphTypeColor(node.group), stroke: node.id === root ? '#172337' : '#fff', lineWidth: node.id === root ? 3 : 2 },
     })),
-    edges: edges.filter(edge => ids.has(edge.from) && ids.has(edge.to)).map(edge => ({ ...edge, source: edge.from, target: edge.to })),
+    edges: edges.filter(edge => ids.has(edge.from) && ids.has(edge.to)).map(edge => ({ ...edge, source: edge.from, target: edge.to, label: /^[\x00-\x7F]+$/.test(edge.label) ? '' : edge.label })),
   }
 }

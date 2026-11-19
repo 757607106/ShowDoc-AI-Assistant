@@ -40,6 +40,15 @@ test('graph data preserves opaque identities and full names while applying offic
   assert.equal(JSON.stringify({ nodes, edges }), before)
 })
 
+test('graph data blanks ASCII relation identifiers while retaining Chinese labels', () => {
+  const nodes = [{ id: 'a', label: '甲' }, { id: 'b', label: '乙' }]
+  const result = buildGraphData(nodes, [
+    { id: 'english', from: 'a', to: 'b', label: 'contains_module' },
+    { id: 'chinese', from: 'b', to: 'a', label: '包含' },
+  ])
+  assert.deepEqual(result.edges.map(edge => edge.label), ['', '包含'])
+})
+
 test('parallel and self relationships remain available while unknown endpoints are omitted', () => {
   const nodes = [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }]
   const edges = [

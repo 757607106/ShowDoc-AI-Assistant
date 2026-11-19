@@ -30,7 +30,7 @@ const label = (name: string) => graphDocumentLabel(name || '', props.documents)
 const endpointOptions = computed(() => [...new Map([...choices.value, ...selectedEndpoints.value].map(item => [item.entity_id, item])).values()]
   .map(item => ({ value: item.entity_id, label: label(item.entity_name) })))
 const searchHint = computed(() => mode.value === 'semantic' ? '按语义查找；总数为本次候选集数量。'
-  : mode.value === 'exact' ? '按实体名称精确匹配，区分大小写。' : '支持名称、ID、类型、别名的前缀匹配，以及描述分词匹配。')
+  : mode.value === 'exact' ? '按实体名称精确匹配，区分大小写。' : '支持名称、类型、别名的前缀匹配，以及描述分词匹配。')
 
 async function load() {
   if (!props.active) return
@@ -79,8 +79,8 @@ async function edit(resource: 'entity' | 'relation', item?: any, sourceEntity?: 
     detailReady.value = true
     form.value = { ...form.value, ...detail, aliases: [...(detail.aliases || [])], keywords: [...(detail.keywords || [])] }
     if (resource === 'relation') selectedEndpoints.value = [
-      { entity_id: detail.source_entity_id, entity_name: detail.source_entity_name || detail.source_entity_id },
-      { entity_id: detail.target_entity_id, entity_name: detail.target_entity_name || detail.target_entity_id },
+      { entity_id: detail.source_entity_id, entity_name: detail.source_entity_name || '未命名实体' },
+      { entity_id: detail.target_entity_id, entity_name: detail.target_entity_name || '未命名实体' },
     ]
   } catch (e: any) { if (request === editRequest) editError.value = e.message || '读取完整信息失败，请重新打开编辑' }
   finally { if (request === editRequest) editorLoading.value = false }
@@ -125,7 +125,7 @@ async function save() {
 }
 function askDelete(resource: 'entity' | 'relation', item: any) {
   if (!(props.canEdit ?? auth.hasRole('contributor')) || removing.value || !item?.[`${resource}_id`]) return
-  deleteRequest++; deleteError.value = ''; deleting.value = { kind: resource, id: item[`${resource}_id`], name: resource === 'entity' ? label(item.entity_name) : item.relation_type }
+  deleteRequest++; deleteError.value = ''; deleting.value = { kind: resource, id: item[`${resource}_id`], name: resource === 'entity' ? label(item.entity_name) : '当前关系' }
 }
 const deleteEntity = (entity: any) => askDelete('entity', entity)
 const deleteRelation = (relation: any) => askDelete('relation', relation)
@@ -163,7 +163,7 @@ defineExpose({ editEntity, editRelation, deleteEntity, deleteRelation, load, wri
 <template>
   <section v-if="active" class="graph-management" aria-label="实体管理">
     <div class="management-search">
-      <t-input v-model="keyword" clearable placeholder="搜索实体名称、ID、类型或别名" aria-label="搜索管理实体" @enter="query" />
+      <t-input v-model="keyword" clearable placeholder="搜索实体名称、类型或别名" aria-label="搜索管理实体" @enter="query" />
       <label class="matching-mode"><span>匹配方式</span><t-select :popup-props="{ attach: attach || 'body' }" v-model="mode" :options="[{value:'fuzzy',label:'模糊匹配'},{value:'exact',label:'精确匹配'},{value:'semantic',label:'语义匹配'}]" @change="query" /></label>
       <t-button :loading="loading" @click="query">查询</t-button>
       <t-button v-if="(props.canEdit ?? auth.hasRole('contributor'))" variant="outline" @click="editEntity()">新建实体</t-button>
@@ -192,8 +192,8 @@ defineExpose({ editEntity, editRelation, deleteEntity, deleteRelation, load, wri
         <t-form-item label="别名" help="输入后按回车添加，最多 20 个；可留空。"><t-tag-input v-model="form.aliases" :max="20" aria-label="别名" placeholder="输入别名后按回车" /></t-form-item>
       </template>
       <template v-else>
-        <t-form-item label="起点实体" required><t-select :popup-props="{ attach: attach || 'body' }" v-model="form.source_entity_id" :disabled="!!editingId" filterable :filter="() => true" :loading="endpointLoading" :options="endpointOptions" aria-label="起点实体" placeholder="搜索实体名称、ID、类型或别名" @search="searchEndpoints" @change="retainEndpoint" /></t-form-item>
-        <t-form-item label="终点实体" required><t-select :popup-props="{ attach: attach || 'body' }" v-model="form.target_entity_id" :disabled="!!editingId" filterable :filter="() => true" :loading="endpointLoading" :options="endpointOptions" aria-label="终点实体" placeholder="搜索实体名称、ID、类型或别名" @search="searchEndpoints" @change="retainEndpoint" /></t-form-item>
+        <t-form-item label="起点实体" required><t-select :popup-props="{ attach: attach || 'body' }" v-model="form.source_entity_id" :disabled="!!editingId" filterable :filter="() => true" :loading="endpointLoading" :options="endpointOptions" aria-label="起点实体" placeholder="搜索实体名称、类型或别名" @search="searchEndpoints" @change="retainEndpoint" /></t-form-item>
+        <t-form-item label="终点实体" required><t-select :popup-props="{ attach: attach || 'body' }" v-model="form.target_entity_id" :disabled="!!editingId" filterable :filter="() => true" :loading="endpointLoading" :options="endpointOptions" aria-label="终点实体" placeholder="搜索实体名称、类型或别名" @search="searchEndpoints" @change="retainEndpoint" /></t-form-item>
         <t-alert v-if="endpointError" theme="warning" :message="endpointError"><template #operation><t-button variant="text" @click="searchEndpoints()">重试搜索</t-button></template></t-alert>
         <t-form-item label="关系类型" required><t-input v-model="form.relation_type" :maxlength="128" aria-label="关系类型" /></t-form-item>
         <t-form-item label="权重" required><t-input-number v-model="form.weight" :min="0" :max="1" :step="0.1" aria-label="权重" /></t-form-item>
