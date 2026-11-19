@@ -36,7 +36,7 @@ def connection():
     global _pool, _pool_key
     url = database_url()
     if not url:
-        raise RuntimeError('DATABASE_URL 未配置，请先启动 compose.postgres.yml')
+        raise RuntimeError('DATABASE_URL 未配置，请先启动 deploy/compose/postgres.yml')
     with _pool_lock:
         key = (os.getpid(), url)
         if _pool is None or _pool_key != key:

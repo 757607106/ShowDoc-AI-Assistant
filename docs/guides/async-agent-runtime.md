@@ -8,7 +8,7 @@
 
 - Aegra `0.11.0`，Apache-2.0，[源码 commit `46055c0b9adffe51fb168974f79dfadaa6edd612`](https://github.com/aegra/aegra/tree/46055c0b9adffe51fb168974f79dfadaa6edd612)，[许可原文](https://github.com/aegra/aegra/blob/46055c0b9adffe51fb168974f79dfadaa6edd612/LICENSE)。使用 Aegra 项目发布的 PyPI wheel，SHA256 为 `6d49695aecd4133289b9b0e84d39eb67f1fb7581cedcb1554405d93b580648d3`；应用本项目兼容补丁前，已与该源码的 102 个 Python 文件逐字比对一致。
 - Valkey `9.0.7-alpine`，BSD-3-Clause，镜像固定为 `sha256:2d04268dfa26ab31cfa3fdc538866e76438b2d00e41db41b8cb86d780ac5a416`。版本来自 [Valkey 官方下载页](https://valkey.io/download/)，镜像由 [官方容器项目](https://github.com/valkey-io/valkey-container)维护。
-- Deep Agents `0.7.35`、LangChain `1.5.0`、LangGraph `1.2.20` 与当前应用一致。完整依赖固定在 `deployment/async-agent/requirements.txt`。
+- Deep Agents `0.7.35`、LangChain `1.5.0`、LangGraph `1.2.20` 与当前应用一致。完整依赖固定在 `deploy/async-agent/requirements.txt`。
 
 这些组件均可免费自托管，未新增 LangSmith 或其他收费服务。Compose 明确关闭 LangSmith 和 OpenTelemetry 导出；原模型供应商与 ContextDB 仍使用已有账号，原有调用费用规则不变。
 
@@ -24,18 +24,18 @@
 
 ## 本机启动
 
-本机部署已执行，以下命令供重现与维护。先启动已有的 `compose.postgres.yml`；bootstrap 只为运行服务创建新的 `showdoc_async_agent` 数据库和 `showdoc_async_agent_app` 受限登录角色，不迁移或删除现有平台及 Agent 数据。
+本机部署已执行，以下命令供重现与维护。先启动已有的 `deploy/compose/postgres.yml`；bootstrap 只为运行服务创建新的 `showdoc_async_agent` 数据库和 `showdoc_async_agent_app` 受限登录角色，不迁移或删除现有平台及 Agent 数据。
 
 ```bash
-.venv/bin/python deployment/async-agent/bootstrap.py
-docker compose --env-file .runtime/async-agent.env -f compose.agent-runtime.yml up -d --build
-docker compose --env-file .runtime/async-agent.env -f compose.agent-runtime.yml ps
+.venv/bin/python deploy/async-agent/bootstrap.py
+docker compose --env-file .runtime/async-agent.env -f deploy/compose/agent-runtime.yml up -d --build
+docker compose --env-file .runtime/async-agent.env -f deploy/compose/agent-runtime.yml ps
 curl --fail http://127.0.0.1:2026/health
 ```
 
 bootstrap 从本机 `.env` 读取已有的受限应用凭据与引导管理员密码，仅将运行所需的白名单配置写入 `.runtime/async-agent.env`。该文件权限为 `0600`、目录为 `0700`，两者凭据不可公开。再次运行会保留原生成密码与签名密钥，不重置数据库角色。
 
-此 Compose 面向 Docker Desktop：容器通过 `host.docker.internal:55432` 访问现有本机 PostgreSQL，API 仅绑定 `127.0.0.1:2026`。Valkey 不发布宿主机端口，并将 AOF 写入独立命名卷；停止服务使用 `docker compose --env-file .runtime/async-agent.env -f compose.agent-runtime.yml down`，保留命名卷。
+此 Compose 面向 Docker Desktop：容器通过 `host.docker.internal:55432` 访问现有本机 PostgreSQL，API 仅绑定 `127.0.0.1:2026`。Valkey 不发布宿主机端口，并将 AOF 写入独立命名卷；停止服务使用 `docker compose --env-file .runtime/async-agent.env -f deploy/compose/agent-runtime.yml down`，保留命名卷。
 
 `--env-file` 同时为 Compose 解析技能目录挂载路径，不能省略。bootstrap 将原有 `GOVERNANCE_DATA_DIR`（默认项目内 `downloads`）解析为绝对路径，只为 `<GOVERNANCE_DATA_DIR>/skill-bundles` 创建同路径只读挂载。该例外用于读取数据库记录引用的旧 Skill 归档绝对路径；不会挂载整个 `downloads`，也不会更改归档内容或权限。
 
@@ -86,10 +86,10 @@ bootstrap 从本机 `.env` 读取已有的受限应用凭据与引导管理员�
 ## 维护与限制
 
 ```bash
-docker compose --env-file .runtime/async-agent.env -f compose.agent-runtime.yml logs --tail=100 agent-runtime
-docker compose --env-file .runtime/async-agent.env -f compose.agent-runtime.yml exec valkey valkey-cli ping
-docker compose --env-file .runtime/async-agent.env -f compose.agent-runtime.yml exec agent-runtime pip check
-.venv/bin/python deployment/async-agent/test_start.py
+docker compose --env-file .runtime/async-agent.env -f deploy/compose/agent-runtime.yml logs --tail=100 agent-runtime
+docker compose --env-file .runtime/async-agent.env -f deploy/compose/agent-runtime.yml exec valkey valkey-cli ping
+docker compose --env-file .runtime/async-agent.env -f deploy/compose/agent-runtime.yml exec agent-runtime pip check
+.venv/bin/python deploy/async-agent/test_start.py
 ```
 
 不要把 `docker compose config` 的完整输出或容器环境发到公共日志，它们包含私有凭据。备份需要同时覆盖独立 PostgreSQL 数据库、Valkey 命名卷与私有 env 文件。

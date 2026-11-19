@@ -3,11 +3,11 @@ services:
   agent-runtime:
     image: showdoc-async-agent:aegra-0.11.0
     build:
-      context: .
-      dockerfile: deployment/async-agent/Dockerfile
+      context: ../..
+      dockerfile: deploy/async-agent/Dockerfile
     restart: unless-stopped
     env_file:
-      - .runtime/async-agent.env
+      - ../../.runtime/async-agent.env
     environment:
       AEGRA_CONFIG: /app/deployment/async-agent/aegra.json
       AUTH_TYPE: custom

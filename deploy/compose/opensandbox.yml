@@ -23,6 +23,6 @@ services:
     pids_limit: 128
 configs:
   opensandbox_config:
-    file: ./deploy/opensandbox.local.toml
+    file: ../opensandbox.local.toml
 volumes:
   sandbox_control_data:

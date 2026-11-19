@@ -40,7 +40,7 @@ def test_model_image_preparation_converts_transparent_input_and_respects_size(tm
     from PIL import Image
     path = tmp_path / 'input.png'
     Image.new('RGBA', (128, 128), (0, 0, 0, 0)).save(path)
-    parser = Path(__file__).resolve().parents[2] / 'docker' / 'attachment-parser.py'
+    parser = Path(__file__).resolve().parents[2] / 'deploy' / 'attachment-parser' / 'attachment-parser.py'
     def run(limit, mime):
         return subprocess.run([sys.executable, str(parser), str(path), '--model-image', str(limit), mime], capture_output=True)
     assert json.loads(run(3000, 'image/png').stdout) == {'mime': 'image/png'}

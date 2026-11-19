@@ -33,7 +33,7 @@ Gateway 必须按[官方 secure access 指南](https://github.com/opensandbox-gr
 
 选择 Kata 是为了保留当前默认拒绝出网策略：此版本官方明确拒绝 `secure_runtime.type="gvisor"` 与请求 `network_policy` 并用，返回 HTTP 400；不能为运行成功去掉网络策略。若实际集群选择其他方案，必须重新按[官方运行时兼容说明](https://github.com/opensandbox-group/OpenSandbox/blob/release-1.2.1/docs/guides/secure-container.md)验收。
 
-将本项目 `docker/attachment-parser.Dockerfile` 构建为受控私有镜像，预下载 OCR 模型，部署到集群节点可拉取的镜像仓库；当前代码固定使用 `showdoc-attachment-parser:local`，生产须在部署前将该固定镜像引用替换为已审查的仓库 digest，并同样锁定 Agent 执行镜像。不要添加供用户输入任意解析镜像或宿主路径的表单。
+将本项目 `deploy/attachment-parser/attachment-parser.Dockerfile` 构建为受控私有镜像，预下载 OCR 模型，部署到集群节点可拉取的镜像仓库；当前代码固定使用 `showdoc-attachment-parser:local`，生产须在部署前将该固定镜像引用替换为已审查的仓库 digest，并同样锁定 Agent 执行镜像。不要添加供用户输入任意解析镜像或宿主路径的表单。
 
 ## 上线前必须通过
 

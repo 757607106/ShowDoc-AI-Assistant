@@ -7,14 +7,14 @@
 3. 启动独立控制服务：
 
    ```sh
-   docker compose -f compose.opensandbox.yml up -d
+   docker compose -f deploy/compose/opensandbox.yml up -d
    curl -fsS http://127.0.0.1:8090/health
    ```
 
 4. 构建固定附件解析镜像：
 
    ```sh
-   docker build -t showdoc-attachment-parser:local -f docker/attachment-parser.Dockerfile docker
+   docker build -t showdoc-attachment-parser:local -f deploy/attachment-parser/attachment-parser.Dockerfile deploy/attachment-parser
    ```
 
    镜像预装固定解析依赖和 Docling OCR 模型；下载仅发生在构建时。运行时非 root、无宿主挂载、无凭据、默认拒绝网络，临时沙箱解析后销毁。模型调试图片也在此镜像中校验真实 MIME。镜像未构建或沙箱不可用时失败，不回退宿主解析。
