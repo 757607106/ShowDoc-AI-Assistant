@@ -59,7 +59,7 @@ cd ..
 
 模型配置沿用 [WeKnora 模型目录](https://github.com/Tencent/WeKnora/tree/7d064bc3a259f87634840199f565ec4dd644ba1e/internal/models)的服务商、型号、默认地址和协议设置。设置中的「模型配置」支持远程对话、Embedding、ReRank、视觉和语音模型。连接测试、调试和 Agent 通过 Python 直接请求配置的服务商。模型 API Key、签名密钥和自定义请求头由 `SYSTEM_AES_KEY`（32 字节，可用 `openssl rand -hex 16` 生成）以 AES-256-GCM 加密。平台启动时使用原 `CREDENTIAL_ENCRYPTION_KEY` 迁移旧模型凭据，Web 和 Agent 进程须使用相同的模型密钥。
 
-模型协议测试使用本地 HTTP 服务和隔离 PostgreSQL。构建前端后，可运行 `RUN_BROWSER_ACCEPTANCE=1 .venv/bin/python -m pytest tests/test_platform_model_protocols_browser.py -q` 验证浏览器操作。
+模型协议测试使用本地 HTTP 服务和隔离 PostgreSQL。构建前端后，可运行 `RUN_BROWSER_ACCEPTANCE=1 .venv/bin/python -m pytest tests/platform/test_platform_model_protocols_browser.py -q` 验证浏览器操作。
 
 Wiki 编译器接管准入结果为 **未通过**：完整受影响页定位、编译来源/链接写入及云端编译隔离仍未确认，继续使用 ContextDB 官方编译。独立切片分页、页面版本冲突与读回实测见[准入报告](docs/architecture/contextdb-wiki-compiler-readiness.md)；未增加本地编译器或 Worker 编译阶段。
 

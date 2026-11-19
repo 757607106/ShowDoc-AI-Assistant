@@ -60,7 +60,7 @@ ContextDB 保存来源、正式正文、修订和处理状态，并负责 Wiki �
 后端离线与隔离 PostgreSQL 测试：
 
 ```bash
-.venv/bin/pytest -q tests/test_contextdb_client.py tests/test_contextdb_probe.py tests/test_knowledge_api.py tests/test_platform.py
+.venv/bin/pytest -q tests/contextdb/test_contextdb_client.py tests/contextdb/test_contextdb_probe.py tests/contextdb/test_knowledge_api.py tests/platform/test_platform.py
 ```
 
 本轮实际结果 **81 passed**，覆盖参数与游标、CAS、写请求字段、幂等参数透传、只读角色、错误方法、未知路径及 400/403/409/503 错误传播。代理权限和请求形状使用替身测试，不以其代替真实云端或浏览器流程验收。

@@ -10,11 +10,11 @@
 
 主要检查：
 
-- `tests/test_platform_harness.py`：实际 ASGI、登录与归属、官方图、PostgreSQL checkpoint、原生流和中断恢复，以及并发与取消边界。
-- `tests/test_harness_native.py`：官方图构建、文件/Skills、原生工具与权限边界。
-- `tests/test_platform_legacy_agent_readonly.py`：旧执行入口返回 410；历史、产物、后台任务及安装记录的 GET 不改变保存状态、不启动进程；原生会话清空/删除与流请求互斥；静态 Skill 内容管理与归档文件下载。
-- `tests/test_agent_domain.py`、`tests/test_agent_configuration.py`：官方 checkpoint、成员隔离、模型配置、知识范围与 MCP 契约。
-- `tests/test_platform_mcp_runtime.py`：真实 MCP 协议测试服务与官方客户端、授权与恢复。
+- `tests/platform/test_platform_harness.py`：实际 ASGI、登录与归属、官方图、PostgreSQL checkpoint、原生流和中断恢复，以及并发与取消边界。
+- `tests/agent/test_harness_native.py`：官方图构建、文件/Skills、原生工具与权限边界。
+- `tests/platform/test_platform_legacy_agent_readonly.py`：旧执行入口返回 410；历史、产物、后台任务及安装记录的 GET 不改变保存状态、不启动进程；原生会话清空/删除与流请求互斥；静态 Skill 内容管理与归档文件下载。
+- `tests/agent/test_agent_domain.py`、`tests/agent/test_agent_configuration.py`：官方 checkpoint、成员隔离、模型配置、知识范围与 MCP 契约。
+- `tests/platform/test_platform_mcp_runtime.py`：真实 MCP 协议测试服务与官方客户端、授权与恢复。
 - 保留下来的附件、Skill 归档、浏览器偏好及推荐业务测试，不再依赖已删除的自写运行器。
 
 2026-11-14 最终完整后端测试结果：**382 passed、1 skipped**（66.21 秒）。跳过的是原有、需显式启用的外部网页采集浏览器测试；旧流式正文改写器、未接入的自写长期记忆及其专属测试随功能退役删除，保留来源过滤的业务测试。覆盖同一检查点两项文件审批：一项批准、一项拒绝时只写入获批文件；缺失决定由官方 SDK 拒绝，工具不执行。测试使用真实 SDK、隔离 `*_test` PostgreSQL schema 和受控模型/MCP fixture；默认禁止访问 ContextDB 云端。
@@ -38,7 +38,7 @@
 后端另外验证未登录/跨用户访问、双请求并发拒绝、批准/拒绝/修改、重复审批、连接立即断开、工具执行中断开、服务关闭和响应头发送失败。各取消路径会释放请求锁，未建立后台运行记录。真实 MCP 目录与官方图的九项固定工具已核对一致；原生 `delete` 的批准、拒绝及只读权限单独验证；官方会话记忆不会跨线程继承。仍有既有 Docling/NumPy 提示及 Starlette WSGI 适配弃用提示。
 
 ```sh
-.venv/bin/python -m pytest -q tests/test_platform_legacy_agent_readonly.py tests/test_platform_harness.py tests/test_harness_native.py tests/test_platform_mcp_runtime.py
+.venv/bin/python -m pytest -q tests/platform/test_platform_legacy_agent_readonly.py tests/platform/test_platform_harness.py tests/agent/test_harness_native.py tests/platform/test_platform_mcp_runtime.py
 cd frontend
 npm test
 npm run type-check

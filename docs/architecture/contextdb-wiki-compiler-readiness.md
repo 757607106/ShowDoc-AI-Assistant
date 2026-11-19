@@ -47,7 +47,7 @@
 默认无云端请求的回归验证：
 
 ```bash
-.venv/bin/pytest -q tests/test_contextdb_probe.py
+.venv/bin/pytest -q tests/contextdb/test_contextdb_probe.py
 ```
 
 历史专项 13 项通过，覆盖只读不写、正文 CAS 不能单独授权接管、异步读回、完整分页、重复切片、来源中途变化、待审不编译、错误脱敏和异步资源清理。本轮原生 Wiki 后端回归 81 项也包含这些检查；0.0.9 的隔离读写验证见 [Wiki 支持说明](contextdb-wiki-support.md)。未测试本地 Wiki 生成质量或 Worker 编译恢复，因为接管前提尚未成立。

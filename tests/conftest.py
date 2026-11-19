@@ -13,8 +13,7 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from tests.contextdb_fake import FakeContextDBClient
+from tests.fakes.contextdb_fake import FakeContextDBClient
 
 
 @pytest.fixture(scope='session')
