@@ -27,6 +27,26 @@ class _SkillFiles(AgentMiddleware):
         return {'files': files} if files else None
 
 
+class _MainFiles(AgentMiddleware):
+    """Stage skill/attachment files into the main session's sandbox before a run."""
+
+    def __init__(self, owner_id, config, backend, session_id):
+        self.owner_id, self.config, self.backend, self.session_id = owner_id, config, backend, session_id
+
+    async def abefore_agent(self, state, runtime):
+        if self.backend is None:
+            return None
+        from agent.harness_config import prepare_harness_files
+        from agent.sandbox import seed_checkpoint_attachments, upload_harness_files, upload_skill_files
+        existing = state.get('files', {})
+        files = await anyio.to_thread.run_sync(lambda: prepare_harness_files(self.owner_id, self.config, existing))
+        await upload_skill_files(self.backend, files)
+        attachments = {path: item for path, item in existing.items() if path.startswith(('/uploads/', '/attachments/'))}
+        await upload_harness_files(self.backend, attachments)
+        await seed_checkpoint_attachments(self.backend, self.owner_id, self.session_id, existing)
+        return None
+
+
 @auth.authenticate
 async def authenticate(headers: dict):
     token = headers.get('authorization', headers.get('Authorization', '')).removeprefix('Bearer ').strip()
@@ -34,8 +54,10 @@ async def authenticate(headers: dict):
         user, grant = await anyio.to_thread.run_sync(lambda: async_runtime.principal(token))
     except StoreError:
         raise Auth.exceptions.HTTPException(status_code=401, detail='Invalid agent delegation') from None
-    return {'identity': user['id'], 'grant_id': grant['id'],
-            'parent_session_id': grant['parent_session_id'], 'subagent_name': grant['subagent_name']}
+    session_id = grant.get('parent_session_id') or grant.get('session_id')
+    return {'identity': user['id'], 'grant_id': grant['id'], 'kind': grant.get('_kind', async_runtime.GRANT_KIND),
+            'parent_session_id': session_id, 'session_id': session_id,
+            'subagent_name': grant.get('subagent_name')}
 
 
 @auth.on
@@ -44,7 +66,9 @@ async def authorize(ctx, value):
         return ctx.action in ('read', 'search')
     if ctx.resource != 'threads':
         return False
-    scope = {'parent_thread_id': ctx.user.parent_session_id, 'subagent_name': ctx.user.subagent_name}
+    main = getattr(ctx.user, 'kind', async_runtime.GRANT_KIND) == async_runtime.MAIN_KIND
+    scope = {'main_session_id': ctx.user.session_id} if main else {
+        'parent_thread_id': ctx.user.parent_session_id, 'subagent_name': ctx.user.subagent_name}
     thread_id = value.get('thread_id')
     if thread_id:
         saved = await _thread_scope(thread_id, ctx.user.identity)
@@ -84,6 +108,11 @@ async def graph(config: dict, runtime: ServerRuntime):
         yield await build_agent(None, api_key='', owner_id='schema-reader', load_tools=False,
             agent_config={'subagents': [{'name': 'schema', 'description': 'Schema only'}]},
             delegated_subagent='schema', additional_middleware=[_SkillFiles('schema-reader', {}, None)])
+        return
+    kind = user_data.get('kind') if isinstance(user_data, dict) else getattr(user_data, 'kind', None)
+    if kind == async_runtime.MAIN_KIND:
+        async with _main_graph(config, runtime, user_data) as agent:
+            yield agent
         return
     identity = user_data.identity if hasattr(user_data, 'identity') else user_data['identity']
     grant_id = user_data.grant_id if hasattr(user_data, 'grant_id') else user_data['grant_id']
@@ -135,3 +164,37 @@ async def graph(config: dict, runtime: ServerRuntime):
 @asynccontextmanager
 async def _no_backend():
     yield None
+
+
+@asynccontextmanager
+async def _main_graph(config, runtime, user_data):
+    """Build the official main-session graph; checkpoints stay in the agent database."""
+    from agent.graph import build_agent
+    identity = user_data.identity if hasattr(user_data, 'identity') else user_data['identity']
+    grant_id = user_data.grant_id if hasattr(user_data, 'grant_id') else user_data['grant_id']
+    from agent import registry
+    grant = await anyio.to_thread.run_sync(lambda: registry.record(async_runtime.MAIN_KIND, grant_id, identity))
+    sid = str(config.get('configurable', {}).get('thread_id', ''))
+    if sid != grant['session_id']:
+        raise StoreError('主会话执行绑定不匹配', 403)
+    user, _ = await anyio.to_thread.run_sync(lambda: async_runtime.principal(
+        async_runtime.headers(grant)['Authorization'].removeprefix('Bearer ')))
+    execution = runtime.execution_runtime is not None
+    key = cipher().decrypt(user['contextdb_key_encrypted'].encode()).decode() if user.get('contextdb_key_encrypted') else ''
+    if execution and grant['knowledge_base_ids'] and not key:
+        raise StoreError('当前成员未绑定知识库凭据', 403)
+    from agent.checkpointer import async_checkpointer, async_store
+    from agent.sandbox import backend_for_session
+    async with async_store() as store:
+        async with backend_for_session(sid, identity, grant['agent_config'], user['role']) if execution else _no_backend() as backend:
+            async with async_checkpointer() as saver:
+                agent = await build_agent(saver, api_key=key, owner_id=identity, role=user['role'],
+                    knowledge_base_ids=grant['knowledge_base_ids'], knowledge_ids=grant['knowledge_ids'],
+                    tag_scopes=grant['tag_scopes'], agent_config=grant['agent_config'], session_id=sid,
+                    agent_id=grant['agent_id'], load_tools=execution, store=store, backend=backend,
+                    additional_middleware=[_MainFiles(identity, grant['agent_config'], backend, sid)])
+                if execution:
+                    # Keep main-session checkpoints in the agent database, not Aegra's own store.
+                    from langgraph.constants import CONFIG_KEY_CHECKPOINTER
+                    agent = agent.with_config(configurable={CONFIG_KEY_CHECKPOINTER: saver})
+                yield agent

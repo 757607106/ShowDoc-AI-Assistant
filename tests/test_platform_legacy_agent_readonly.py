@@ -63,12 +63,14 @@ def test_retired_execution_routes_are_gone_without_creating_runtime_records(auth
         assert response.status_code == 410, (method, path, response.status_code, response.json)
     assert http.delete('/api/v1/artifacts').status_code == 400
     for path, status in [('/api/v1/agent/tool-approvals/pending', 400), ('/api/v1/agent/prompts/pending', 400),
-                         ('/api/v1/agent/mcp-oauth-resolutions/pending', 501),
-                         ('/api/v1/agent/mcp-oauth-resolutions/pending/cancel', 501)]:
+                         ('/api/v1/agent/mcp-oauth-resolutions/pending', 400),
+                         ('/api/v1/agent/mcp-oauth-resolutions/pending/cancel', 400)]:
         assert http.post(path, json={}).status_code == status
     with connection() as conn:
-        for table in ('agent_runs', 'agent_run_events', 'agent_steers', 'runtime_records'):
+        for table in ('agent_runs', 'agent_run_events', 'agent_steers'):
             assert conn.execute(f'SELECT count(*) AS n FROM {table}').fetchone()['n'] == 0
+        # Model catalog seeds are configuration, not execution records.
+        assert conn.execute("SELECT count(*) AS n FROM runtime_records WHERE kind NOT IN ('model')").fetchone()['n'] == 0
         assert conn.execute('SELECT id FROM agent_sessions WHERE id=%s', (sid,)).fetchone()
 
 

@@ -309,7 +309,37 @@ async def _cancel_runs(client, thread_id):
 
 
 
+async def cleanup_main(owner_id, sid):
+    """Cancel the main session's official runs and remove its run/thread bindings."""
+    try:
+        client, _ = await anyio.to_thread.run_sync(lambda: async_runtime.main_client(owner_id, sid))
+    except StoreError as exc:
+        if exc.status != 404:
+            raise
+        client = None
+    if client is not None:
+        try:
+            await _cancel_runs(client, sid)
+            await client.threads.delete(sid)
+        except Exception as exc:
+            status = getattr(getattr(exc, 'response', None), 'status_code', None)
+            if status != 404:
+                raise StoreError('主会话运行记录清理失败，请稍后重试', 503) from exc
+    grants = await anyio.to_thread.run_sync(lambda: registry.records(async_runtime.MAIN_KIND, owner_id))
+    for grant in grants:
+        if grant['session_id'] == sid:
+            await anyio.to_thread.run_sync(lambda: registry.delete_record(async_runtime.MAIN_KIND, grant['id'], owner_id))
+
+
 async def require_rewind_safe(owner_id, sid):
+    try:
+        client, _ = await anyio.to_thread.run_sync(lambda: async_runtime.main_client(owner_id, sid))
+    except StoreError as exc:
+        if exc.status != 404:
+            raise
+        client = None
+    if client is not None and await _active_runs(client, sid):
+        raise StoreError('请先完成或停止当前生成，再回退会话', 409)
     for task in (await _tasks(owner_id, sid)).values():
         try:
             row, *_ = await _observe(owner_id, sid, task)

@@ -268,11 +268,16 @@ def test_live_child_observes_the_single_native_request_and_releases_subscription
             assert not cancelled.is_set() and not execution.done()
         if exit_mode == 'parent_disconnect':
             parent_disconnect.set()
-        else:
-            release.set()
+            await asyncio.wait_for(execution, 5)
+            # The official run keeps executing after the parent HTTP disconnect.
+            assert not cancelled.is_set() and invocations == ['native child executed']
+        release.set()
         await asyncio.wait_for(execution, 5)
         if exit_mode not in ('child_disconnect', 'child_header_failure'):
             await asyncio.wait_for(observation, 5)
+        from webapi import harness as api
+        # A detached parent keeps live traces until its run bookkeeping finishes.
+        await asyncio.wait_for(asyncio.gather(*api._followers), 5)
         assert cancelled.is_set() and invocations == ['native child executed']
         assert sid not in weknora_traces.active
         assert all(not subscribers for subscribers in trace.subscribers.values())
@@ -303,7 +308,9 @@ def test_live_child_observes_the_single_native_request_and_releases_subscription
         if exit_mode == 'parent_disconnect':
             saved = await asyncio.to_thread(client.get, f'/api/v1/messages/{node["view"]}/load')
             assert saved.status_code == 200
-            assert saved.json()['data'][-1].get('run_state') == 'interrupted', saved.json()
+            # The detached run finishes instead of staying interrupted.
+            assert saved.json()['data'][-1].get('run_state') != 'interrupted', saved.json()
+            assert saved.json()['data'][-1]['is_completed'] is True, saved.json()
     asyncio.run(scenario())
 
 

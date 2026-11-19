@@ -31,17 +31,19 @@ def test_json_heartbeat_survives_wait_for_first_model_chunk(authenticated_client
     monkeypatch.setattr(harness, '_prepare', lambda *args: {'agent_config': config, 'knowledge_base_ids': []})
     monkeypatch.setattr(harness, 'client_for_user', lambda *args: SimpleNamespace(api_key=''))
     monkeypatch.setattr(EventSourceResponse, 'DEFAULT_PING_INTERVAL', .02)
-    native_runtime = harness.async_runtime
+    native_checkpointer = harness.async_checkpointer
     cleanup_started = threading.Event()
 
     @asynccontextmanager
     async def slow_cleanup():
-        async with native_runtime() as runtime:
-            yield runtime
+        async with native_checkpointer() as saver:
+            yield saver
             cleanup_started.set()
             await asyncio.sleep(.1)
 
-    monkeypatch.setattr(harness, 'async_runtime', slow_cleanup)
+    monkeypatch.setattr(harness, 'async_checkpointer', slow_cleanup)
+    from tests.aegra_fake import install
+    install(monkeypatch, harness)
     native_completion = AsyncCompletions.create
     waiting = threading.Event()
 

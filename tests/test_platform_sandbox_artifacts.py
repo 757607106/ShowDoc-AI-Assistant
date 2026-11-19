@@ -111,7 +111,7 @@ def install(monkeypatch, harness, *, real=False, **overrides):
         @asynccontextmanager
         async def backend(*args):
             yield sandbox.ManagedOpenSandboxBackend(sandbox=native, timeout=10)
-        monkeypatch.setattr(api, 'backend_for_session', backend)
+        monkeypatch.setattr(sandbox, 'backend_for_session', backend)
     return client, sid, model, native
 
 

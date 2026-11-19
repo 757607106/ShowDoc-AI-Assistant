@@ -13,7 +13,9 @@ from governance.database import connection
 from governance.store import StoreError
 
 GRAPH_ID = 'delegated_agent'
+MAIN_GRAPH_ID = 'main_agent'
 GRANT_KIND = 'async_delegation'
+MAIN_KIND = 'main_run'
 
 
 def configuration():
@@ -45,17 +47,22 @@ def _serializer():
 
 
 def headers(grant):
-    token = _serializer().dumps({'owner_id': grant['owner_id'], 'grant_id': grant['id']})
+    token = _serializer().dumps({'owner_id': grant['owner_id'], 'grant_id': grant['id'],
+                                 'kind': grant.get('_kind', GRANT_KIND)})
     return {'Authorization': 'Bearer ' + token}
 
 
 def principal(token):
     try:
         claims = _serializer().loads(token, max_age=24 * 3600)
-        grant = registry.record(GRANT_KIND, claims['grant_id'], claims['owner_id'])
+        kind = claims.get('kind', GRANT_KIND)
+        if kind not in (GRANT_KIND, MAIN_KIND):
+            raise StoreError('异步代理认证类型无效', 401)
+        grant = registry.record(kind, claims['grant_id'], claims['owner_id'])
     except (BadSignature, SignatureExpired, KeyError, TypeError, StoreError) as exc:
         raise StoreError('异步代理认证无效或已过期', 401) from exc
-    parent = sessions.get_session(grant['parent_session_id'], grant['owner_id'], _include_deleting=True)
+    parent = sessions.get_session(grant.get('parent_session_id') or grant.get('session_id'),
+                                  grant['owner_id'], _include_deleting=True)
     if parent['agent_config'].get('runtime') != 'deepagents':
         raise StoreError('父会话不允许异步执行', 403)
     with connection() as conn:
@@ -63,6 +70,25 @@ def principal(token):
     if user is None:
         raise StoreError('账号已停用', 401)
     return user, grant
+
+
+def create_main_grant(owner_id, selected, resolved):
+    """Immutable execution/authorization binding for one main-session configuration."""
+    grant = {'owner_id': owner_id, 'session_id': selected['id'], 'agent_id': resolved.get('agent_id'),
+             'agent_config': resolved['agent_config'], 'knowledge_base_ids': list(resolved.get('knowledge_base_ids', [])),
+             'knowledge_ids': list(resolved.get('knowledge_ids', [])), 'tag_scopes': list(resolved.get('tag_scopes', []))}
+    grant['id'] = hashlib.sha256(json.dumps(grant, sort_keys=True, ensure_ascii=False,
+                                           allow_nan=False).encode()).hexdigest()
+    grant['_kind'] = MAIN_KIND
+    return registry.save_record(MAIN_KIND, grant, owner_id)
+
+
+def main_client(owner_id, session_id):
+    grants = registry.records(MAIN_KIND, owner_id)
+    grant = next((item for item in reversed(grants) if item['session_id'] == session_id), None)
+    if grant is None:
+        raise StoreError('当前会话没有官方运行绑定', 404)
+    return client(grant), grant
 
 
 def specification(child, *, owner_id, session_id, agent_id, config,

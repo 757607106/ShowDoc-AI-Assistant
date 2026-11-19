@@ -520,8 +520,41 @@ def mcp_tool_policy(value, name, read_only):
             'require_approval': read_only is True and settings.get('require_approval', False)}
 
 
+def _directory_tools(value, owner_id, authorize):
+    """Assemble callable tools from the synced directory, without a live connection.
+
+    Each call opens a fresh official adapter connection, so a directory synced
+    before an outage still executes against the current service.
+    """
+    from langchain_core.tools import StructuredTool
+    from agent import mcp_auth
+    snapshot = mcp_auth._record('mcp-metadata', value['id'], owner_id)
+    specs = (snapshot or {}).get('snapshot', {}).get('tools', []) if snapshot and snapshot.get('fingerprint') == mcp_auth.fingerprint(value) else []
+
+    def executor(spec_name):
+        async def call(**arguments):
+            from langchain_mcp_adapters.client import MultiServerMCPClient
+            client = MultiServerMCPClient({value['id']: mcp_auth.mcp_connection(value, owner_id)},
+                tool_name_prefix=True, tool_interceptors=[authorize])
+            actual = await client.get_tools()
+            candidate = next((tool for tool in actual if tool.name == value['id'] + '_' + spec_name), None)
+            if candidate is None:
+                raise StoreError('MCP 工具目录已变化，请刷新元数据', 409)
+            if (candidate.metadata or {}).get('readOnlyHint') is not True:
+                raise StoreError('当前 MCP 工具未声明只读，请刷新工具目录', 403)
+            result = await candidate.ainvoke({'name': candidate.name, 'args': arguments,
+                'id': uuid.uuid4().hex, 'type': 'tool_call'})
+            return result.content, result.artifact
+        return call
+    return [StructuredTool(name=value['id'] + '_' + spec['name'],
+        description=spec.get('description') or spec['name'], args_schema=spec.get('inputSchema'),
+        coroutine=executor(spec['name']), response_format='content_and_artifact',
+        metadata={'readOnlyHint': spec.get('readOnlyHint', False), 'mcp_service_id': value['id']}) for spec in specs]
+
+
 async def mcp_tools(owner_id, config):
     from langchain_mcp_adapters.client import MultiServerMCPClient
+    config.pop('_mcp_unavailable', None)
     mode = config.get('mcp_selection_mode', 'none')
     if mode == 'none':
         return []
@@ -532,7 +565,7 @@ async def mcp_tools(owner_id, config):
         raise StoreError('所选 MCP 服务不存在、已停用或无权访问', 403)
     if any(value['transport_type'] == 'stdio' for value in values):
         raise StoreError('当前 Agent 仅支持远程 MCP；禁止在宿主机启动 stdio 服务', 501)
-    result = []
+    result, unavailable = [], []
     for value in values:
         readonly = set()
         async def authorize(request, handler, snapshot=value, readonly_names=readonly):
@@ -551,8 +584,17 @@ async def mcp_tools(owner_id, config):
         if value.get('auth_config', {}).get('auth_type') == 'oauth':
             tools = await mcp_auth.make_oauth_tools(owner_id, value, tool_interceptors=[authorize])
         else:
-            client = MultiServerMCPClient({value['id']: mcp_auth.mcp_connection(value, owner_id)}, tool_name_prefix=True, tool_interceptors=[authorize])
-            tools = await client.get_tools()
+            try:
+                client = MultiServerMCPClient({value['id']: mcp_auth.mcp_connection(value, owner_id)}, tool_name_prefix=True, tool_interceptors=[authorize])
+                tools = await client.get_tools()
+            except Exception:
+                # An unreachable service degrades this turn's tool list instead of
+                # failing the whole conversation; the synced directory carries the
+                # schemas and every call revalidates the live service.
+                tools = await asyncio.to_thread(_directory_tools, value, owner_id, authorize)
+                if not tools:
+                    unavailable.append(value['name'])
+                    continue
         for candidate in tools:
             original = candidate.name.removeprefix(value['id'] + '_')
             policy = mcp_tool_policy(value, original, (candidate.metadata or {}).get('readOnlyHint'))
@@ -564,6 +606,8 @@ async def mcp_tools(owner_id, config):
                 if value.get('usage_instructions', '').strip():
                     candidate.description = f"{value['name']} usage: {value['usage_instructions'][:500]}\n\n{candidate.description}"
                 result.append(candidate)
+    if unavailable:
+        config['_mcp_unavailable'] = unavailable
     return result
 
 

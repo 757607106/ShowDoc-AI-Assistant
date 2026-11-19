@@ -159,3 +159,56 @@ def test_policy_save_cannot_overwrite_concurrent_service_change(
         assert registry.record('mcp', value['id'], owner) == changed
         assert registry.secrets(changed) == {'api_key': 'new-credential'}
     assert invoked == []
+
+
+def _fail_first_get_tools(monkeypatch, failures=1):
+    from langchain_mcp_adapters.client import MultiServerMCPClient
+    original = MultiServerMCPClient.get_tools
+    state = {'n': 0}
+
+    async def flaky(self, **kwargs):
+        state['n'] += 1
+        if state['n'] <= failures:
+            raise RuntimeError('simulated outage')
+        return await original(self, **kwargs)
+
+    monkeypatch.setattr(MultiServerMCPClient, 'get_tools', flaky)
+    return state
+
+
+def test_unreachable_service_falls_back_to_synced_directory(authenticated_client, policy_service, monkeypatch):
+    value, invoked = policy_service
+    owner = os.environ['TEST_PLATFORM_USER']
+    assert authenticated_client.post('/api/v1/mcp-services/' + value['id'] + '/metadata/refresh', json={}).status_code == 200
+    _fail_first_get_tools(monkeypatch)
+    config = {'mcp_selection_mode': 'selected', 'mcp_services': [value['id']]}
+    tools = asyncio.run(registry.mcp_tools(owner, config))
+    assert [tool.name for tool in tools] == [value['id'] + '_read_fixture']
+    assert '_mcp_unavailable' not in config
+    assert invoked == []
+    result = asyncio.run(tools[0].ainvoke({'name': tools[0].name, 'args': {},
+                                           'id': 'fallback-call', 'type': 'tool_call'}))
+    assert invoked == ['read']
+    assert result.content[0]['text'] == 'read'
+
+
+def test_unreachable_service_without_directory_degrades_to_unavailable_note(policy_service, monkeypatch):
+    value, invoked = policy_service
+    owner = os.environ['TEST_PLATFORM_USER']
+    from langchain_mcp_adapters.client import MultiServerMCPClient
+
+    async def outage(self, **kwargs):
+        raise RuntimeError('simulated outage')
+
+    monkeypatch.setattr(MultiServerMCPClient, 'get_tools', outage)
+    config = {'mcp_selection_mode': 'selected', 'mcp_services': [value['id']]}
+    assert asyncio.run(registry.mcp_tools(owner, config)) == []
+    assert config['_mcp_unavailable'] == [value['name']]
+    assert invoked == []
+
+    from agent.config import validate_config
+    from agent.graph import _system_prompt
+    rendered = validate_config({'agent_mode': 'smart-reasoning'})
+    rendered['_mcp_unavailable'] = config['_mcp_unavailable']
+    prompt = _system_prompt(rendered, [], False)
+    assert value['name'] in prompt and '不可用' in prompt

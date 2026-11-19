@@ -78,6 +78,7 @@ def isolate_contextdb(monkeypatch, request, tmp_path):
     monkeypatch.setenv('SSRF_WHITELIST_EXTRA', '127.0.0.1,localhost,::1,*.invalid,*.example.test')
     monkeypatch.setenv('SYSTEM_AES_KEY', uuid.uuid4().hex)
     monkeypatch.delenv('PLATFORM_DATABASE_URL', raising=False)
+    monkeypatch.setenv('ASYNC_AGENT_RUNTIME_ENABLED', '0')
     monkeypatch.setenv('CONTEXTDB_API_KEY', 'ctxdb-fake')
     monkeypatch.setenv('CONTEXTDB_MCP_URL', 'http://127.0.0.1:9/mcp')
     import requests

@@ -145,8 +145,9 @@ def delete_session(session_id, owner_id=None):
                 conn.execute("""UPDATE agent_sessions SET agent_config=jsonb_set(agent_config,'{_deleting}','true'::jsonb)
                     WHERE id=%s AND owner_id=%s""", (session_id, row['owner_id']))
             import asyncio
-            from agent.async_work import cleanup
+            from agent.async_work import cleanup, cleanup_main
             asyncio.run(cleanup(row['owner_id'], session_id))
+            asyncio.run(cleanup_main(row['owner_id'], session_id))
             from agent.sandbox import destroy_for_session
             destroy_for_session(row['owner_id'], session_id)
             _clear_checkpoint(session_id, row['owner_id'])
@@ -159,8 +160,9 @@ def clear_session(session_id, owner_id=None):
     with _mutation(session_id, owner_id) as row:
         with _background_mutation(session_id, row['owner_id']):
             import asyncio
-            from agent.async_work import cleanup
+            from agent.async_work import cleanup, cleanup_main
             asyncio.run(cleanup(row['owner_id'], session_id))
+            asyncio.run(cleanup_main(row['owner_id'], session_id))
             from agent.sandbox import destroy_for_session
             destroy_for_session(row['owner_id'], session_id)
             _clear_checkpoint(session_id, row['owner_id'])

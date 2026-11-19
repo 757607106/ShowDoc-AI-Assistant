@@ -1,4 +1,4 @@
 {
-  "graphs": {"delegated_agent": "../../agent/async_service.py:graph"},
+  "graphs": {"delegated_agent": "../../agent/async_service.py:graph", "main_agent": "../../agent/async_service.py:graph"},
   "auth": {"path": "agent.async_service:auth", "disable_studio_auth": false}
 }

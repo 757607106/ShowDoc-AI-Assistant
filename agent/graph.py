@@ -171,6 +171,9 @@ def _system_prompt(config, knowledge_base_ids, has_shell):
         prompt += '\n需交付给用户下载的文件请保存到 /workspace/；本轮生成或修改的文件会自动归档，单次工具产物总量限 25 MiB。临时依赖、缓存不要放在此交付目录中。'
     prompt += ('\n当前会话知识库 ID: ' + ', '.join(knowledge_base_ids) if knowledge_base_ids
                else '\n当前会话未选择知识库，不可访问知识库内容。')
+    if config.get('_mcp_unavailable'):
+        prompt += '\n本轮不可用的 MCP 服务: ' + ', '.join(config['_mcp_unavailable']) + \
+            '；不要调用其工具，需要时如实告知用户该服务暂不可用。'
     return prompt
 
 

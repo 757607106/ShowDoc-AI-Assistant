@@ -66,6 +66,8 @@ def harness(monkeypatch, authenticated_client, original_prepare):
 
     monkeypatch.setattr(api, '_graph', graph)
     monkeypatch.setattr(api, 'prepare_harness_files', lambda *args: {})
+    from tests.aegra_fake import install
+    install(monkeypatch, api)
     # A non-empty config is required by the business binding, independently of model IO.
     monkeypatch.setattr(api, '_prepare', lambda *args: {
         'agent_config': {'access_level': 'confirm'}, 'knowledge_base_ids': []})
@@ -187,7 +189,8 @@ def test_user_display_metadata_uses_verified_attachments_and_mentions(harness, o
     assert authenticated_client.get(image_url).data == png
     assert authenticated_client.get(f'/api/v1/sessions/{sid}/attachments/{uploaded["id"]}/preview').data == '附件原文'.encode()
     with connection() as conn:
-        assert conn.execute('SELECT * FROM runtime_records ORDER BY id').fetchall() == before
+        rows = conn.execute('SELECT * FROM runtime_records ORDER BY id').fetchall()
+        assert [row for row in rows if row['kind'] != 'main_run'] == before
         assert conn.execute('SELECT count(*) AS n FROM agent_runs WHERE session_id=%s', (sid,)).fetchone()['n'] == 0
 
 
@@ -209,7 +212,8 @@ def test_foreign_session_attachment_cannot_create_user_metadata(harness, origina
     assert response.status_code == 404
     assert client.get(f'/api/v1/harness/sessions/{sid}/state').json()['values']['messages'] == []
     with connection() as conn:
-        assert conn.execute('SELECT * FROM runtime_records ORDER BY id').fetchall() == before
+        rows = conn.execute('SELECT * FROM runtime_records ORDER BY id').fetchall()
+        assert [row for row in rows if row['kind'] != 'main_run'] == before
         assert conn.execute('SELECT count(*) AS n FROM agent_runs WHERE session_id=%s', (sid,)).fetchone()['n'] == 0
 
 
@@ -290,25 +294,29 @@ def test_auth_owner_and_input_boundaries(harness):
 
 
 @pytest.mark.parametrize('exit_mode', ['disconnect', 'shutdown'])
-def test_disconnect_cancels_async_tool_and_releases_request_lock(harness, monkeypatch, exit_mode):
+def test_disconnect_keeps_official_run_and_releases_request_lock(harness, monkeypatch, exit_mode):
     _, sid, model, tools, _, app, headers = harness
 
     async def scenario():
         from sse_starlette.sse import AppStatus
-        started, cancelled = asyncio.Event(), asyncio.Event()
+        started, cancelled, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        allow_finish = asyncio.Event()
 
         @tool
         async def wait_for_cancel() -> str:
-            """Wait until the HTTP request is cancelled."""
+            """Keep running after the HTTP client disconnects."""
             started.set()
             try:
-                await asyncio.Event().wait()
-            finally:
+                await allow_finish.wait()
+            except asyncio.CancelledError:
                 cancelled.set()
-            return 'unreachable'
+                raise
+            finished.set()
+            return 'completed-after-disconnect'
 
         tools.append(wait_for_cancel)
-        model.responses = [AIMessage(content='', tool_calls=[call('wait_for_cancel', {})])]
+        model.responses = [AIMessage(content='', tool_calls=[call('wait_for_cancel', {})]),
+                           AIMessage(content='断连后完成')]
         body = json.dumps({'input': {'messages': [{'type': 'human', 'content': 'wait'}]}}).encode()
         first = True
         sent = []
@@ -332,13 +340,22 @@ def test_disconnect_cancels_async_tool_and_releases_request_lock(harness, monkey
                  'root_path': '', 'server': ('testserver', 80), 'client': ('127.0.0.1', 1234),
                  'headers': [(b'authorization', headers['Authorization'].encode()), (b'content-type', b'application/json')]}
         await asyncio.wait_for(app(scope, receive, send_message), timeout=10)
-        await asyncio.wait_for(cancelled.wait(), timeout=1)
-        assert cancelled.is_set(), sent
-        from agent.checkpointer import async_checkpointer
-        async with async_checkpointer() as saver:
-            graph = create_deep_agent(model=model, tools=tools, checkpointer=saver)
-            state = await graph.aget_state({'configurable': {'thread_id': sid}})
-        assert state.values['messages'] and state.next
+        # The official run is detached from the HTTP connection: the tool is not cancelled.
+        assert not cancelled.is_set(), sent
+        allow_finish.set()
+        await asyncio.wait_for(finished.wait(), timeout=5)
+        deadline = asyncio.get_running_loop().time() + 5
+        content = ''
+        while asyncio.get_running_loop().time() < deadline:
+            from agent.checkpointer import async_checkpointer
+            async with async_checkpointer() as saver:
+                graph = create_deep_agent(model=model, tools=tools, checkpointer=saver)
+                state = await graph.aget_state({'configurable': {'thread_id': sid}})
+            content = state.values['messages'][-1].content if state.values['messages'] else ''
+            if content == '断连后完成':
+                break
+            await asyncio.sleep(0.02)
+        assert content == '断连后完成', state.values['messages']
 
     asyncio.run(scenario())
     with psycopg.connect(os.environ['AGENT_DATABASE_URL'], autocommit=True) as conn:
