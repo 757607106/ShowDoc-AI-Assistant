@@ -353,8 +353,8 @@ const KNOWLEDGE_BASE_EDITOR_HOST_ROUTES = new Set([
   'home',
   'knowledgeBaseList',
   'knowledgeBaseDetail',
-  'globalCreatChat',
-  'kbCreatChat',
+  'globalCreateChat',
+  'kbCreateChat',
   'chat',
 ])
 watch(
