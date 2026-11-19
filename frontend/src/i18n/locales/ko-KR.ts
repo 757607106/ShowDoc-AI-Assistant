@@ -2252,6 +2252,7 @@ export default {
     },
     openPage: {
       open: '열기',
+      retired: '지원 종료',
       openForm: '열고 입력',
       opened: '어시스턴트가 열었습니다',
       back: '돌아가기',
@@ -5203,6 +5204,10 @@ export default {
   chat: {
     suggestedQuestions: '이렇게 물어보세요',
     refreshSuggestedQuestions: '다른 질문',
+    replaceDraftTitle: '초안을 바꾸시겠어요?',
+    replaceDraftBody: '입력창의 텍스트를 이 추천 질문으로 바꿉니다.',
+    historyLoadFailed: '대화 기록을 불러오지 못했습니다.',
+    scrollToLatest: '최신 메시지로 이동',
     thinking: '생각 중...',
     thinkingAlt: '생각 중',
     conversationTime: {

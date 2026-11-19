@@ -41,9 +41,22 @@ function setup(link: unknown, initialPath = '/platform/knowledge-bases') {
   return { state, pushed, drafts, router }
 }
 
-test('an automation link uses the clock icon', () => {
-  const { state } = setup({ display_type: 'open_page', page: 'automations', label: 'Automations', detail: 'Remind me' })
-  assert.equal(state.icon.value, 'time')
+test('retired history cards show their status and cannot navigate', () => {
+  for (const [page, icon] of [['automations', 'time'], ['organizations', 'usergroup']]) {
+    const { state, pushed, drafts, router } = setup({
+      display_type: 'open_page', page, label: 'History', detail: 'Original title',
+      navigated: true, return_path: '/platform/agents',
+    }, '/platform/chat/old-chat')
+
+    assert.equal(state.icon.value, icon)
+    assert.equal(state.location.value, null)
+    assert.equal(state.actionLabel.value, 'agentStream.openPage.retired')
+    assert.equal(state.meta.value, 'agentStream.openPage.retired · History')
+    state.activate()
+    assert.deepEqual(pushed, [])
+    assert.deepEqual(drafts, [])
+    assert.equal(router.currentRoute.value.fullPath, '/platform/chat/old-chat')
+  }
 })
 
 test('opening a new-model link hands its form to the page, then navigates', () => {

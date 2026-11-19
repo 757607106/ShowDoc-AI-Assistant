@@ -125,13 +125,24 @@ export function sanitizeHTML(html: string): string {
   }
 }
 
-export function applyDocumentPreviewImageAttributes(currentNode: Node): void {
+export function applyDocumentPreviewImageAttributes(currentNode: Node, sourceBaseUrl?: string): void {
   if (!('tagName' in currentNode) || !('setAttribute' in currentNode)) return;
   const element = currentNode as Element;
   if (element.tagName !== 'IMG') return;
   element.setAttribute('loading', 'lazy');
   element.setAttribute('decoding', 'async');
   element.setAttribute('fetchpriority', 'low');
+  if (!sourceBaseUrl) return;
+  const src = element.getAttribute('src')?.trim();
+  if (!src || src.startsWith('#') || /^[a-z][a-z\d+.-]*:/i.test(src)) return;
+  try {
+    const resolved = new URL(src, sourceBaseUrl);
+    if (['http:', 'https:'].includes(resolved.protocol) && !resolved.username && !resolved.password) {
+      element.setAttribute('src', resolved.href);
+    }
+  } catch {
+    // Malformed source URLs remain subject to the normal sanitizer.
+  }
 }
 
 export const documentPreviewDomPurifyConfig = {
@@ -140,16 +151,8 @@ export const documentPreviewDomPurifyConfig = {
   ADD_ATTR: [...DOMPurifyConfig.ADD_ATTR, ...DOCUMENT_PREVIEW_IMAGE_ATTRS],
 };
 
-const documentPreviewSecurityHooks: SecurityHooks = {
-  beforeSanitizeElements: domPurifySecurityHooks.beforeSanitizeElements,
-  afterSanitizeElements: (currentNode) => {
-    domPurifySecurityHooks.afterSanitizeElements(currentNode);
-    applyDocumentPreviewImageAttributes(currentNode);
-  },
-};
-
 /** Sanitize DocumentPreview Markdown and enforce a single image loading policy. */
-export function sanitizeDocumentPreviewHTML(html: string): string {
+export function sanitizeDocumentPreviewHTML(html: string, sourceBaseUrl?: string): string {
   if (!html || typeof html !== 'string') {
     return '';
   }
@@ -159,7 +162,17 @@ export function sanitizeDocumentPreviewHTML(html: string): string {
     return sanitizeWithSecurityHooks(
       preparedHTML,
       documentPreviewDomPurifyConfig as unknown as Config,
-      documentPreviewSecurityHooks,
+      {
+        beforeSanitizeElements: domPurifySecurityHooks.beforeSanitizeElements,
+        afterSanitizeElements: (currentNode) => {
+          domPurifySecurityHooks.afterSanitizeElements(currentNode);
+          if (sourceBaseUrl && 'style' in currentNode) {
+            const { style } = currentNode as HTMLElement;
+            if (style.position === 'absolute' || style.position === 'fixed') style.removeProperty('position');
+          }
+          applyDocumentPreviewImageAttributes(currentNode, sourceBaseUrl);
+        },
+      },
     );
   } catch (error) {
     console.error('Document preview HTML sanitization failed:', error);

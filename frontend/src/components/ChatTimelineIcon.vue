@@ -4,7 +4,10 @@
     stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"
     aria-hidden="true" focusable="false">
     <g class="icon-still">
-      <path v-for="(path, index) in paths" :key="index" :d="path" />
+      <image v-if="artwork" :href="artwork" width="24" height="24" />
+      <template v-else>
+        <path v-for="(path, index) in paths" :key="index" :d="path" />
+      </template>
     </g>
     <g v-if="active" class="icon-motion">
       <g v-for="(part, index) in motionParts" :key="index">
@@ -12,7 +15,8 @@
           :values="part.transform.values.join(';')" :keyTimes="part.transform.times"
           :keySplines="part.transform.splines" calcMode="spline"
           :dur="TIMELINE_ICON_CYCLE" :begin="`${part.delay || 0}s`" repeatCount="indefinite" />
-        <path :d="part.path" :pathLength="part.draw ? 1 : undefined"
+        <image v-if="artwork" :href="artwork" width="24" height="24" />
+        <path v-else :d="part.path" :pathLength="part.draw ? 1 : undefined"
           :stroke-dasharray="part.draw ? 1 : undefined" :stroke-dashoffset="part.draw ? 1 : undefined"
           :opacity="part.animations?.find(animation => animation.attribute === 'opacity')?.values[0]">
           <animate v-for="animation in part.animations" :key="animation.attribute"
@@ -27,6 +31,17 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import thinking from '../assets/img/agent-timeline/lightbulb.svg?no-inline'
+import search from '../assets/img/agent-timeline/search.svg?no-inline'
+import globe from '../assets/img/agent-timeline/globe.svg?no-inline'
+import book from '../assets/img/agent-timeline/book-open.svg?no-inline'
+import notebook from '../assets/img/agent-timeline/notebook-pen.svg?no-inline'
+import terminal from '../assets/img/agent-timeline/terminal.svg?no-inline'
+import plug from '../assets/img/agent-timeline/plug.svg?no-inline'
+import bot from '../assets/img/agent-timeline/bot.svg?no-inline'
+import network from '../assets/img/agent-timeline/network.svg?no-inline'
+import fileArtwork from '../assets/img/agent-timeline/file.svg?no-inline'
+import clipboard from '../assets/img/agent-timeline/clipboard.svg?no-inline'
 import { getTimelineIconMotion, TIMELINE_ICON_CYCLE } from '../utils/chatTimelineIconMotion'
 
 const props = defineProps<{ name: string; active?: boolean }>()
@@ -41,36 +56,39 @@ const bulb = [
 ]
 const file = 'M12 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7l-7-7Zm0 0v7h7'
 const circle = 'M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z'
-const icons: Record<string, string[]> = {
+// Kubai assets keep their layered fills inside the same box as status glyphs.
+const artworkByName: Partial<Record<string, string>> = {
+  thinking, 'data-search': search, internet: globe, 'book-open': book,
+  edit: notebook, terminal, plug, agent: bot, network, document: fileArtwork, clipboard,
+}
+const icons: Partial<Record<string, string[]>> = {
   lightbulb: bulb,
   'ai-search': bulb,
   bookmark: ['M18 20l-6-3-6 3V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v14Z'],
   search: ['M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0Zm-1.5 4.5L20 20'],
-  internet: [circle, 'M4 12h16', 'M12 4c-4 4-4 12 0 16 4-4 4-12 0-16Z'],
-  'data-search': [
-    'M4 7c0-4 13-4 13 0S4 11 4 7Zm0 0v10c0 2 3 3 6 3M4 12c0 2 3 3 6 3m7-8v3',
-    'M19 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm-1 2 2 2',
-  ],
   'file-search': [
     'M9 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6l6 6M12 4v6h6',
     'M19 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm-1 2 2 2',
   ],
   file: [file],
   'file-paste': [file, 'M8 15h8', 'M8 18h5'],
+  tools: [
+    'M5 7h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z',
+    'M9 7V5h6v2M3 12h18',
+    'M10.5 12v2h3v-2',
+  ],
+  delete: [
+    'M3 6h18M9 6V3h6v3',
+    'M5 6l1 14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1l1-14M10 10v7m4-7v7',
+  ],
   task: [
     'M9 5H7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2',
     'M9 3h6v4H9V3Z', 'm8 12 1 1 2-2', 'M13 12h3m-8 5h8',
   ],
   folder: ['M4 8V6a2 2 0 0 1 2-2h3l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8Z'],
-  edit: ['m14 5 5 5M5 19l4-1L19 8a2.8 2.8 0 0 0-4-4L5 14v5Z'],
   attach: ['m9 12 5-5a2.8 2.8 0 0 1 4 4l-7 7a4.2 4.2 0 0 1-6-6l8-8m-4 8a1.4 1.4 0 0 0 2 2l4-4'],
-  terminal: ['m5 6 6 6-6 6', 'M14 18h5'],
   code: ['m8 7-4 5 4 5', 'm16 7 4 5-4 5', 'm13 4-2 16'],
   chat: ['M20 11a8 7 0 0 1-8 7H9l-5 3 1-6a7 7 0 0 1-1-4 8 7 0 0 1 16 0Z', 'M8 11h8'],
-  agent: [
-    'M15 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM6 20v-2a6 6 0 0 1 12 0v2',
-    'M18 5a3 3 0 0 1 0 6m3 7v-1a5 5 0 0 0-2-4',
-  ],
   browser: [
     'M9 19H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5M4 9h16M7 6.5h.01M10 6.5h.01',
     'm12 12 3 8 1.5-3.5L20 15l-8-3Z',
@@ -92,7 +110,10 @@ const icons: Record<string, string[]> = {
   'chevron-right': ['m9 6 6 6-6 6'],
   'chevron-down': ['m6 9 6 6 6-6'],
 }
-const iconName = computed(() => Object.hasOwn(icons, props.name) ? props.name : 'file-paste')
+const iconName = computed(() =>
+  Object.hasOwn(icons, props.name) || Object.hasOwn(artworkByName, props.name) ? props.name : 'tools',
+)
+const artwork = computed(() => artworkByName[iconName.value])
 const paths = computed(() => icons[iconName.value])
 // A new SVG time container starts each run from its first frame. Completed
 // records render only the original glyph; no animation survives in history.

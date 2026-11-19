@@ -706,6 +706,12 @@
     "src/config/settingsAccess.ts": "67ced0248b19a031aa23b8fd243a950aeea649068337497581f2492d0380598f"
   },
   "adaptations": {
+    "src/components/ChatTimelineIcon.vue": {
+      "template": "4e4b6df2878740f30aeb117241a5eafa330db0aa12418103c09c39d85f964836",
+      "source": "dc54388eb3d53cfb3d2d020569466afa1dff668b6c3b5c7ab5f9df53694d3be4",
+      "reason": "Selected Agent steps use local Kubai SVG artwork in the existing 18px viewport. The shared renderer gives deletion its own glyph and unknown actions a neutral toolbox. Status controls and reduced-motion handling use the existing renderer.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
     "src/components/ChatReferenceSourceView.vue": {
       "template": "303acb7d6b866935cc564f6ca2fc6b74717673773236887afb5eb8ec5199966b",
       "source": "9fc1a0a7d2afb087119c1ba3df9f3f4c5c94f3cfffed838a6cfc0e959467f4dd",
@@ -713,16 +719,18 @@
       "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/components/AttachmentUpload.vue": {
-      "source": "4a00a3fe1e5d1ec73dd2f054019f9a2894e55f41345940bf989279b0ee539e17",
-      "reason": "Failed sends restore the original attachment objects and resume only unfinished document polls, preserving retry behavior without creating a second upload state store.",
-      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+      "template": "880ed4037fc911b49262a30e3857cef112698d9e12c161ae8c79e59818de5645",
+      "styles": "2404b98ff3e98cafedb6004c650ca60a6417cc56e1cc7a0ac715def04c39ff5e",
+      "source": "7896ea3dd901c2b12876b37a416ad529c5035a66be87b21d487f0cdabb96a8af",
+      "reason": "Attachments can be removed by keyboard. Restored drafts resume their own pending upload or poll using the original session.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/components/Input-field.vue": {
-      "template": "f864af81acc82525e167d18f4dde7b7b771bf52f386a9012aee0d00a505cf5cc",
-      "styles": "b7ed9e19e2e2f5a08f1d8d875d69d50e9549e2f9332295174b361bb89132e286",
-      "source": "7b3cd3f037a3c927200dc4096710fe0f365b7eb2289d9e4d6bc49500f2e9a5d6",
-      "reason": "The retired browser execution control, subscription and steering queue/emits/shortcuts are removed. Send/stop, attachment drafts, ContextDB knowledge mentions and AssistantPanel embeddedMode remain. Failed sends restore text, images and attachments without overwriting newer input, and stop is disabled until its assistant message ID arrives. Removed-control styles are explicitly reviewed; existing effective model limit labels retain unknown values instead of fabricated defaults.",
-      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+      "template": "d070c30ccf78de0206a39e2f9297c5ac621a4b8506db6fa7fb8d3d57a1dcb169",
+      "styles": "f62bc1784c3469472c64a035bcef0733e75ff2825186b7633e1a58f54089f045",
+      "source": "ffd25e75513693dc690cd17f751258a8888916b18a157781844894d9ac1184ae",
+      "reason": "The retired browser execution control, subscription and steering queue/emits/shortcuts are removed. Send/stop, attachment drafts, ContextDB knowledge mentions and AssistantPanel embeddedMode remain. Failed sends restore text, images and attachments without overwriting newer input, and stop is disabled until its assistant message ID arrives. Removed-control styles are explicitly reviewed; existing effective model limit labels retain unknown values instead of fabricated defaults. The composer preserves drafts by account, workspace and conversation, prefills recommendations after any required confirmation, and uses keyboard-accessible toolbar actions.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/components/ModelSelector.vue": {
       "template": "d6924fd9e58cfb1fc7922e3a0c03a947ce20df7188e387cc791c63da60ee5e00",
@@ -737,21 +745,32 @@
       "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/views/agent/AgentEditorModal.vue": {
-      "template": "a00e83ac670d657497d1d8aa4ee2f8b77c84eb9b43d22a646aa79e9326fcc2d1",
-      "styles": "7c0028ca71e00d9d885cd3efd16cc6f17c1d026404acce17e574cc449b8b0d6d",
-      "source": "535978c91190e866de7b0cd80fcf6875a387086b415c95b2c3923e357eb52ee5",
-      "reason": "Native Agent presets expose declared professional subagents, structured output, file permissions and HITL, while retaining ContextDB resource scope and explicit legacy adoption. Skills select real catalog names without installation jobs or implicit shell activation; unsupported Go RAG and WeKnora business controls are removed. Newly selected skills exclude disabled directories; unavailable saved selections stay visible for explicit correction instead of being silently removed. Async subagent selection requires the explicit deployment capability, preserves unavailable saved choices and rejects unsupported asynchronous settings before saving. Retired sharing, conversation, question-suggestion, retrieval and web-search sections and their exclusive styles are removed; old deep links resolve to basic Agent settings.",
+      "template": "ea62dea0ef625a35004aca7805ac06c7daff20bba918b905df03613b8cfa96db",
+      "styles": "074f9cdaca050598ad39dbc298695d095540ae363047b859030b7f63a0816033",
+      "source": "0a6c71031ba49b4da700d4e8fe6980e95ad3fe253a33ee471a82e45018936dd7",
+      "reason": "Native Agent presets expose declared professional subagents, structured output, file permissions and HITL, while retaining ContextDB resource scope and explicit legacy adoption. Skills select real catalog names without installation jobs or implicit shell activation; unsupported Go RAG and WeKnora business controls are removed. Newly selected skills exclude disabled directories; unavailable saved selections stay visible for explicit correction instead of being silently removed. Async subagent selection requires the explicit deployment capability, preserves unavailable saved choices and rejects unsupported asynchronous settings before saving. Retired sharing, conversation, question-suggestion, retrieval and web-search sections and their exclusive styles are removed; old deep links resolve to basic Agent settings. The persona replacement switch binds use_custom_system_prompt and defaults off in the editor.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
     "src/views/chat/components/AgentStreamDisplay.vue": {
-      "template": "aa65b8d46b0c0297736777bf2213a10698dc23e3adb41c1e2b571cc99b190fc5",
-      "source": "91a61eb6bca062ef931256b47e6b17794fadea235a3fc90fa7c85094e1a5ca79",
-      "reason": "Existing exact ContextDB citations remain; native interrupt cards and tool approval allowed_decisions render for main and delegated streams with the original pending IDs. Retired follow-up loading indicators and props are removed.",
+      "template": "07c222d9c92897b15aaa51b6c50f30f6d4f62639ed201f32ec74bbc445cff7ab",
+      "source": "1645b29567cb0b2b84e27d1bead0683a5dcaff7e3a1eb89b14052f95921dda64",
+      "reason": "Existing exact ContextDB citations remain; native interrupt cards and tool approval allowed_decisions render for main and delegated streams with the original pending IDs. Retired follow-up loading indicators and props are removed. The live tail distinguishes reasoning, child-task waiting and approval waiting.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/RagPipelineProgress.vue": {
+      "template": "aefc68a2509cf7b4ed9b23b8f0315132400b217b6ea9a3e68b69d4f2c905a104",
+      "source": "8a516ae71ca14754f761abf489b3f75d62f38f48cdde1ce689d44fef3f659a4f",
+      "reason": "Use the shared reasoning icon for live and historical thinking rows, plus the clock for retrieval timeline wait rows.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/views/chat/components/McpOAuthCard.vue": {
       "source": "d350926bc2d12d77bd6bb2607cd931f969525de9fc1a11ce4b1f10cea65b6e4f",
       "reason": "Authorization and cancellation resume the existing native interrupt through the conversation stream when its responses are ready.",
+      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/OpenPageCard.vue": {
+      "source": "e8c1b32dc1c32e35ba0cf100342120ba7ba8264e2f652f6d4cbaa20132620a37",
+      "reason": "Show a disabled status on historical automation and organization cards for the retired pages.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
     },
     "src/views/chat/components/ChatArtifactsPanel.vue": {
@@ -786,8 +805,8 @@
       "local_path": "src/components/DocMarkdown.vue",
       "template": "d6f68692c565b1fd299ca19138018d850769a7b39160feb855d379592d01815a",
       "styles": "1ae41a4ae16547829a0de2e43a4737c0b2016ea41c06d056237b107b71880fce",
-      "source": "85628ee03a8662ac4d76e120125c248330ed0a63f79750f120b8d3a40887bb91",
-      "reason": "Existing ContextDB shared renderer replaces the old tool-result renderer: its content prop and protected resource-attachment contract, template and styles are local adaptations, not a verbatim copy of the old official renderer.",
+      "source": "89c81c35ddca1c090b595a6471f031ef948f9eb44228ded6cb1848b8a8a8cf03",
+      "reason": "The local shared renderer accepts ContextDB content and protected attachments. External-source previews may supply a source base URL for relative images before sanitization.",
       "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/views/chat/components/tool-results/GrepResults.vue": {
@@ -820,15 +839,18 @@
       "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/views/chat/index.vue": {
-      "template": "785789755ba1d8b3222fbe818a338425ce2e8db5fee91d878b84483b12472abd",
-      "source": "bf4b48227edeacb85436bbb16159b9f76a637dfa8eb2796d6a8907ac37f8f2de",
-      "reason": "Retired steering controllers, queue writes, browser execution controls and after-answer follow-up generation/events/attribution are removed, while persisted message identity and historical steering rows remain readable. Failed sends restore their own text, images and attachments; deleted temporary documents return to local retry state. Failed stop requests reconnect to the persisted assistant stream or settle without a local assistant. Existing native async background results and completed outputs remain viewable; owner/session generations isolate polling and cancellation, and historical shell tasks remain read-only.",
-      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+      "template": "54a1a927f3696c266152630ae9d44dda639b89b92cb0d86db69b40f7d43f9b15",
+      "styles": "0dfeb21850f797088dcce775d0478e3a5c7a99eac5b7dccb9e58d372716da562",
+      "source": "f9bac9d678a8c8c8626cb410248230aac4921a38bf8452b22af534ab0b749456",
+      "reason": "Retired steering controllers, queue writes, browser execution controls and after-answer follow-up generation/events/attribution are removed, while persisted message identity and historical steering rows remain readable. Failed sends restore their own text, images and attachments; deleted temporary documents return to local retry state. Failed stop requests reconnect to the persisted assistant stream or settle without a local assistant. Existing native async background results and completed outputs remain viewable; owner/session generations isolate polling and cancellation, and historical shell tasks remain read-only. Conversation changes rebind the composer to the new draft scope. Suggestions prefill, scroll-to-latest supports keyboard activation, and the layout can shrink on mobile. An initial history failure shows an inline retry. Recommendations wait for a successful empty history response.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/views/creatChat/creatChat.vue": {
-      "source": "d7e5c67233f68b2d9aa3c8b3b6b3fa62a47b8d7cb6ae4ffd8e0cb81059e3e3f4",
-      "reason": "Failed session creation or navigation restores the cleared text, images and attachments so the first question and its files are not lost.",
-      "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+      "template": "59cb941c9a0d4af579d3f2cc188db1f37ebb216844531ecf7d03b47c80618529",
+      "styles": "3b2bfad693e0271b475228c7a3c8be6769bb57fd247af0a9c0a987923d2b7972",
+      "source": "d3535b2d02f8e1975525d1edc6b6dc6399c6ba2384f2d792b3941fc3b1c57b7e",
+      "reason": "New chat pre-fills suggested questions and keeps the draft and attachments until the created session opens. Narrow layout keeps the composer usable.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/views/chat/components/tool-results/WeKnoraGraphQueryResults.vue": {
       "template": "60afa9f949107f67cac8869f82bbfa8ba1dabe4a61c88671b07abb0ffdbdac33",
@@ -868,8 +890,19 @@
       "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/components/assistant/AssistantPanel.vue": {
-      "source": "ae173b88bb1ba5ca4f6342cd58d1182a6fe2784d63730d6cbd810836f5d3ac0e",
-      "reason": "Reviewed assistant welcome guidance advertises browser setup/tasks only when the deployment explicitly enables browser execution.",
+      "source": "c1b6a59e3ab813012a3d5e67a94237ba5e4647bccb554c293f396596be9f216e",
+      "styles": "9ca3ea4a2c38134b0046d52252b9b435b688568303c7e252ae861cdd9bbbb590",
+      "reason": "Reviewed assistant welcome guidance advertises browser setup/tasks only when the deployment explicitly enables browser execution. Docked panels use the platform shell corner radius and clip content at those corners.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/assets/theme/tdesign-overrides.less": {
+      "source": "7d1c9947b941cdab64eb0408c1e87f072c32967275a98c4a5b970eb6549cc7d6",
+      "reason": "Desktop right drawers round the exposed edge, and drawer transitions honor reduced motion.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/assets/theme/theme.css": {
+      "source": "540049b79877e3c3a2affac9e557d71455638adce2916c1c2406d6720e90dd0c",
+      "reason": "Match the five TDesign corner radii to the rounded platform shell in both themes.",
       "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     },
     "src/config/settingsAccess.ts": {
@@ -971,6 +1004,31 @@
       "source": "2b29b5688cef20f3eae848ce99a025d648f32e4937a554afe839ae45513cb4d9",
       "reason": "The existing child transcript viewer accepts an optional refreshKey so a nested async detail can reload its bound native history/checkpoint after a real update or resume. Existing owner/thread identity and polling behavior remain; no token-stream or second execution state is introduced.",
       "reference": "docs/architecture/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/AgentAvatar.vue": {
+      "template": "8bb9a4b0d2315af566591fa4af225248bfd5b23324881bcb32d31cfbed90cf30",
+      "source": "6e576c4c86972aa2775f66a39d5ba5b242dfd6814aefdb2b47947c2db3556f70",
+      "reason": "The avatar uses inline markup so it can be reused inside chooser buttons.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/components/AgentSelector.vue": {
+      "template": "0427ac0dfde60a03ddf292284fbf9157c226cdcd773d5ca446a9269a96ec9543",
+      "styles": "a30fe9d4781cfd898be70ac39ff05a5c5a6cac8f6aad3f0acd0922245eb63d9c",
+      "source": "6e72e3e472e932cb29905a0a75e9321c02feb12850ab3a78ca25546aacf5f7ae",
+      "reason": "Agent options and the create action use native buttons, with keyboard focus and the existing selector layout.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/components/SettingsModalShell.vue": {
+      "template": "3ca21382a8fb4dab7470e3a17275b45cb12ddb4a4cebcf37ae317623e9c561c6",
+      "styles": "9772447635c904fc3780bfbd872f116611368f8fb287921f720799bb281ac95a",
+      "source": "08b47b6661e16f9a33302d87db8b0d5c2d9b37b4d7c6b97886c5c0db50a1d78b",
+      "reason": "Settings categories use buttons, the modal manages its focus, and narrow windows use a single column with scrollable category navigation.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
+    },
+    "src/components/css/suggested-questions.less": {
+      "source": "c07f5c5b30eb5e4a976aeb67465ca8f4063fbe65198f78812104c1305553037b",
+      "reason": "Recommendation buttons reuse the existing card appearance and show keyboard focus.",
+      "reference": "docs/architecture/agent-repair-alignment-20261117.md"
     }
   },
   "dispositions": {

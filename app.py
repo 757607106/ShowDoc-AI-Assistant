@@ -8,12 +8,13 @@ import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from flask import Flask, g, request, jsonify, send_file, send_from_directory, redirect
+from requests import RequestException, Timeout
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from crawlers.base import DocumentStub
 from registry import ENTRIES, create_crawler, get_entry
 from integrations.showdoc import ShowDocAuthenticator, ShowDocProjectManager
 from integrations.contextdb import ContextDBError, ContextDBConflictError
@@ -148,7 +149,7 @@ def public_document(document):
     return {key: value for key, value in document.items() if key != 'artifact_dir'}
 
 
-def task_payload(task, include_logs=True):
+def task_payload(task, include_logs=True, *, submission_lookup=None):
     summary = task.get('summary') or {}
     store = get_store()
     documents = store.list_documents(task['task_id'])
@@ -158,24 +159,26 @@ def task_payload(task, include_logs=True):
     payload = {key: task.get(key) for key in (
         'task_id', 'entry', 'status', 'phase', 'progress', 'total_pages', 'completed_pages',
         'failed_pages', 'skipped_pages', 'current_item', 'message', 'start_time', 'end_time', 'retry_of', 'scope', 'kind')}
-    submitted = store._find('release', job_id=task['task_id'])
-    queued = False
-    sync_task = None
+    if submission_lookup is None:
+        submitted = store._find('release', job_id=task['task_id'])
+        release_metadata = submitted['metadata'] if submitted else None
+        sync_task = None
+        if release_metadata:
+            with connection() as conn:
+                sync_task = conn.execute('''SELECT payload,metadata FROM runtime_records WHERE owner_id=%s AND kind='job'
+                    AND payload->>'kind'='ctxdb_sync' AND payload->'params'->>'release_id'=%s
+                    ORDER BY created_at DESC, id LIMIT 1''',
+                    (store.owner_id or '', release_metadata['release_id'])).fetchone()
+    else:
+        release_metadata, sync_task = submission_lookup
     submission_task = None
-    if submitted:
-        with connection() as conn:
-            sync_task = conn.execute('''SELECT payload,metadata FROM runtime_records WHERE owner_id=%s AND kind='job'
-                AND payload->>'kind'='ctxdb_sync' AND payload->'params'->>'release_id'=%s
-                ORDER BY created_at DESC LIMIT 1''',
-                (store.owner_id or '', submitted['metadata']['release_id'])).fetchone()
-            queued = sync_task is not None
-        if sync_task:
-            submission_task = {key: sync_task['metadata'].get(key, sync_task['payload'].get(key))
-                for key in ('task_id', 'entry', 'kind', 'scope', 'status', 'phase', 'progress',
-                            'message', 'total_pages', 'completed_pages', 'failed_pages', 'skipped_pages',
-                            'start_time', 'end_time')}
-            submission_task.update(entry_name='资料提交', source_name='知识库资料提交',
-                release_id=submitted['metadata']['release_id'], source_task_id=task['task_id'])
+    if sync_task:
+        submission_task = {key: sync_task['metadata'].get(key, sync_task['payload'].get(key))
+            for key in ('task_id', 'entry', 'kind', 'scope', 'status', 'phase', 'progress',
+                        'message', 'total_pages', 'completed_pages', 'failed_pages', 'skipped_pages',
+                        'start_time', 'end_time')}
+        submission_task.update(entry_name='资料提交', source_name='知识库资料提交',
+            release_id=release_metadata['release_id'], source_task_id=task['task_id'])
     release_id = task['params'].get('release_id') if task['kind'] == 'ctxdb_sync' else None
     source_release = store._find('release', release_id=release_id) if release_id else None
     source_task_id = (source_release['metadata'].get('job_id') if source_release and
@@ -214,8 +217,8 @@ def task_payload(task, include_logs=True):
         selected_count=len(task['selected_ids'] or task['selected_titles']),
         download_available=bool(task.get('zip_file') and Path(task['zip_file']).exists()),
         publish_available=bool(task['status'] == 'completed' and documents),
-        submit_available=bool(task['kind'] != 'ctxdb_sync' and task['status'] == 'completed' and documents and not queued),
-        submission_id=submitted['metadata']['release_id'] if submitted else None,
+        submit_available=bool(task['kind'] != 'ctxdb_sync' and task['status'] == 'completed' and documents and not sync_task),
+        submission_id=release_metadata['release_id'] if release_metadata else None,
         sync_task_id=submission_task['task_id'] if submission_task else None,
         submission_task=submission_task,
         release_id=release_id,
@@ -411,31 +414,51 @@ def entry_documents(key):
         }), 500
 
 
-@app.route('/entries/<key>/preview')
+@app.route('/entries/<key>/preview', methods=['GET', 'POST'])
 def entry_preview(key):
     entry = get_entry_or_404(key)
-    doc_id = (request.args.get('doc_id') or '').strip()
-    if not doc_id or doc_id == '0':
+    payload = json_body() if request.method == 'POST' else request.args
+    doc_id = payload.get('doc_id')
+    if not isinstance(doc_id, str) or not doc_id.strip() or doc_id.strip() == '0':
         raise ApiError('缺少有效 doc_id', 400)
-    params = entry_crawler_params(key, request.args)
+    doc_id = doc_id.strip()
+    params = entry_crawler_params(key, payload)
     if entry.key == 'showdoc' and not params.get('item_id'):
         raise ApiError('缺少 item_id 参数', 400)
-    crawler = create_crawler(entry.key, save_dir=LISTING_SAVE_DIR, **params)
-    crawler.authenticate()
-    if entry.key == 'showdoc':
-        stub = DocumentStub(doc_id, '页面预览', '根目录')
-    else:
-        stub = next((s for s in crawler.list_documents() if str(s.id) == doc_id), None)
+    try:
+        crawler = create_crawler(entry.key, save_dir=LISTING_SAVE_DIR, **params)
+        crawler.authenticate()
+        stub = next((item for item in crawler.list_documents() if str(item.id) == doc_id), None)
         if stub is None:
-            raise ApiError('文档不存在', 404)
-    doc = crawler.fetch_document(stub)
-    content = crawler._prepare_record(doc)['content']
+            raise ApiError('当前来源的目录中没有这篇文档，请重新读取目录', 404)
+        doc = crawler.fetch_document(stub)
+        if doc.metadata.get('fetch_error'):
+            raise ApiError('来源未能返回正文，请核对访问权限后重试', 502)
+        record = crawler._prepare_record(doc)
+        content = record['content']
+    except (StoreError, ContextDBError):
+        raise
+    except Timeout as error:
+        raise ApiError('读取来源正文超时，请重试', 504) from error
+    except (RequestException, RuntimeError, ValueError) as error:
+        raise ApiError('暂时无法读取来源正文，请核对来源设置后重试', 502) from error
     if not content.strip():
-        raise ApiError('源正文为空，请采集后查看官方解析结果', 422)
-    return jsonify(success=True, title=doc.title, content=content,
-                   source_format=doc.source_format, page_id=doc_id,
-                   source_kind=doc.metadata.get('source_kind'),
-                   media_content_captured=doc.metadata.get('media_content_captured'))
+        raise ApiError('这篇文档的源正文为空', 422)
+    source_base_url = ''
+    if isinstance(record['base_url'], str):
+        try:
+            base = urlsplit(record['base_url'])
+            if base.scheme in ('http', 'https') and base.hostname and not (base.username or base.password):
+                source_base_url = base._replace(query='', fragment='').geturl()
+        except ValueError:
+            pass
+    response = jsonify(success=True, title=doc.title, content=content,
+                       source_format=doc.source_format, page_id=doc_id,
+                       source_base_url=source_base_url,
+                       source_kind=doc.metadata.get('source_kind'),
+                       media_content_captured=doc.metadata.get('media_content_captured'))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @app.route('/entries/<key>/start', methods=['POST'])
@@ -479,6 +502,9 @@ def task_status(task_id):
 @app.route('/api/tasks')
 def task_list():
     scope = request.args.get('space_scope')
+    status_group = request.args.get('status_group')
+    if status_group is not None and status_group not in ('all', 'active', 'action', 'done'):
+        raise ApiError('资料任务状态筛选无效', 400)
     store = get_store()
     if scope is not None:
         from governance.spaces import get_space
@@ -490,10 +516,14 @@ def task_list():
         raise ApiError('分页参数必须是整数', 400)
     if page < 1 or not 1 <= size <= 100:
         raise ApiError('页码须大于 0，每页条数须为 1 至 100', 400)
-    total = store.count_jobs(scope)
-    jobs = store.list_jobs(scope, page=page, page_size=size) if (page - 1) * size < total else []
-    return jsonify(success=True, tasks=[task_payload(j, False) for j in jobs],
-                   total=total, page=page, page_size=size)
+    if status_group is None:
+        total = store.count_jobs(scope)
+        jobs = store.list_jobs(scope, page=page, page_size=size) if (page - 1) * size < total else []
+        tasks = [task_payload(job, False) for job in jobs]
+    else:
+        total, rows = store.list_material_jobs(scope, status_group, page=page, page_size=size)
+        tasks = [task_payload(job, False, submission_lookup=(release, sync)) for job, release, sync in rows]
+    return jsonify(success=True, tasks=tasks, total=total, page=page, page_size=size)
 
 
 @app.route('/tasks/<task_id>/cancel', methods=['POST'])

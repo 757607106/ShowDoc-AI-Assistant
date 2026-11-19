@@ -8,27 +8,42 @@ const source = readFileSync(new URL('./Input-field.vue', import.meta.url), 'utf8
 const focusCode = source.slice(source.indexOf('const focusInput ='), source.indexOf('const onInput ='))
 const sendCode = source.slice(source.indexOf('const createSession ='), source.indexOf('const updateAgentModeDropdownPosition ='))
 
-test('host page navigation preserves the assistant draft and uploads but clears the main chat composer', () => {
-  const start = source.indexOf('onBeforeRouteUpdate(')
-  const routeCode = source.slice(start, source.indexOf('defineExpose(', start))
-  for (const embeddedMode of [true, false]) {
-    const state = { draft: '还没有写完的问题', uploads: ['draft.pdf'], navigations: 0 }
-    let beforeUpdate
-    vm.runInNewContext(ts.transpile(routeCode), {
-      props: { embeddedMode },
-      onBeforeRouteUpdate: callback => { beforeUpdate = callback },
-      clearvalue: () => { state.draft = '' },
-      clearPendingUploads: () => { state.uploads = [] },
+test('only the owning conversation can save its draft on teardown', () => {
+  const code = source.slice(source.indexOf('onBeforeUnmount(() =>'), source.indexOf('onUnmounted(() =>'))
+  for (const [key, account, workspace, shouldSave] of [
+    ['session-a', 'owner', 1, true],
+    ['session-a', 'other-account', 1, false],
+    ['session-a', 'owner', 2, false],
+    ['', 'owner', 1, false],
+  ]) {
+    const stored = [], revoked = []
+    let teardown
+    vm.runInNewContext(code, {
+      onBeforeUnmount: fn => { teardown = fn }, replaceDraftDialog: undefined,
+      draftKey: key, draftUser: 'owner', draftTenant: 1,
+      mentionAuth: { currentUserId: account, effectiveTenantId: workspace },
+      query: { value: '未发送的问题' },
+      uploadedImages: { value: [{ file: 'image', preview: 'blob:image' }] },
+      uploadedAttachments: { value: [{ id: 'attachment-a' }] },
+      suggestionOriginFor: () => undefined,
+      saveChatDraft: (...args) => stored.push(args),
+      URL: { revokeObjectURL: value => revoked.push(value) },
+      getTextareaEl: () => null,
     })
-    beforeUpdate({ params: { kbId: 'next' } }, { params: { kbId: 'previous' } }, () => { state.navigations++ })
-    assert.equal(state.draft, embeddedMode ? '还没有写完的问题' : '')
-    assert.deepEqual(state.uploads, embeddedMode ? ['draft.pdf'] : [])
-    assert.equal(state.navigations, 1, 'preserving an assistant draft must not block page navigation')
+    teardown()
+    assert.equal(stored.length, shouldSave ? 1 : 0)
+    if (shouldSave) {
+      assert.equal(stored[0][0], key)
+      assert.equal(stored[0][1].text, '未发送的问题')
+      assert.equal(stored[0][1].images[0], 'image')
+      assert.equal(stored[0][1].attachments[0].id, 'attachment-a')
+    }
+    assert.deepEqual(revoked, ['blob:image'])
   }
 })
 
-for (const mode of ['normal', 'embedded']) {
-  test(`${mode} send clears the draft and restores focus after the DOM update`, async () => {
+for (const mode of ['normal', 'embedded', 'new']) {
+  test(`${mode} send restores focus and keeps the draft only during new session creation`, async () => {
     const effects = [], ticks = []
     let sentModel
     const textarea = {
@@ -37,7 +52,7 @@ for (const mode of ['normal', 'embedded']) {
       blur: () => { throw new Error('sending must not blur the textarea') },
     }
     const context = {
-      props: { isReplying: false, embeddedMode: mode === 'embedded' },
+      props: { isReplying: false, embeddedMode: mode === 'embedded', sessionId: mode === 'normal' ? 'existing' : undefined },
       uploadedAttachments: { value: [] }, uploadedImages: { value: [] },
       allSelectedItems: { value: [] }, selectedModelId: { value: 'model' },
       composerModelId: { value: 'host-model' },
@@ -50,15 +65,17 @@ for (const mode of ['normal', 'embedded']) {
         if (name === 'send-msg') sentModel = model
       },
       clearvalue: () => effects.push(['clear']),
+      clearDraft: () => effects.push(['clear']),
+      suggestionOriginFor: () => undefined,
       getTextareaEl: () => textarea,
       nextTick: () => new Promise(resolve => ticks.push(resolve)),
     }
     const send = vm.runInNewContext(ts.transpile(`${focusCode}\n${sendCode}\ncreateSession`), context)
     await send('hello')
-    assert.deepEqual(effects, [['send-msg'], ['clear']])
+    assert.deepEqual(effects, mode === 'new' ? [['send-msg']] : [['send-msg'], ['clear']])
     // Embedded, the host's model goes out, never the main chat's pick.
     if (mode === 'embedded') assert.equal(sentModel, 'host-model')
-    if (mode === 'normal') assert.equal(sentModel, 'model')
+    if (mode !== 'embedded') assert.equal(sentModel, 'model')
     for (const resolve of ticks) resolve()
     await new Promise(setImmediate)
     assert.deepEqual(effects.at(-1), ['focus', true])
@@ -66,14 +83,18 @@ for (const mode of ['normal', 'embedded']) {
 }
 
 test('failed sends restore text, images and attachments without overwriting a newer draft', () => {
-  const code = source.slice(source.indexOf('defineExpose({'), source.indexOf('</script>'))
+  const code = source.slice(source.indexOf('const restoreDraft ='), source.indexOf('</script>'))
   let exposed
   const query = { value: '' }, uploadedImages = { value: [] }, uploadedAttachments = { value: [] }
   const restoredAttachments = []
   const image = { name: 'evidence.png' }, attachment = { id: 'attachment-a' }
   vm.runInNewContext(ts.transpile(code), {
-    query, uploadedImages, uploadedAttachments,
-    attachmentUploadRef: { value: { restore: files => restoredAttachments.push(files) } },
+    query, uploadedImages, uploadedAttachments, suggestedDraft: {},
+    clearDraft() {},
+    attachmentUploadRef: { value: { restore: files => {
+      restoredAttachments.push(files)
+      uploadedAttachments.value = files
+    } } },
     URL: { createObjectURL: file => `blob:${file.name}` },
     defineExpose: api => { exposed = api },
     focusInput() {},
@@ -96,23 +117,28 @@ test('failed sends restore text, images and attachments without overwriting a ne
   assert.equal(restoredAttachments.length, 1)
 })
 
-test('attachment restore preserves files and resumes only unfinished polls', () => {
+test('attachment restore resumes polling or retries an unfinished upload for the same session', () => {
   const uploadSource = readFileSync(new URL('./AttachmentUpload.vue', import.meta.url), 'utf8')
   const code = uploadSource.slice(uploadSource.indexOf('defineExpose({'), uploadSource.indexOf('</script>'))
-  const attachments = { value: [] }, emitted = [], polls = []
+  const attachments = { value: [] }, emitted = [], polls = [], uploads = []
   let exposed
   vm.runInNewContext(ts.transpile(code), {
-    attachments,
+    attachments, props: { sessionId: 'session-a' },
     triggerFileSelect() {}, addFiles() {},
+    uploadAttachment: attachment => uploads.push(attachment),
     emitFiles: () => emitted.push(attachments.value),
     scheduleStatusPoll: attachment => polls.push(attachment),
     defineExpose: api => { exposed = api },
   })
   const pending = { documentId: 'pending', status: 'processing' }, ready = { documentId: 'ready', status: 'ready' }
-  exposed.restore([pending, ready])
-  assert.equal(attachments.value.length, 2)
+  const uploading = { id: 'uploading', status: 'uploading' }
+  exposed.restore([pending, ready, uploading])
+  assert.equal(attachments.value.length, 3)
   assert.equal(emitted.length, 1)
-  assert.deepEqual(polls, [pending])
+  assert.equal(polls[0].documentId, pending.documentId)
+  assert.equal(polls.length, 1)
+  assert.equal(uploads[0].id, uploading.id)
+  assert.notEqual(uploads[0], uploading)
 })
 
 test('a queued focus does not focus a textarea removed during navigation', async () => {
@@ -148,7 +174,7 @@ for (const embeddedMode of [false, true]) {
       collectAgentNotReadyReasons: () => ({ keys: [], labels: [] }),
       attachmentUploadRef: { value: null },
       emit: (...args) => { emitted = args },
-      clearvalue() {}, focusInput: async () => {},
+      clearvalue() {}, clearDraft() {}, focusInput: async () => {}, suggestionOriginFor: () => undefined,
     })
     await send('continue')
     const [event, query, model, mentions] = emitted
@@ -166,7 +192,7 @@ test('teardown blurs the active textarea before it is detached', () => {
   const textarea = { isConnected: true, blur: () => { blurred = true } }
   vm.runInNewContext(code, {
     onBeforeUnmount: fn => { teardown = fn }, getTextareaEl: () => textarea,
-    document: { activeElement: textarea },
+    document: { activeElement: textarea }, draftKey: '', uploadedImages: { value: [] }, replaceDraftDialog: undefined,
   })
   teardown()
   assert.equal(blurred, true)

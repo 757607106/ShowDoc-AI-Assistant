@@ -16,6 +16,7 @@ const document = (id = 'doc-a') => ({ id, name: '说明.md', file_name: '说明.
 type Call = { method: string; path: string; data?: any }
 type Options = {
   canEdit?: boolean; documentId?: string; folderId?: string; reviewEnabled?: boolean;
+  navigate?: (folderId: string, documentId?: string) => void;
   nodes?: (params: any) => Promise<any>; document?: (id: string) => Promise<any>;
   write?: (method: string, path: string, body: any) => Promise<any>;
   upload?: (kb: string, file: File, options: any) => Promise<any>;
@@ -51,7 +52,7 @@ async function setup(t: TestContext, options: Options = {}) {
     '@/utils/files': { formatFileSize: (value: number) => String(value), getFileIcon: () => 'file' },
     '@/utils/contextdbDocumentName': { documentDisplayName, documentDownloadName },
     '@/utils/contextdbResources': { chunkAttachments },
-  }, { kbId: 'kb-a', canEdit: options.canEdit ?? true, wikiEnabled: true, graphEnabled: true, reviewEnabled: options.reviewEnabled ?? true, documentId: options.documentId, folderId: options.folderId })
+  }, { kbId: 'kb-a', canEdit: options.canEdit ?? true, wikiEnabled: true, graphEnabled: true, reviewEnabled: options.reviewEnabled ?? true, documentId: options.documentId, folderId: options.folderId, syncLocation: !!options.navigate, onNavigate: options.navigate })
   await flush(); await flush()
   return { vm, props: vm.$.props, calls, fixture: f }
 }
@@ -371,4 +372,39 @@ test('changing a directory link ignores the old directory response',async t=>{
   const f=await setup(t,{folderId:'slow',nodes:async params=>params.parent_node_id==='slow'?new Promise(resolve=>complete=resolve):{items:[],total:0,parent_node:{node_id:params.parent_node_id||'root',node_type:'folder'}}})
   f.props.folderId='new';await flush();complete({items:[file()],total:1,parent_node:{node_id:'slow',node_type:'folder'}});await flush()
   assert.equal(f.vm.parent,'new');assert.equal(f.vm.rows.length,0);assert.equal(f.vm.error,'')
+})
+
+test('routed file preview waits for the location and keeps the current folder on return', async t => {
+  const navigation: [string, string?][] = []
+  const row = { ...file(), display_name: '重命名的文档.md' }
+  const f = await setup(t, { navigate: (...target) => navigation.push(target), nodes: async params => ({
+    items: params.parent_node_id ? [row] : [folder()], total: 1,
+    parent_node: params.parent_node_id ? folder(params.parent_node_id) : { node_id: 'root-a', node_type: 'root' },
+  }) })
+  const readsBefore = f.calls.filter(call => call.method === 'GET').length
+  await f.vm.enterNode('folder-a')
+  assert.deepEqual(navigation, [['folder-a']]); assert.equal(f.vm.parent, '')
+  f.props.folderId = 'folder-a'; await flush()
+  assert.equal(f.calls.filter(call => call.method === 'GET').length, readsBefore + 1)
+  await f.vm.openFile(f.vm.rows[0], true)
+  assert.deepEqual(navigation.at(-1), ['folder-a', 'doc-a']); assert.ok(!f.calls.some(call => call.method === 'DOCUMENT'))
+  f.props.documentId = 'doc-a'; await flush()
+  assert.equal(f.vm.preview.display_name, '重命名的文档.md')
+  assert.deepEqual(f.calls.filter(call => call.method === 'DOCUMENT').map(call => call.path), ['doc-a'])
+  await f.vm.closePreview()
+  assert.deepEqual(navigation.at(-1), ['folder-a'])
+  f.props.documentId = ''; await flush()
+  assert.equal(f.vm.preview, null); assert.equal(f.vm.parent, 'folder-a'); assert.equal(f.vm.rows[0].id, 'doc-a')
+  assert.equal(f.calls.filter(call => call.method === 'GET').length, readsBefore + 1)
+  f.props.documentId = 'doc-a'; await flush()
+  assert.equal(f.vm.preview.id, 'doc-a'); assert.equal(f.vm.parent, 'folder-a')
+})
+
+test('returning from a pending document URL invalidates the preview request', async t => {
+  let complete!: (value: any) => void
+  const f = await setup(t, { navigate() {}, documentId: 'slow', document: () => new Promise(resolve => complete = resolve) })
+  assert.equal(f.vm.previewLoading, true)
+  f.props.documentId = ''; await flush()
+  complete(document('slow')); await flush()
+  assert.equal(f.vm.previewLoading, false); assert.equal(f.vm.preview, null)
 })

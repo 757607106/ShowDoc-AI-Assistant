@@ -280,6 +280,7 @@ const handleFontSizeChange = (val: FontSizeKey) => {
 
 .general-settings {
   width: 100%;
+  container-type: inline-size;
 }
 
 .section-header {
@@ -330,6 +331,26 @@ const handleFontSizeChange = (val: FontSizeKey) => {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+}
+
+@container (max-width: 420px) {
+  .setting-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .setting-info,
+  .font-preview,
+  .setting-control :deep(.t-select__wrap) {
+    max-width: 100%;
+  }
+
+  .setting-control {
+    min-width: 0;
+    justify-content: flex-start;
+    align-items: flex-start;
   }
 }
 </style>

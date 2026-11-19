@@ -1,5 +1,22 @@
 // 对 TDesign 组件的全局意图覆盖。组件内只做局部微调，不要在 scoped 样式里用 !important 和 TDesign 打架。
 
+@media (min-width: 900px) {
+  .t-drawer--right > .t-drawer__content-wrapper {
+    border-radius: var(--td-radius-extraLarge) 0 0 var(--td-radius-extraLarge);
+  }
+}
+
+.t-drawer > .t-drawer__content-wrapper {
+  transition-duration: var(--app-motion-base);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-drawer > .t-drawer__content-wrapper,
+  .t-drawer > .t-drawer__mask {
+    transition-duration: 0s;
+  }
+}
+
 // 悬浮面板皮肤：给 t-popup / t-select 等的 overlayClassName 加上 `wk-popover` 即可。
 // 用两级选择器压过 TDesign 默认的 .t-popup__content，不需要 !important。
 .wk-popover .t-popup__content {

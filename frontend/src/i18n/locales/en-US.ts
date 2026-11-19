@@ -4374,6 +4374,10 @@ export default {
   chat: {
     suggestedQuestions: 'You can ask me',
     refreshSuggestedQuestions: 'More',
+    replaceDraftTitle: 'Replace draft?',
+    replaceDraftBody: 'Use this suggested question in place of the text in the message box.',
+    historyLoadFailed: 'Could not load the conversation history.',
+    scrollToLatest: 'Jump to latest message',
     thinking: 'Thinking...',
     thinkingAlt: 'Thinking in progress',
     conversationTime: {
@@ -7407,6 +7411,7 @@ export default {
     },
     openPage: {
       open: 'Open',
+      retired: 'Discontinued',
       openForm: 'Open and fill in',
       opened: 'Opened by the assistant',
       back: 'Back',

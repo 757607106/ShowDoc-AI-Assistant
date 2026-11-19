@@ -96,6 +96,8 @@ function verifyAgentUi(read = readSource, adaptations: Adaptations = baseline.ad
     }
     if (adaptation.styles) {
       assert.ok(['src/components/Input-field.vue', 'src/components/ModelEditorDialog.vue', 'src/views/agent/AgentEditorModal.vue', 'src/views/chat/components/tool-results/DocMarkdown.vue',
+        'src/components/AgentSelector.vue', 'src/components/AttachmentUpload.vue', 'src/components/SettingsModalShell.vue',
+        'src/views/chat/index.vue', 'src/views/creatChat/creatChat.vue', 'src/components/assistant/AssistantPanel.vue',
         'src/views/settings/Settings.vue', 'src/views/settings/MemorySettings.vue',
         'src/views/settings/SkillSettings.vue', 'src/views/toolbox/Toolbox.vue',
         'src/views/chat/components/BackgroundWorkChip.vue',
@@ -166,7 +168,7 @@ test('supplemental source changes and unreviewed paths fail the gate', () => {
 })
 
 test('a one-character unapproved change fails for original and adapted interactions', () => {
-  for (const path of ['src/components/AgentAvatar.vue', 'src/components/Input-field.vue']) {
+  for (const path of ['src/components/AgentCreateContextualGuide.vue', 'src/components/Input-field.vue']) {
     assert.throws(() => verifyAgentUi(file => readSource(file) + (file === path ? '\n' : '')),
       new RegExp(`${path}: source`))
   }

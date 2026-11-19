@@ -7,19 +7,21 @@
     menuOpen ? 'submenu_item--menu-open' : '',
     showUnread ? 'submenu_item--unread' : '',
   ]" @mouseenter="emit('hover-in')" @mouseleave="emit('hover-out')"
-    @click="batchMode ? emit('toggle-select') : emit('navigate')">
+    @click="batchMode && emit('toggle-select')">
     <t-checkbox v-if="batchMode" class="batch-checkbox" :checked="selectedIds.includes(item.id)" @click.stop
       @change="emit('toggle-select')" />
     <form v-if="titleEditing" class="session-title-edit" @submit.prevent="submitTitleEdit" @click.stop>
       <input ref="titleInputRef" v-model="titleDraft" class="session-title-edit__input"
         :maxlength="SESSION_TITLE_MAX_LENGTH" @keydown.esc.prevent="cancelTitleEdit" @blur="submitTitleEdit" />
     </form>
-    <span v-else class="submenu_title" :class="batchMode ? 'submenu_title--batch' : ''" :title="item.title">
+    <component v-else :is="batchMode ? 'span' : RouterLink"
+      v-bind="batchMode ? {} : { to: '/platform/' + item.path }"
+      class="submenu_title" :class="batchMode ? 'submenu_title--batch' : ''" :title="item.title">
       <t-icon v-if="item.is_pinned" name="pin" class="submenu_pin_icon" />
       <span ref="titleTextRef" class="submenu_title-text">{{ item.title }}</span>
       <span v-if="apiOwnerTag" class="session-owner-tag" :class="`session-owner-tag--${apiOwnerTag.kind}`"
         :title="apiOwnerTag.full">{{ apiOwnerTag.label }}</span>
-    </span>
+    </component>
     <div v-if="!batchMode || hasBadge" class="session-row-menu-wrap"
       :class="{ 'session-row-menu-wrap--badge': hasBadge }" @click.stop>
       <span v-if="running" class="session-row-badge session-running-indicator" role="status"
@@ -77,6 +79,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { normalizeSessionTitleDraft, SESSION_TITLE_MAX_LENGTH } from './sessionTitleEdit'
 import { useSessionTitleMotion } from '@/composables/useSessionTitleMotion'
@@ -103,7 +106,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'navigate'): void
   (e: 'toggle-select'): void
   (e: 'menu-click', data: { value: string }): void
   (e: 'rename-submit', data: { title: string }): void
@@ -233,6 +235,16 @@ const confirmDangerAction = (): void => {
 <style scoped lang="less">
 .submenu_item {
   position: relative;
+}
+
+a.submenu_title {
+  color: inherit;
+  text-decoration: none;
+
+  &:focus-visible {
+    outline: 2px solid var(--td-brand-color);
+    outline-offset: -2px;
+  }
 }
 
 .session-running-indicator {

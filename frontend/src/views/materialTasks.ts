@@ -28,23 +28,6 @@ export interface MaterialTask {
 
 export type TaskFilter = 'all' | 'active' | 'action' | 'done'
 
-export function foldTaskRows(tasks: MaterialTask[]): MaterialTask[] {
-  const parents = new Map(tasks.filter(task => task.kind !== 'ctxdb_sync').map(task => [task.task_id, task]))
-  const linked = new Map<string, MaterialTask>()
-  for (const task of tasks) {
-    if (task.kind !== 'ctxdb_sync' || !task.source_task_id) continue
-    const parent = parents.get(task.source_task_id)
-    if (parent?.sync_task_id === task.task_id && parent.scope === task.scope && parent.submission_id === task.release_id) {
-      linked.set(parent.task_id, task)
-    }
-  }
-  const hidden = new Set([...linked.values()].map(task => task.task_id))
-  return tasks.filter(task => !hidden.has(task.task_id)).map(task => {
-    const child = linked.get(task.task_id) || task.submission_task
-    return child && child.task_id === task.sync_task_id ? {...task, submission_task: child} : task
-  })
-}
-
 export function currentTask(task: MaterialTask): MaterialTask {
   const child = task.submission_task
   return task.kind !== 'ctxdb_sync' && task.status === 'completed' && child && child.task_id === task.sync_task_id ? child : task

@@ -38,7 +38,13 @@ cd ..
 
 另开终端运行 `.venv/bin/python -m governance.worker`。PostgreSQL 默认仅监听 `127.0.0.1:55432`，数据保存在命名卷。已有独立 Docker PostgreSQL 时可直接配置其 `DATABASE_URL`，不必另外启动 Compose 服务。
 
-开发前端：`cd frontend && VITE_DEV_PROXY_TARGET=http://127.0.0.1:8000 npm run dev`。浏览器采集首次需要安装 Chromium：`PLAYWRIGHT_BROWSERS_PATH=downloads/_models/chromium .venv/bin/python -m playwright install chromium --only-shell`。
+### 本地开发
+
+先安装 `requirements-dev.txt` 中的开发依赖。已有虚拟环境可运行 `uv pip install --python .venv/bin/python -r requirements-dev.txt`。
+
+从项目根目录运行 `./scripts/dev_api.sh`。它在 `127.0.0.1:8000` 启动 API，保存后端 Python 文件后自动重载。首次切换时先停止占用 8000 端口的旧 API 进程。采集 Worker 由独立命令启动。
+
+另开终端运行 `cd frontend && VITE_DEV_PROXY_TARGET=http://127.0.0.1:8000 npm run dev`。浏览器采集首次需要安装 Chromium：`PLAYWRIGHT_BROWSERS_PATH=downloads/_models/chromium .venv/bin/python -m playwright install chromium --only-shell`。
 
 ## 使用
 

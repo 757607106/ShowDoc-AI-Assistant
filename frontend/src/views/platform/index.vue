@@ -1,7 +1,28 @@
 <template>
     <div class="main" ref="dropzone" :style="{ '--sidebar-width': `${uiStore.sidebarDisplayWidth}px` }">
-        <Menu></Menu>
-        <div v-if="isRouterAlive" class="platform-route-outlet">
+        <div v-if="isNarrow" class="platform-mobile-bar" :inert="navigationOpen">
+            <button ref="navigationToggle" class="platform-navigation-button" type="button"
+                :aria-label="t('menu.expandSidebar')" :aria-expanded="navigationOpen" aria-controls="platform-navigation"
+                aria-haspopup="dialog"
+                @click="navigationOpen = true">
+                <t-icon name="view-list" size="20px" aria-hidden="true" />
+            </button>
+        </div>
+        <t-drawer v-model:visible="navigationOpen" attach="body" placement="left"
+            size="min(300px, 100vw - 32px)" :z-index="950" :header="false" :footer="false" :close-btn="false"
+            drawer-class-name="platform-navigation-drawer" :inert="!navigationOpen" role="dialog"
+            :aria-modal="navigationOpen" :aria-label="t('menu.expandSidebar')">
+            <div id="platform-navigation" class="platform-navigation-panel">
+                <button ref="navigationClose" class="platform-navigation-button" type="button"
+                    :aria-label="t('menu.collapseSidebar')" @click="navigationOpen = false">
+                    <t-icon name="close" size="20px" aria-hidden="true" />
+                </button>
+            </div>
+        </t-drawer>
+        <Teleport to="#platform-navigation" :disabled="!isNarrow" defer>
+            <Menu :compact="isNarrow" @navigate="navigationOpen = false" />
+        </Teleport>
+        <div v-if="isRouterAlive" class="platform-route-outlet" :inert="navigationOpen">
             <RouterView />
         </div>
         <!-- WeKnora 助手：停靠时作为布局右栏挤压页面，悬浮时浮在页面上；都不加遮罩，
@@ -49,6 +70,36 @@ const commandPaletteStore = useCommandPaletteStore();
 const uiStore = useUIStore();
 let ismask = ref(false)
 const { t } = useI18n();
+
+const narrowViewport = window.matchMedia('(max-width: 760px)')
+const isNarrow = ref(narrowViewport.matches)
+const navigationOpen = ref(false)
+const navigationToggle = ref<HTMLButtonElement>()
+const navigationClose = ref<HTMLButtonElement>()
+
+function syncNavigationLayout() {
+    isNarrow.value = narrowViewport.matches
+    if (!isNarrow.value) navigationOpen.value = false
+}
+
+watch(() => route.fullPath, () => { navigationOpen.value = false })
+watch(() => uiStore.showSettingsModal || route.name === 'settings', async (visible) => {
+    if (visible || !isNarrow.value || navigationOpen.value) return
+    await nextTick()
+    const active = document.activeElement
+    if (active === document.body || active?.closest('.platform-navigation-drawer[inert], .settings-modal-shell-leave-active')) {
+        navigationToggle.value?.focus({ preventScroll: true })
+    }
+})
+
+watch(navigationOpen, (open) => {
+    // TDesign applies drawer visibility on the next timer.
+    window.setTimeout(() => {
+        if (navigationOpen.value !== open) return
+        if (open) navigationClose.value?.focus({ preventScroll: true })
+        else if (!uiStore.showSettingsModal && !commandPaletteStore.open) navigationToggle.value?.focus({ preventScroll: true })
+    })
+}, { flush: 'post' })
 
 const isRouterAlive = ref(true)
 const reloadApp = () => {
@@ -201,6 +252,7 @@ const handleGlobalDrop = async (event: DragEvent) => {
 
 // 组件挂载时添加全局事件监听器
 onMounted(() => {
+    narrowViewport.addEventListener('change', syncNavigationLayout)
     document.addEventListener('dragenter', handleGlobalDragEnter, true);
     document.addEventListener('dragover', handleGlobalDragOver, true);
     document.addEventListener('dragleave', handleGlobalDragLeave, true);
@@ -236,6 +288,7 @@ function maybeOpenCmdkFromRoute() {
 
 // 组件卸载时移除全局事件监听器
 onUnmounted(() => {
+    narrowViewport.removeEventListener('change', syncNavigationLayout)
     document.removeEventListener('dragenter', handleGlobalDragEnter, true);
     document.removeEventListener('dragover', handleGlobalDragOver, true);
     document.removeEventListener('dragleave', handleGlobalDragLeave, true);
@@ -252,15 +305,18 @@ onUnmounted(() => {
 });
 </script>
 <style lang="less">
+:root {
+    --platform-workspace-inset: var(--app-space-2);
+}
+
 .main {
     display: flex;
     align-items: stretch;
     width: 100%;
     height: 100%;
-    min-width: 600px;
+    min-width: 0;
     min-height: 0;
-    /* 灰底衬托右侧内容区的圆角外轮廓，布局仍为一体贴合、无额外缝隙 */
-    background: var(--td-bg-color-page);
+    background: var(--td-bg-color-sidebar);
 }
 
 /* 右侧路由区：占满剩余宽度与整列高度，并把 min-height:0 传给子页面以便内部 flex 滚动 */
@@ -272,7 +328,101 @@ onUnmounted(() => {
     flex-direction: column;
     overflow: hidden;
     background: var(--td-bg-color-container);
-    border-radius: var(--app-radius-xl);
+}
+
+@media (min-width: 761px) {
+    .platform-route-outlet,
+    .main > .assistant-panel.is-docked.is-open {
+        margin-block: var(--platform-workspace-inset);
+        margin-inline-end: var(--platform-workspace-inset);
+        border-radius: var(--td-radius-extraLarge);
+        box-shadow: 0 0 0 1px var(--td-component-stroke);
+    }
+
+    .platform-route-outlet {
+        margin-inline-start: var(--platform-workspace-inset);
+    }
+
+    .main > .assistant-panel.is-docked.is-open {
+        height: auto;
+    }
+}
+
+@media (min-width: 761px) and (max-width: 1024px) {
+    :root {
+        --platform-workspace-inset: var(--app-space-1);
+    }
+}
+
+.platform-mobile-bar,
+.platform-navigation-panel {
+    background: var(--td-bg-color-sidebar);
+}
+
+.platform-mobile-bar {
+    flex: none;
+    padding: env(safe-area-inset-top) 4px 0 max(4px, env(safe-area-inset-left));
+}
+
+.platform-navigation-drawer {
+    // Make the panel focusable when it starts sliding in.
+    .t-drawer__content-wrapper {
+        transition-property: transform;
+    }
+
+    .t-drawer__body {
+        padding: 0;
+        overflow: hidden;
+    }
+}
+
+.platform-navigation-panel {
+    box-sizing: border-box;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) env(safe-area-inset-left);
+
+    > .platform-navigation-button {
+        align-self: flex-end;
+        margin: 0 4px;
+    }
+
+    > .aside_box {
+        flex: 1;
+        width: 100%;
+        height: auto;
+        min-height: 0;
+        border-radius: 0;
+    }
+}
+
+.platform-navigation-button {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: var(--app-radius-md);
+    background: transparent;
+    color: var(--td-text-color-primary);
+    cursor: pointer;
+
+    &:hover {
+        background: var(--td-bg-color-container-hover);
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--td-brand-color);
+        outline-offset: -2px;
+    }
+}
+
+@media (max-width: 760px) {
+    .main {
+        flex-direction: column;
+    }
 }
 
 .upload-mask {

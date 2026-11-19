@@ -31,8 +31,14 @@
             <div ref="scrollContainer" class="chat_scroll_box" @scroll="handleScroll">
                 <div class="chat_scroll_content">
                     <div class="msg_list" :class="{ 'is-embedded': embeddedMode }">
-                        <!-- 消息列表骨架屏 -->
-                        <div v-if="historyLoading && messagesList.length === 0" class="msg-skeleton-list">
+                        <t-alert v-if="historyStatus === 'failed'" class="history-load-error" theme="error">
+                            <span role="alert">{{ t('chat.historyLoadFailed') }}</span>
+                            <template #operation>
+                                <t-button size="small" variant="text" :loading="historyLoading"
+                                    @click="retryHistory">{{ t('common.retry') }}</t-button>
+                            </template>
+                        </t-alert>
+                        <div v-else-if="historyLoading && messagesList.length === 0" class="msg-skeleton-list">
                             <div class="msg-skeleton msg-skeleton-user">
                                 <t-skeleton animation="gradient"
                                     :row-col="[{ width: '45%', height: '36px', type: 'rect' }]" />
@@ -51,7 +57,7 @@
                             </div>
                         </div>
                         <!-- 推荐问题卡片 - 仅在新会话（无消息）时展示 -->
-                        <div v-if="!embeddedMode && currentSession && !isAutomationSession && messagesList.length === 0 && !loading"
+                        <div v-if="canSuggestQuestions && currentSession && !isAutomationSession && !loading"
                             class="suggested-questions-container"
                             :class="{ 'has-questions': suggestedQuestions.length > 0 || suggestedQuestionsLoading }">
                             <!-- 骨架屏占位 -->
@@ -84,13 +90,13 @@
                                         </p>
                                     </div>
                                     <div class="suggested-questions-grid">
-                                        <div v-for="(item, index) in suggestedQuestions" :key="item.question"
+                                        <button v-for="item in suggestedQuestions" :key="item.question" type="button"
                                             class="suggested-question-card"
                                             @click="handleSuggestedQuestionClick(item)">
                                             <span class="suggested-question-text">{{ item.question }}</span>
                                             <span v-if="item.source === 'faq'"
                                                 class="suggested-question-badge faq">FAQ</span>
-                                        </div>
+                                        </button>
                                     </div>
                                 </div>
                             </transition>
@@ -159,16 +165,17 @@
                 </div>
                 <div class="input-container" :class="{ 'is-embedded': embeddedMode }">
                     <transition name="scroll-btn-fade">
-                        <div v-show="userHasScrolledUp" class="scroll-to-bottom-btn" @click="onClickScrollToBottom">
+                        <button v-show="userHasScrolledUp" type="button" class="scroll-to-bottom-btn"
+                            :aria-label="t('chat.scrollToLatest')" @click="onClickScrollToBottom">
                             <t-icon name="chevron-down" size="18px" />
-                        </div>
+                        </button>
                     </transition>
                     <PendingPromptDock :embedded-mode="embeddedMode" />
                     <div v-if="isAutomationSession" class="automation-session-notice" role="note">
                         <t-icon name="time" size="14px" />
                         <span>{{ t('automation.conversationNotice') }}</span>
                     </div>
-                    <InputField v-else-if="embeddedMode || currentSession" ref="inputFieldRef" :auto-focus="focusComposerOnMount" compact
+                    <InputField v-else-if="embeddedMode || currentSession" ref="inputFieldRef" :key="embeddedMode ? undefined : session_id" :auto-focus="focusComposerOnMount" compact
                         @send-msg="(query, modelId, mentionedItems, imageFiles, attachmentFiles, options) => sendMsg(query, modelId, mentionedItems, imageFiles, attachmentFiles, options)"
                         @stop-generation="handleStopGeneration"
                         @stop-confirmed="handleStopConfirmed"
@@ -744,6 +751,7 @@ watch([activitySessionId, isReplying, isImRecovering, currentAssistantMessageId]
     sessionActivity.update(activitySessionId.value, isReplying.value || isImRecovering.value, currentAssistantMessageId.value);
 }, { flush: 'sync' });
 const historyLoading = ref(true);
+const historyStatus = ref('idle');
 watch(activitySessionId, (id) => {
     if (!props.embeddedMode) sessionActivity.setViewing(id);
 }, { flush: 'sync' });
@@ -801,6 +809,9 @@ const handleKBEditorSuccess = (kbId) => {
 // ===== 推荐问题 =====
 const suggestedQuestions = ref([]);
 const suggestedQuestionsLoading = ref(false);
+const canSuggestQuestions = computed(() =>
+    !props.embeddedMode && historyStatus.value === 'loaded' && !historyLoading.value && messagesList.length === 0,
+);
 let suggestedQuestionsFetchId = 0; // 用于取消过时的请求
 let suggestedDebounceTimer = null;
 
@@ -815,21 +826,12 @@ const cancelSuggestedQuestionsFetch = () => {
 };
 
 const fetchSuggestedQuestionsIfNeeded = async () => {
-    if (props.embeddedMode) return;
-    // 初始历史尚未拉完时不能判断是否有消息，避免有历史的会话误请求推荐问法
-    if (historyLoading.value || messagesList.length > 0) {
-        if (messagesList.length > 0) {
-            cancelSuggestedQuestionsFetch();
-        }
-        return;
-    }
-    await fetchSuggestedQuestions();
+    if (messagesList.length > 0) cancelSuggestedQuestionsFetch();
+    else await fetchSuggestedQuestions();
 };
 
 const fetchSuggestedQuestions = async () => {
-    if (historyLoading.value || messagesList.length > 0) {
-        return;
-    }
+    if (!canSuggestQuestions.value) return;
     const fetchId = ++suggestedQuestionsFetchId;
     suggestedQuestionsLoading.value = true;
     // 加载期间保留旧数据，不清空，避免布局抖动
@@ -852,14 +854,8 @@ const fetchSuggestedQuestions = async () => {
     }
 };
 
-// The suggestion's source rides with this send only, as a retrieval hint.
 const handleSuggestedQuestionClick = (item) => {
-    const options = { questionOrigin: questionOriginFromSuggestion(item) };
-    if (inputFieldRef.value?.triggerSend) {
-        inputFieldRef.value.triggerSend(item.question, options);
-    } else {
-        sendMsg(item.question, '', [], [], [], options);
-    }
+    inputFieldRef.value?.prefillSuggestion(item.question, questionOriginFromSuggestion(item));
 };
 
 const handleAnswerRenderComplete = (message, ready) => {
@@ -868,7 +864,7 @@ const handleAnswerRenderComplete = (message, ready) => {
 
 // 防抖包装，切换知识库/文件时300ms内不重复请求
 const debouncedFetchSuggestions = () => {
-    if (historyLoading.value || messagesList.length > 0) return;
+    if (!canSuggestQuestions.value) return;
     if (suggestedDebounceTimer) clearTimeout(suggestedDebounceTimer);
     suggestedDebounceTimer = setTimeout(() => { fetchSuggestedQuestionsIfNeeded(); }, 300);
 };
@@ -921,9 +917,11 @@ watch([() => route.params], async (newvalue) => {
         const version = ++chatLoadVersion;
         const sid = session_id.value;
         clearCitationChunkCache();
+        cancelSuggestedQuestionsFetch();
 
         // 切换会话时，重置状态
         historyLoading.value = true;
+        historyStatus.value = 'idle';
         historyLoadingMore.value = false;
         hasMoreHistory.value = true;
         created_at.value = '';
@@ -938,12 +936,7 @@ watch([() => route.params], async (newvalue) => {
 
         await loadSessionAndHydrate(sid);
         if (version !== chatLoadVersion) return;
-        let data = {
-            session_id: sid,
-            created_at: '',
-            limit: limit.value
-        }
-        getmsgList(data);
+        loadInitialHistory();
     }
 });
 const scrollFollow = useChatScrollFollow(scrollContainer, userHasScrolledUp, computed(() => !childTabs.activeId.value));
@@ -1039,7 +1032,7 @@ const {
         if (!props.embeddedMode && !locallyRunning && !lastMessage) {
             sessionActivity.update(activitySessionId.value, false);
         }
-        if (lastMessage) {
+        if (lastMessage && !locallyRunning) {
             isReplying.value = true;
             // Such a turn renders as several assistant segments; only the
             // persisted id addresses the row continue-stream and stop
@@ -1095,8 +1088,10 @@ const getmsgList = (data, isScrollType = false, scrollHeight) => {
     const version = chatLoadVersion;
     const isCurrent = () => version === chatLoadVersion && sid === String(session_id.value || '');
     if (!isCurrent()) return;
+    const retryingInitialHistory = !isScrollType && historyStatus.value === 'failed';
     if (isScrollType) {
-        if (historyLoadingMore.value || !hasMoreHistory.value) return;
+        if (historyStatus.value === 'failed' || (historyLoading.value && messagesList.length === 0) ||
+            historyLoadingMore.value || !hasMoreHistory.value) return;
         historyLoadingMore.value = true;
     }
     return fetchMessageList(data).then(async (res) => {
@@ -1104,7 +1099,9 @@ const getmsgList = (data, isScrollType = false, scrollHeight) => {
             return
         }
         const batch = res?.data;
-        if (!batch?.length) {
+        if (res?.success === false || !Array.isArray(batch)) throw new Error('Invalid conversation history response');
+        if (!isScrollType) historyStatus.value = 'loaded';
+        if (!batch.length) {
             if (isScrollType) {
                 hasMoreHistory.value = historyHasMoreAfterAttempt(hasMoreHistory.value, {
                     status: 'loaded',
@@ -1130,7 +1127,8 @@ const getmsgList = (data, isScrollType = false, scrollHeight) => {
             return;
         }
         created_at.value = nextCursor;
-        await handleMsgList(batch, isScrollType, scrollHeight);
+        // A live turn can arrive while the initial history is unavailable.
+        await handleMsgList(batch, isScrollType || (retryingInitialHistory && messagesList.length > 0), scrollHeight);
     }).catch((err) => {
         if (!isCurrent()) return;
         console.error('Failed to load messages:', err);
@@ -1138,16 +1136,27 @@ const getmsgList = (data, isScrollType = false, scrollHeight) => {
             hasMoreHistory.value = historyHasMoreAfterAttempt(hasMoreHistory.value, {
                 status: 'failed',
             });
+        } else {
+            historyStatus.value = 'failed';
         }
     }).finally(() => {
         if (!isCurrent()) return;
         historyLoading.value = false;
         historyLoadingMore.value = false;
-        if (!isScrollType && messagesList.length === 0) {
+        if (!isScrollType && historyStatus.value === 'loaded' && messagesList.length === 0) {
             fetchSuggestedQuestionsIfNeeded();
         }
     })
 }
+
+const loadInitialHistory = () => {
+    historyLoading.value = true;
+    return getmsgList({ session_id: session_id.value, created_at: '', limit: limit.value });
+};
+
+const retryHistory = () => {
+    if (historyStatus.value === 'failed' && !historyLoading.value) return loadInitialHistory();
+};
 
 // 发送消息
 let sendDraft = '';
@@ -1567,6 +1576,7 @@ const handleSessionMutation = (event) => {
     if (detail.messagesCleared) {
         chatLoadVersion++;
         historyLoading.value = false;
+        historyStatus.value = 'loaded';
         messagesList.splice(0);
         created_at.value = '';
         hasMoreHistory.value = true;
@@ -1620,12 +1630,7 @@ onMounted(async () => {
         scrollLock.value = false;
         hasMoreHistory.value = true;
         historyLoadingMore.value = false;
-        let data = {
-            session_id: session_id.value,
-            created_at: '',
-            limit: limit.value
-        }
-        getmsgList(data)
+        loadInitialHistory();
     }
 })
 const clearData = () => {
@@ -1685,7 +1690,11 @@ onBeforeRouteUpdate((to, from, next) => {
     flex-direction: column;
     align-items: center;
     max-width: 100%;
-    min-width: 400px;
+    min-width: 0;
+
+    @media (max-width: 760px) {
+        --chat-content-inset: 12px;
+    }
 
     &.is-embedded {
         max-width: 100%;
@@ -1925,6 +1934,10 @@ onBeforeRouteUpdate((to, from, next) => {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+.history-load-error {
+    margin-top: 16px;
 }
 
 .msg-skeleton-list {

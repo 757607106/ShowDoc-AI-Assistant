@@ -72,11 +72,12 @@ export interface DocumentPreviewMarkdownOptions {
    * dropped so the document title is not rendered twice.
    */
   titles?: Array<string | null | undefined>
+  sourceBaseUrl?: string
 }
 
 export function renderDocumentPreviewMarkdown(
   markdown: string,
-  sanitize: (html: string) => string = sanitizeDocumentPreviewHTML,
+  sanitize: (html: string, sourceBaseUrl?: string) => string = sanitizeDocumentPreviewHTML,
   options: DocumentPreviewMarkdownOptions = {},
 ): string {
   // Strip the duplicated heading before delimiter preprocessing so the
@@ -85,5 +86,5 @@ export function renderDocumentPreviewMarkdown(
     ? stripDuplicateLeadingH1(markdown, options.titles)
     : markdown
   const mathSafe = preprocessMathDelimiters(deduped)
-  return sanitize(previewMarked.parse(safeMarkdownToHTML(mathSafe)) as string)
+  return sanitize(previewMarked.parse(safeMarkdownToHTML(mathSafe)) as string, options.sourceBaseUrl)
 }

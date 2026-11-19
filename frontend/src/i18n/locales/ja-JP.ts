@@ -4374,6 +4374,10 @@ export default {
   chat: {
     suggestedQuestions: 'こんな質問ができます',
     refreshSuggestedQuestions: '別の候補',
+    replaceDraftTitle: '下書きを置き換えますか？',
+    replaceDraftBody: '入力欄のテキストをこのおすすめの質問に置き換えます。',
+    historyLoadFailed: '会話履歴を読み込めませんでした。',
+    scrollToLatest: '最新のメッセージへ移動',
     thinking: '思考中...',
     thinkingAlt: '思考中',
     conversationTime: {
@@ -7407,6 +7411,7 @@ export default {
     },
     openPage: {
       open: '開く',
+      retired: '提供終了',
       openForm: '開いて入力',
       opened: 'アシスタントが開きました',
       back: '戻る',

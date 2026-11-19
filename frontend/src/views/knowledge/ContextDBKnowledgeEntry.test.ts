@@ -6,18 +6,21 @@ import { fixture, flush } from '../../test-utils/vueFixture.ts'
 
 const plain = (value: any) => JSON.parse(JSON.stringify(value))
 async function setup(t: TestContext, options: { query?: Record<string, string>; base?: any; failure?: Error; permission?: any; getBase?: (id: string) => Promise<any> } = {}) {
-  const f = fixture(t), routes: any[] = [], reads: string[] = []
+  const f = fixture(t), routes: any[] = [], pushed: any[] = [], reads: string[] = []
   const route = vue.reactive({ params: { kbId: 'native-kb' }, query: options.query || {} })
   const helper = f.evaluate(readFileSync(new URL('../../api/contextdb.ts', import.meta.url), 'utf8'), { '@/utils/request': {}, '@/utils/contextdbDocumentName': {} })
   const { vm } = f.component(new URL('./ContextDBKnowledge.vue', import.meta.url), {
-    'vue-router': { useRoute: () => route, useRouter: () => ({ replace: (value: any) => { routes.push(value); if (value.query) route.query = value.query }, push: (value: any) => routes.push(value) }) },
+    'vue-router': { useRoute: () => route, useRouter: () => ({
+      replace: (value: any) => { routes.push(value); if (value.query) route.query = value.query },
+      push: (value: any) => { pushed.push(value); routes.push(value); if (value.query) route.query = value.query },
+    }) },
     '@/stores/auth': { useAuthStore: () => ({ hasRole: () => true }) }, '@/stores/ui': { useUIStore: () => ({}) },
     '@/api/contextdb': { ...helper,
       getBase: async (id: string) => { reads.push(id); if (options.failure) throw options.failure; return { data: options.getBase ? await options.getBase(id) : { id, name: 'Knowledge', wiki_enabled: true, ...options.base } } },
       getBasePermissions: async () => options.permission || { member: { role: 'owner' } },
     },
   })
-  await flush(); await flush(); return { vm, route, props: vm.$.props, routes, reads }
+  await flush(); await flush(); return { vm, route, props: vm.$.props, routes, pushed, reads }
 }
 test('native entries keep their exact library ID and default to files for every compilation mode', async t => {
   for (const base of [{ wiki_enabled: true }, { wiki_enabled: false, graph_enabled: true }, { wiki_enabled: false, graph_enabled: false }]) await t.test(JSON.stringify(base), async t => {
@@ -111,4 +114,17 @@ test('import directory links select files and view switches clear the directory 
  const f=await setup(t,{query:{tab:'wiki',folder_id:'import-root'}})
  assert.equal(f.vm.tab,'documents');assert.equal(f.vm.folderId,'import-root')
  f.vm.selectTab('wiki');await flush();assert.equal(f.vm.tab,'wiki');assert.equal(f.route.query.folder_id,undefined)
+})
+
+test('file navigation writes the document and folder and returning clears legacy document aliases', async t => {
+  const f = await setup(t, { query: { kept: 'yes' } })
+  f.vm.navigateDocuments('folder-a'); await flush()
+  assert.deepEqual(plain(f.route.query), { kept: 'yes', tab: 'documents', folder_id: 'folder-a' })
+  f.vm.navigateDocuments('folder-a', 'doc-a'); await flush()
+  assert.deepEqual(plain(f.route.query), { kept: 'yes', tab: 'documents', folder_id: 'folder-a', document_id: 'doc-a' })
+  assert.equal(f.vm.documentId, 'doc-a'); assert.equal(f.pushed.length, 2)
+  f.route.query = { kept: 'yes', folder_id: 'folder-a', documentId: 'doc-a', knowledge_id: 'legacy' }; await flush()
+  f.vm.navigateDocuments('folder-a'); await flush()
+  assert.deepEqual(plain(f.route.query), { kept: 'yes', tab: 'documents', folder_id: 'folder-a' })
+  assert.equal(f.vm.documentId, ''); assert.equal(f.vm.folderId, 'folder-a'); assert.equal(f.pushed.length, 2)
 })

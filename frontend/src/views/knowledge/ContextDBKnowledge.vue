@@ -28,6 +28,17 @@ let request=0
 function viewQuery(value:string){const {view,document_id,documentId,knowledge_id,folder_id,...query}=route.query;return {...query,tab:value}}
 function selectTab(value:string){if(canRefresh()){tab.value=value;documentId.value='';if(!props.embedded)void router.replace({query:viewQuery(value)})}}
 function open(item:any){if(canRefresh()){documentId.value=item.id;tab.value='documents';if(!props.embedded)void router.replace({query:{...viewQuery('documents'),document_id:item.id}})}}
+function navigateDocuments(folder: string, id?: string) {
+  const query = { ...viewQuery('documents'), folder_id: folder || undefined, document_id: id }
+  const location = { query, hash: route.hash }
+  if (!id && documentId.value && folder === folderId.value) {
+    const previous = router.options?.history?.state?.back
+    if (typeof previous === 'string' && previous === router.resolve(location).fullPath) router.back()
+    else void router.replace(location)
+    return
+  }
+  void router.push(location)
+}
 function openWikiPage(pageId:string){if(canRefresh()){tab.value='wiki';documentId.value='';void router.replace({query:{...viewQuery('wiki'),wikiPageId:pageId}})}}
 async function loadBase(){
   if(!canRefresh())return
@@ -56,12 +67,12 @@ defineExpose({canRefresh})
   <div class="contextdb-knowledge" :class="{'knowledge-console':!embedded}">
     <div v-if="!embedded" class="console-intro"><h1>知识库</h1></div>
     <KnowledgePageHeader v-if="!embedded" :model-value="tab" @update:model-value="selectTab" :title="base?.name||'加载中'" :current-id="kbId" :tabs="viewTabs" :mode-label="base?knowledgeModeLabel(base):''" :description="base?.description" :permission-mode="permissionMode" @navigate="router.push('/platform/knowledge-bases')">
-      <template #actions><t-space><t-button variant="outline" @click="router.push({path:'/platform/collect',query:{kb_id:kbId}})">从外部数据源导入</t-button><t-button variant="text" @click="router.push({path:'/platform/governance',query:{kb_id:kbId}})">知识评审<t-icon name="jump" /></t-button><t-button variant="text" @click="router.push({path:'/platform/knowledge-bases/'+encodeURIComponent(kbId)+'/policies',query:{section:'settings'}})">评审策略<t-icon name="jump" /></t-button><t-button variant="text" @click="router.push({path:'/platform/knowledge-bases/'+encodeURIComponent(kbId)+'/policies',query:{section:'templates'}})">重写模板<t-icon name="jump" /></t-button></t-space></template>
+      <template #actions><t-space break-line><t-button variant="outline" @click="router.push({path:'/platform/collect',query:{kb_id:kbId}})">从外部数据源导入</t-button><t-button variant="text" @click="router.push({path:'/platform/governance',query:{kb_id:kbId}})">知识评审<t-icon name="jump" /></t-button><t-button variant="text" @click="router.push({path:'/platform/knowledge-bases/'+encodeURIComponent(kbId)+'/policies',query:{section:'settings'}})">评审策略<t-icon name="jump" /></t-button><t-button variant="text" @click="router.push({path:'/platform/knowledge-bases/'+encodeURIComponent(kbId)+'/policies',query:{section:'templates'}})">重写模板<t-icon name="jump" /></t-button></t-space></template>
     </KnowledgePageHeader>
     <div class="knowledge-body"><t-alert v-if="error" theme="error" :message="error" close />
       <EmptyState v-if="!base&&!baseLoading" icon="folder" title="暂时无法读取知识库"><t-button variant="outline" @click="loadBase">刷新</t-button></EmptyState>
       <t-loading v-else-if="!base" text="加载中" />
-      <ContextDBDocuments v-else-if="tab==='documents'" :kb-id="kbId" :can-edit="editable" :wiki-enabled="base.wiki_enabled" :graph-enabled="base.graph_enabled" :review-enabled="base.review_enabled" :document-id="documentId" :folder-id="folderId" :base-name="base.name" />
+      <ContextDBDocuments v-else-if="tab==='documents'" :kb-id="kbId" :can-edit="editable" :wiki-enabled="base.wiki_enabled" :graph-enabled="base.graph_enabled" :review-enabled="base.review_enabled" :document-id="documentId" :folder-id="folderId" :base-name="base.name" :sync-location="!embedded" @navigate="navigateDocuments" />
       <ContextDBWiki ref="wikiRef" v-else-if="tab==='wiki'" :kb-id="kbId" :can-edit="editable" @open-source-doc="id=>open({id})"><template #compile><ContextDBWikiCompile :kb-id="kbId" :can-edit="editable" @open-source-doc="id=>open({id})" /></template></ContextDBWiki>
       <ContextDBGraph v-else-if="tab==='graph'" :kb-id="kbId" :can-edit="editable" @open-source-doc="id=>open({id})" />
       <ContextDBWikiIssues ref="issuesRef" v-else-if="tab==='history'" :kb-id="kbId" :can-edit="editable" @open-page="openWikiPage" @open-source-doc="id=>open({id})" />

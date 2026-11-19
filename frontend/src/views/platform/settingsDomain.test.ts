@@ -19,5 +19,5 @@ test('platform retains the assistant bridge while shared knowledge context is mi
 
 test('user menu opens the personal workspace settings',()=>{
   const menu=readFileSync(new URL('../../components/UserMenu.vue',import.meta.url),'utf8')
-  assert.match(menu,/<div v-if="!authStore\.isLiteMode"[^>]*@click="handleQuickNav\('tenant'\)"/)
+  assert.match(menu,/<button v-if="!authStore\.isLiteMode" type="button"[^>]*@click="handleQuickNav\('tenant'\)"/)
 })

@@ -18,6 +18,14 @@ async function unwrap<T = any>(promise: Promise<{ data: any }>): Promise<T> {
   return data as T
 }
 
+export interface EntryDocumentPreview {
+  page_id: string
+  title: string
+  content: string
+  source_format: string
+  source_base_url?: string
+}
+
 export const api = {
   downloadFile: async (url: string, name: string) => {
     const response=await http.get(url,{responseType:'blob'})
@@ -30,8 +38,11 @@ export const api = {
   showdocProjects: () => unwrap(http.get('/showdoc/projects')),
   startTask: (entry: string, payload: any) => unwrap(http.post(`/entries/${entry}/start`, payload)),
   entryDocuments: (entry: string, params: any) => unwrap(http.get(`/entries/${entry}/documents`, { params })),
+  entryPreview: (entry: string, payload: {doc_id: string}, signal: AbortSignal) =>
+    unwrap<EntryDocumentPreview>(http.post(`/entries/${entry}/preview`, payload, {signal})),
   taskStatus: (taskId: string) => unwrap(http.get(`/task_status/${taskId}`)),
-  tasks: (spaceScope?: string, pagination: {page?: number; page_size?: number} = {}) => unwrap(http.get('/api/tasks', { params: { space_scope: spaceScope, ...pagination } })),
+  tasks: (spaceScope?: string, options: {page?: number; page_size?: number; status_group?: 'all' | 'active' | 'action' | 'done'} = {}) =>
+    unwrap(http.get('/api/tasks', { params: { space_scope: spaceScope, ...options } })),
   cancelTask: (taskId: string) => unwrap(http.post(`/tasks/${taskId}/cancel`)),
   retryTask: (taskId: string) => unwrap(http.post(`/tasks/${taskId}/retry`)),
   publishTask: (taskId: string) => unwrap(http.post(`/tasks/${taskId}/publish`)),

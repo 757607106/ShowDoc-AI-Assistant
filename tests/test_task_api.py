@@ -264,6 +264,72 @@ def test_task_pagination_filters_before_limiting_and_keeps_owners_separate(clien
         assert client.get('/api/tasks?' + query).status_code == 400
 
 
+def test_material_task_groups_fold_and_filter_before_paging(client):
+    fake = app_module.get_store().client
+    store = Store(client=fake, owner_id=os.environ['TEST_PLATFORM_USER'])
+    app_module.app.extensions['governance_store'] = store
+
+    def create(status, phase, *, scope='target', release_id=None):
+        params = {'release_id': release_id} if release_id else {}
+        kind = 'ctxdb_sync' if release_id else 'crawl'
+        task = store.create_job('contextdb' if release_id else 'file', params, scope=scope, kind=kind)
+        store.update_job(task['task_id'], status=status, phase=phase)
+        return task['task_id']
+
+    first = create('failed', 'failed')
+    parent = create('completed', 'submitted')
+    release = store.create_release(parent, 'target', 1, [], 'archive.zip')
+    old_attempt = create('failed', 'failed', release_id=release)
+    submission = create('partial', 'failed', release_id=release)
+    cancelled = create('cancelled', 'submitted')
+    queued = create('completed', 'submitted')
+    auto_failed = create('completed', 'submission_failed')
+    done = create('completed', 'submitted', release_id='unlinked')
+    other_scope = create('failed', 'failed', scope='other')
+    other = Store(client=fake, owner_id='another-owner')
+    other.update_job(other.create_job('file', {}, scope='target')['task_id'], status='failed')
+
+    def listing(group, page=1, size=2, scope='target'):
+        response = client.get('/api/tasks', query_string={
+            'space_scope': scope, 'status_group': group, 'page': page, 'page_size': size})
+        assert response.status_code == 200
+        return response.json
+
+    all_first = listing('all')
+    assert all_first['total'] == 7  # The latest linked attempt has no separate row.
+    assert [row['task_id'] for row in all_first['tasks']] == [done, auto_failed]
+    needs_action = [listing('action', page) for page in (1, 2, 3)]
+    assert [page['total'] for page in needs_action] == [4, 4, 4]
+    assert [page['page'] for page in needs_action] == [1, 2, 3]
+    action_rows = [row for page in needs_action for row in page['tasks']]
+    assert [row['task_id'] for row in action_rows] == [auto_failed, old_attempt, parent, first]
+    parent_row = action_rows[2]
+    assert parent_row['sync_task_id'] == parent_row['submission_task']['task_id'] == submission
+    assert parent_row['submission_task']['status'] == 'partial'
+    assert [row['task_id'] for row in listing('active')['tasks']] == [queued]
+    assert [row['task_id'] for row in listing('done')['tasks']] == [done, cancelled]
+    assert [row['task_id'] for row in listing('action', scope='other')['tasks']] == [other_scope]
+    assert listing('action', 999999999999999999999999)['tasks'] == []
+    assert client.get('/api/tasks?status_group=failed').status_code == 400
+    assert client.get('/api/tasks?space_scope=target').json['total'] == 8  # Legacy raw listing.
+
+
+def test_material_task_group_leaves_a_mismatched_scope_submission_standalone(client):
+    store = app_module.get_store()
+    parent = store.create_job('file', {}, scope='parent')
+    store.update_job(parent['task_id'], status='completed', phase='completed')
+    release = store.create_release(parent['task_id'], 'parent', 1, [], 'archive.zip')
+    child = store.create_job('contextdb', {'release_id': release}, scope='different', kind='ctxdb_sync')
+    store.update_job(child['task_id'], status='failed', phase='failed')
+
+    actions = client.get('/api/tasks?status_group=action').json
+    assert [row['task_id'] for row in actions['tasks']] == [child['task_id']]
+    assert actions['tasks'][0]['source_task_id'] is None
+    done = client.get('/api/tasks?status_group=done').json
+    assert [row['task_id'] for row in done['tasks']] == [parent['task_id']]
+    assert done['tasks'][0]['submission_task'] is None
+
+
 def test_release_scope_filter_precedes_the_recent_fifty_limit(client):
     store = app_module.get_store()
     for index in range(53):

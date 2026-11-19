@@ -1,5 +1,5 @@
 <template>
-  <div 
+  <span
     class="agent-avatar" 
     :style="avatarStyle"
     :class="{ 'agent-avatar-small': size === 'small', 'agent-avatar-large': size === 'large' }"
@@ -12,7 +12,7 @@
       <path d="M7 22L7.4 23.6C7.45 23.85 7.65 24.05 7.9 24.1L9.5 24.5L7.9 24.9C7.65 24.95 7.45 25.15 7.4 25.4L7 27L6.6 25.4C6.55 25.15 6.35 24.95 6.1 24.9L4.5 24.5L6.1 24.1C6.35 24.05 6.55 23.85 6.6 23.6L7 22Z" fill="rgba(255,255,255,0.5)"/>
     </svg>
     <span class="agent-avatar-letter" :style="letterStyle">{{ letter }}</span>
-  </div>
+  </span>
 </template>
 
 <script setup lang="ts">

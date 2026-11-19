@@ -250,10 +250,12 @@ class Store:
         # 新建文档的列表索引存在秒级滞后,直接返回本地载荷避免回读落空
         return dict(payload)
 
-    def _job_from_doc(self, doc):
+    def _job_from_doc(self, doc, payload=None):
         metadata = doc.get('metadata', {})
-        job_id = metadata.get('job_id')
-        payload = dict(self._body(doc['id'], cache_key=f"job:{job_id}", updated_at=doc.get('updated_at')))
+        if payload is None:
+            job_id = metadata.get('job_id')
+            payload = self._body(doc['id'], cache_key=f"job:{job_id}", updated_at=doc.get('updated_at'))
+        payload = dict(payload)
         for key in JOB_VOLATILE_KEYS:
             if key in metadata:
                 payload[key] = metadata[key]
@@ -296,6 +298,80 @@ class Store:
         with connection() as conn:
             return conn.execute('SELECT count(*) AS n FROM runtime_records WHERE metadata @> %s',
                                 (Jsonb(condition),)).fetchone()['n']
+
+    def list_material_jobs(self, scope, status_group, *, page, page_size):
+        from governance.database import connection
+        from psycopg.types.json import Jsonb
+
+        condition = {'type': 'job'}
+        if self.owner_id is not None:
+            condition['owner_id'] = self.owner_id
+        if scope is not None:
+            condition['scope'] = scope
+        # A linked submission is folded into its source before counting and paging.
+        offset = min((page - 1) * page_size, 2**63 - 1)
+        with connection() as conn:
+            rows = conn.execute('''
+                WITH jobs AS (
+                    SELECT id, owner_id, record_key AS task_id, created_at,
+                        metadata->>'scope' AS scope, coalesce(metadata->>'kind', payload->>'kind') AS task_kind,
+                        coalesce(metadata->>'status', payload->>'status') AS status,
+                        coalesce(metadata->>'phase', payload->>'phase') AS phase
+                    FROM runtime_records WHERE metadata @> %s
+                ), releases AS (
+                    SELECT DISTINCT ON (owner_id, metadata->>'job_id') owner_id, metadata->>'job_id' AS job_id,
+                        metadata->>'release_id' AS release_id, metadata->>'scope' AS scope, metadata
+                    FROM runtime_records WHERE kind='release' AND owner_id IN (SELECT owner_id FROM jobs)
+                    ORDER BY owner_id, job_id, created_at DESC, id
+                ), submissions AS (
+                    SELECT DISTINCT ON (owner_id, payload->'params'->>'release_id') owner_id,
+                        payload->'params'->>'release_id' AS release_id, id, metadata->>'scope' AS scope,
+                        coalesce(metadata->>'status', payload->>'status') AS status,
+                        coalesce(metadata->>'phase', payload->>'phase') AS phase
+                    FROM runtime_records
+                    WHERE kind='job' AND payload->>'kind'='ctxdb_sync' AND owner_id IN (SELECT owner_id FROM jobs)
+                    ORDER BY owner_id, release_id, created_at DESC, id
+                ), linked AS (
+                    SELECT parent.id AS parent_id, child.id AS child_id, child.status, child.phase,
+                        release.metadata AS release_metadata
+                    FROM jobs parent
+                    LEFT JOIN releases release ON release.owner_id=parent.owner_id AND release.job_id=parent.task_id
+                    LEFT JOIN submissions child ON child.owner_id=parent.owner_id AND child.release_id=release.release_id
+                        AND child.scope=parent.scope AND release.scope=parent.scope
+                    WHERE parent.task_kind <> 'ctxdb_sync'
+                ), stages AS (
+                    SELECT job.id, job.created_at,
+                        CASE WHEN job.status='completed' AND link.child_id IS NOT NULL
+                            THEN link.status ELSE job.status END AS status,
+                        CASE WHEN job.status='completed' AND link.child_id IS NOT NULL
+                            THEN link.phase ELSE job.phase END AS phase,
+                        CASE WHEN job.status='completed' AND link.child_id IS NOT NULL
+                            THEN 'ctxdb_sync' ELSE job.task_kind END AS task_kind
+                    FROM jobs job LEFT JOIN linked link ON link.parent_id = job.id
+                    WHERE NOT EXISTS (SELECT 1 FROM linked WHERE child_id = job.id)
+                ), matched AS (
+                    SELECT id, created_at FROM stages WHERE 'all' = %s OR %s = CASE
+                        WHEN phase='submission_failed' OR status IN ('failed', 'partial') THEN 'action'
+                        WHEN status='cancelled' THEN 'done'
+                        WHEN status IN ('pending', 'running', 'cancelling')
+                            OR (task_kind<>'ctxdb_sync' AND phase='submitted') THEN 'active'
+                        ELSE 'done' END
+                )
+                SELECT total, record.*, link.release_metadata,
+                    sync.metadata AS sync_metadata, sync.payload AS sync_payload
+                FROM (SELECT count(*) AS total FROM matched) counts
+                LEFT JOIN (
+                    SELECT id, created_at FROM matched ORDER BY created_at DESC, id
+                    LIMIT %s OFFSET %s
+                ) paged ON true
+                LEFT JOIN runtime_records record ON record.id = paged.id
+                LEFT JOIN linked link ON link.parent_id = record.id
+                LEFT JOIN runtime_records sync ON sync.id = link.child_id
+                ORDER BY paged.created_at DESC, paged.id
+            ''', (Jsonb(condition), status_group, status_group, page_size, offset)).fetchall()
+        return rows[0]['total'], [(self._job_from_doc(self._record(row), row['payload']), row['release_metadata'],
+            {'metadata': row['sync_metadata'], 'payload': row['sync_payload']} if row['sync_metadata'] else None)
+            for row in rows if row['id'] is not None]
 
     def _guard_doc(self, doc, job_id):
         if not self.active_attempt:

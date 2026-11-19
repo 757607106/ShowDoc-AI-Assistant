@@ -3,12 +3,13 @@
     <Transition name="settings-modal-shell">
       <div v-if="visible" class="settings-modal-shell settings-overlay" :class="overlayClass" :style="{ zIndex }"
         @click.self="emit('close')">
-        <div class="settings-modal" role="dialog" aria-modal="true" :aria-label="title">
+        <div ref="dialog" class="settings-modal" role="dialog" aria-modal="true" :aria-label="title"
+          @keydown.tab="cycleFocus">
           <div v-if="loading" class="editor-initializing" role="status" :aria-label="$t('common.loading')">
             <t-loading size="medium" :text="$t('common.loading')" />
           </div>
 
-          <button class="close-btn" type="button" @click="emit('close')" :aria-label="$t('common.close')">
+          <button ref="closeButton" class="close-btn" type="button" @click="emit('close')" :aria-label="$t('common.close')">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
               <path d="M15 5L5 15M5 5L15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             </svg>
@@ -24,15 +25,17 @@
                 <slot name="nav">
                   <template v-for="group in navGroups" :key="group.key">
                     <div class="nav-group-title">{{ group.label }}</div>
-                    <div v-for="item in group.items" :key="item.key" :class="['nav-item', { active: modelValue === item.key }]"
+                    <button v-for="item in group.items" :key="item.key" type="button"
+                      :class="['nav-item', { active: modelValue === item.key }]"
                       :data-guide="navItemGuidePrefix ? `${navItemGuidePrefix}-${item.key}` : undefined"
+                      :aria-current="modelValue === item.key ? 'true' : undefined"
                       @click="emit('update:modelValue', item.key)">
                       <slot name="nav-icon" :item="item" :active="modelValue === item.key">
                         <t-icon :name="item.icon" class="nav-icon" />
                       </slot>
                       <span class="nav-label">{{ item.label }}</span>
                       <span v-if="showBadge(item)" :class="['nav-badge', item.badgeClass]">{{ item.badge }}</span>
-                    </div>
+                    </button>
                   </template>
                 </slot>
               </nav>
@@ -57,6 +60,8 @@
 </template>
 
 <script setup lang="ts">
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+
 /**
  * 全屏"设置类"弹窗壳：遮罩 + 1080×780 面板 + 左侧分组导航 + 右侧内容 + 可选底栏。
  * 被 Settings / AgentEditorModal / OrganizationSettingsModal / KnowledgeBaseEditorModal 共用，
@@ -83,7 +88,7 @@ export interface SettingsModalNavGroup {
   items: SettingsModalNavItem[]
 }
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     visible: boolean
     title: string
@@ -111,6 +116,44 @@ const emit = defineEmits<{
   (e: 'update:modelValue', key: string): void
   (e: 'close'): void
 }>()
+
+const dialog = ref<HTMLElement>()
+const closeButton = ref<HTMLButtonElement>()
+let opener: HTMLElement | null = null
+
+function restoreFocus() {
+  if (opener?.isConnected && !opener.closest('[inert]')) opener.focus({ preventScroll: true })
+  opener = null
+}
+
+watch([() => props.visible, () => props.modelValue], async ([visible], [wasVisible]) => {
+  if (!visible) {
+    restoreFocus()
+    return
+  }
+  if (!wasVisible) opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  await nextTick()
+  if (!props.visible) return
+  if (!wasVisible) closeButton.value?.focus({ preventScroll: true })
+  dialog.value?.querySelector('.settings-nav .nav-item.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+}, { immediate: true })
+onBeforeUnmount(restoreFocus)
+
+function cycleFocus(event: KeyboardEvent) {
+  const focusable = Array.from(dialog.value?.querySelectorAll<HTMLElement>(
+    'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"]',
+  ) || []).filter(element =>
+    element.tabIndex >= 0 && !element.matches(':disabled') && !element.closest('[inert]') &&
+    element.getClientRects().length > 0 && getComputedStyle(element).visibility === 'visible',
+  )
+  const first = focusable[0]
+  const last = focusable.at(-1)
+  if (event.shiftKey ? document.activeElement === first : document.activeElement === last) {
+    const target = event.shiftKey ? last : first
+    event.preventDefault()
+    target?.focus()
+  }
+}
 
 function showBadge(item: SettingsModalNavItem): boolean {
   if (item.badge == null || item.badge === '') return false
@@ -273,6 +316,19 @@ function showBadge(item: SettingsModalNavItem): boolean {
     }
   }
 
+  button.nav-item {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    text-align: start;
+    font-family: inherit;
+
+    &:focus-visible {
+      outline: 2px solid var(--td-brand-color);
+      outline-offset: -2px;
+    }
+  }
+
   .nav-icon {
     margin-right: 9px;
     font-size: var(--app-text-xl);
@@ -409,6 +465,72 @@ function showBadge(item: SettingsModalNavItem): boolean {
   .settings-modal {
     transform: scale(0.95);
     opacity: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-modal-shell.settings-overlay {
+    inset: 0;
+    padding: 0;
+  }
+
+  .settings-modal-shell {
+    .settings-modal {
+      height: 100%;
+      max-height: 100%;
+      border-radius: 0;
+      box-sizing: border-box;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right)
+        env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+
+    .close-btn {
+      top: calc(8px + env(safe-area-inset-top));
+      right: calc(8px + env(safe-area-inset-right));
+      width: 40px;
+      height: 40px;
+    }
+
+    .settings-container {
+      flex-direction: column;
+    }
+
+    .settings-sidebar {
+      width: 100%;
+      border: 0;
+      border-bottom: 1px solid var(--td-component-stroke);
+    }
+
+    .sidebar-header {
+      padding-right: 56px;
+    }
+
+    .settings-nav {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 8px;
+      overflow: auto;
+    }
+
+    .settings-nav .nav-group-title,
+    .settings-nav > .nav-group-title:first-child {
+      padding: 0 6px;
+      white-space: nowrap;
+    }
+
+    .settings-nav .nav-item {
+      flex: none;
+      width: auto;
+      min-height: 36px;
+      margin-bottom: 0;
+      white-space: nowrap;
+    }
+
+    .settings-footer {
+      flex-wrap: wrap;
+      padding: 12px 16px;
+    }
   }
 }
 </style>

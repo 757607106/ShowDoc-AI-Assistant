@@ -32,13 +32,13 @@
                             </p>
                         </div>
                         <div class="suggested-questions-grid">
-                            <div v-for="(item, index) in suggestedQuestions" :key="item.question"
+                            <button v-for="(item, index) in suggestedQuestions" :key="item.question" type="button"
                                 class="suggested-question-card" :class="{ 'sq-card-visible': sqCardsRevealed }"
                                 :style="{ transitionDelay: sqCardsRevealed ? `${index * 50}ms` : '0ms' }"
                                 @click="handleSuggestedQuestionClick(item)">
                                 <span class="suggested-question-text">{{ item.question }}</span>
                                 <span v-if="item.source === 'faq'" class="suggested-question-badge faq">FAQ</span>
-                            </div>
+                            </button>
                         </div>
                     </div>
                 </transition>
@@ -57,7 +57,7 @@
                     <button v-if="selectedProjectDir" type="button" class="project-dir-bar__clear"
                         :aria-label="$t('createChat.clearProject')" @click="clearProjectDir">×</button>
                 </div>
-                <InputField ref="inputFieldRef" @send-msg="sendMsg"></InputField>
+                <InputField :key="String(route.params.kbId || '')" ref="inputFieldRef" :composer-locked="creatingSession" @send-msg="sendMsg" />
             </div>
         </div>
     </div>
@@ -234,11 +234,10 @@ onMounted(() => {
 });
 
 const inputFieldRef = ref();
+const creatingSession = ref(false);
 
-// The suggestion's source rides with this send to the new session's first
-// request, so the agent searches it before answering.
 const handleSuggestedQuestionClick = (item: SuggestedQuestion) => {
-    inputFieldRef.value?.triggerSend(item.question, { questionOrigin: questionOriginFromSuggestion(item) });
+    if (!creatingSession.value) inputFieldRef.value?.prefillSuggestion(item.question, questionOriginFromSuggestion(item));
 };
 
 const sendMsg = (value: string, modelId: string, mentionedItems: any[], imageFiles: any[] = [], attachmentFiles: any[] = [], options: SendMessageOptions = {}) => {
@@ -246,6 +245,9 @@ const sendMsg = (value: string, modelId: string, mentionedItems: any[], imageFil
 }
 
 async function createNewSession(value: string, modelId: string, mentionedItems: any[] = [], imageFiles: any[] = [], attachmentFiles: any[] = [], options: SendMessageOptions = {}) {
+    const composer = inputFieldRef.value;
+    if (!composer || creatingSession.value) return;
+    creatingSession.value = true;
     const selectedKbs = settingsStore.settings.selectedKnowledgeBases || [];
     const selectedFiles = settingsStore.settings.selectedFiles || [];
 
@@ -264,17 +266,22 @@ async function createNewSession(value: string, modelId: string, mentionedItems: 
 
     try {
         const res = await createSessions(withOptionalProjectDir(sessionData, selectedProjectDir.value));
+        if (composer !== inputFieldRef.value) return;
         if (res.data && res.data.id) {
-            await navigateToSession(res.data.id, value, modelId, mentionedItems, imageFiles, attachmentFiles, options);
+            if (await navigateToSession(res.data.id, value, modelId, mentionedItems, imageFiles, attachmentFiles, options)) {
+                composer.clearDraft();
+            } else if (composer === inputFieldRef.value) {
+                MessagePlugin.error(t('createChat.messages.createError'));
+            }
         } else {
             console.error('[createChat] Failed to create session');
-            inputFieldRef.value?.restoreDraft(value, imageFiles, attachmentFiles);
             MessagePlugin.error(t('createChat.messages.createFailed'));
         }
     } catch (error) {
         console.error('[createChat] Create session error:', error);
-        inputFieldRef.value?.restoreDraft(value, imageFiles, attachmentFiles);
-        MessagePlugin.error(t('createChat.messages.createError'));
+        if (composer === inputFieldRef.value) MessagePlugin.error(t('createChat.messages.createError'));
+    } finally {
+        creatingSession.value = false;
     }
 }
 
@@ -292,7 +299,15 @@ const navigateToSession = async (sessionId: string, value: string, modelId: stri
     usemenuStore.updataMenuChildren(obj);
     usemenuStore.changeIsFirstSession(true);
     usemenuStore.changeFirstQuery(value, mentionedItems, modelId, imageFiles, attachmentFiles, options.questionOrigin ?? null);
-    await router.push(`/platform/chat/${sessionId}`);
+    try {
+        await router.push(`/platform/chat/${sessionId}`);
+        return router.currentRoute.value.params.chatid === sessionId;
+    } finally {
+        if (router.currentRoute.value.params.chatid !== sessionId && usemenuStore.firstQuery === value) {
+            usemenuStore.changeIsFirstSession(false);
+            usemenuStore.changeFirstQuery('');
+        }
+    }
 }
 
 const handleKBEditorSuccess = (kbId: string) => {
@@ -428,6 +443,25 @@ async function openProjectDir() {
             height: 24px;
             width: 24px;
         }
+    }
+}
+
+@media (max-width: 760px) {
+    .dialogue-wrap {
+        min-height: 0;
+        overflow-y: auto;
+        align-items: safe center;
+    }
+
+    .dialogue-answers {
+        gap: 16px;
+        padding: 16px 12px;
+    }
+
+    .dialogue-title {
+        font-size: var(--app-text-3xl);
+        text-align: center;
+        text-wrap: balance;
     }
 }
 

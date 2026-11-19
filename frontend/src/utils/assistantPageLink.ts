@@ -46,8 +46,13 @@ export function isAssistantPageLink(value: unknown): value is AssistantPageLink 
   return !!link && link.display_type === 'open_page' && typeof link.page === 'string' && typeof link.label === 'string'
 }
 
+export function isRetiredPageLink(link: AssistantPageLink): boolean {
+  return link.page === 'automations' || link.page === 'organizations'
+}
+
 /** Where the link goes, using the deep links the pages already read. */
 export function pageLinkLocation(link: AssistantPageLink): PageLinkLocation | null {
+  if (isRetiredPageLink(link)) return null
   switch (link.page) {
     case 'knowledge_base':
       if (!link.knowledge_base_id) return null
@@ -94,15 +99,6 @@ export function pageLinkLocation(link: AssistantPageLink): PageLinkLocation | nu
       return { path: '/platform/agents', query: {} }
     case 'knowledge_bases':
       return { path: '/platform/knowledge-bases', query: {} }
-    case 'organizations':
-      return { path: '/platform/organizations', query: {} }
-    case 'automations':
-      return {
-        path: link.automation_id
-          ? `/platform/automations/${encodeURIComponent(link.automation_id)}`
-          : '/platform/automations',
-        query: {},
-      }
     default:
       return null
   }

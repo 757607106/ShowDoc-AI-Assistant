@@ -146,6 +146,16 @@ def model_capabilities(saved):
     return resolve(saved)['capabilities']
 
 
+def supports_image_input(saved):
+    kind = saved.get('type')
+    if kind not in ('KnowledgeQA', 'VLLM'):
+        return False
+    inputs = (saved.get('capabilities') or model_capabilities(saved)).get('input')
+    if inputs is not None:
+        return 'image' in inputs
+    return kind == 'VLLM' or saved.get('parameters', {}).get('supports_vision') is True
+
+
 def describe_model(saved):
     caps = model_capabilities(saved)
     params = dict(saved.get('parameters', {}))
@@ -312,6 +322,8 @@ def build_model_record(saved, config):
         level = ''
     budget = completion_budget(caps, config)
     profile = {k: caps[v] for k,v in [('max_input_tokens', 'context_window'), ('max_output_tokens', 'max_output_tokens')] if caps.get(v)}
+    if 'input' in caps:
+        profile['image_inputs'] = 'image' in caps['input']
     fmt = caps['thinking_format']
     temperature = c.get('fixed_temperature', config.get('temperature', 0.7)) if c.get('supports_temperature', True) else None
     common = dict(model=r['remote_model'], api_key=params.get('api_key') or 'not-required', temperature=temperature,

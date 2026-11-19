@@ -55,6 +55,26 @@ test('a linked-detail read failure preserves the capture and its public submissi
   assert.match(f.vm.submissionReadError, /提交详情暂不可用/); assert.equal(f.vm.detailError, '')
 })
 
+test('detail recovery follows the failed stage and only reports completed submissions as done', async t => {
+  let sync = {task_id:'sync',scope:'a',kind:'ctxdb_sync',status:'partial',failed_pages:2,message:'知识库暂时不可用'}
+  const f = setup(t, {taskStatus:async id => id === 'sync' ? sync : id === 'capture'
+    ? {task_id:id,scope:'a',kind:'crawl',status:'completed',phase:'submitted',sync_task_id:'sync'}
+    : {task_id:id,scope:'a',status:'partial',failed_pages:2,failure_details:[{error:'读取超时'}]}})
+  await f.vm.openDetails('source')
+  assert.equal(f.vm.detailFailure.task_id, 'source')
+  assert.match(f.vm.detailFailureReason, /其中一条.*读取超时/)
+
+  await f.vm.openDetails('capture')
+  assert.equal(f.vm.detailFailure.task_id, 'sync')
+  assert.equal(f.vm.detailFailureReason, '知识库暂时不可用')
+  assert.equal(f.vm.detailSubmissionDone, false)
+
+  sync = {...sync, status:'completed', failed_pages:0, message:''}
+  await f.vm.openDetails('capture', true)
+  assert.equal(f.vm.detailFailure, null)
+  assert.equal(f.vm.detailSubmissionDone, true)
+})
+
 test('background refresh has at most one in-flight detail request even when it takes longer than polling', async t => {
   let slow = false, resolve!:(value:any)=>void
   const f = setup(t,{taskStatus:async id=>slow?new Promise(yes=>resolve=yes):{task_id:id,scope:'a',status:'running'}})
@@ -76,6 +96,24 @@ test('scope changes clear old rows and ignore an earlier list response', async t
   f.vm.changePage(3); await flush(); assert.equal(f.lists.at(-1).scope,'b'); assert.equal(f.lists.at(-1).page,3)
 })
 
+test('status selection resets to page one, uses the server total, and ignores outdated pages', async t => {
+  let oldPage!:(value:any)=>void
+  const action = {task_id:'older-failure',scope:'a',status:'failed'}
+  const f = setup(t, {query:{space:'a'}, tasks:async (_, options) => {
+    if (options.status_group === 'action') return {tasks:[action],total:21}
+    if (options.page === 2) return new Promise(resolve=>oldPage=resolve)
+    return {tasks:[{task_id:'recent',scope:'a',status:'completed'}],total:45}
+  }})
+  await flush(); f.vm.changePage(2)
+  f.vm.changeFilter('action'); await flush()
+  assert.deepEqual(f.lists.at(-1),{scope:'a',page:1,page_size:20,status_group:'action'})
+  assert.equal(f.vm.page,1); assert.equal(f.vm.total,21); assert.equal(f.vm.tasks[0].task_id,action.task_id)
+  oldPage({tasks:[{task_id:'stale-page'}],total:45}); await flush()
+  assert.equal(f.vm.tasks[0].task_id,action.task_id)
+  f.vm.changePage(2); await flush()
+  assert.deepEqual(f.lists.at(-1),{scope:'a',page:2,page_size:20,status_group:'action'})
+})
+
 test('only current operations refresh details, retrying a sync opens its newly returned task', async t => {
   let resolve!:(value:any)=>void
   const f=setup(t,{cancel:async()=>new Promise(yes=>resolve=yes)})
@@ -93,6 +131,51 @@ test('viewer operations are rejected and queued submission is not cloud completi
   await f.vm.act({task_id:'x',scope:'a',status:'running'},'cancel'); assert.equal(f.writes.length,0)
   assert.equal(f.vm.statusLabel({task_id:'x',scope:'a',kind:'crawl',status:'completed',phase:'submitted'}),'已排队提交')
   assert.equal(f.vm.statusLabel({task_id:'x',scope:'a',kind:'ctxdb_sync',status:'completed',phase:'submitted'}),'提交完成')
+})
+
+test('list labels distinguish failures by stage and show progress only when counts are known', t => {
+  const {vm} = setup(t)
+  const capture = {task_id:'capture',scope:'a',kind:'crawl',entry:'showdoc',status:'partial',failed_pages:2}
+  assert.equal(vm.statusLabel(capture), '采集部分失败 · 2 页')
+  assert.equal(vm.taskDetailsLabel(capture), '查看失败条目')
+  assert.equal(vm.statusLabel({...capture,entry:'file'}), '文件检查部分失败 · 2 份')
+  assert.equal(vm.taskDetailsLabel({...capture,status:'failed',failed_pages:0}), '查看并处理')
+
+  const submission = {...capture,task_id:'sync',kind:'ctxdb_sync',failed_pages:3}
+  const linked = {...capture,status:'completed',sync_task_id:'sync',submission_task:submission}
+  assert.equal(vm.statusLabel(linked), '资料提交部分失败 · 3 份')
+  assert.equal(vm.taskDetailsLabel(linked), '查看并处理')
+  assert.equal(vm.taskFailureLabel({...capture,status:'completed',phase:'submission_failed'}), '自动提交失败')
+
+  const queued = {...capture,status:'pending',total_pages:0,completed_pages:0}
+  assert.equal(vm.statusLabel(queued), '等待执行')
+  assert.equal(vm.taskProgressLabel(queued), '')
+  assert.equal(vm.taskProgressLabel({...capture,completed_pages:8}), '已处理 8 页')
+  assert.equal(vm.taskProgressLabel({...capture,completed_pages:8,total_pages:10}), '已处理 8 / 10 页')
+  assert.equal(vm.statusTheme({...capture,status:'cancelled'}), 'default')
+})
+
+test('whole-library submission requires confirmation of the current eligible task', async t => {
+  const f = setup(t, { taskStatus: async id => ({ task_id:id, scope:'a', status:'completed', submit_available:true }) })
+  await f.vm.openDetails('capture')
+
+  f.vm.requestSubmit(f.vm.detail)
+  assert.equal(f.vm.submitTarget.scope, 'a')
+  assert.deepEqual(f.writes, [])
+  f.vm.closeSubmitConfirmation()
+  await f.vm.confirmSubmit()
+  assert.deepEqual(f.writes, [])
+
+  f.vm.requestSubmit(f.vm.detail)
+  f.vm.detail.submit_available = false
+  await f.vm.confirmSubmit()
+  assert.deepEqual(f.writes, [])
+  assert.match(f.vm.actionError, /已不能补交/)
+
+  f.vm.detail.submit_available = true
+  f.vm.requestSubmit(f.vm.detail)
+  await Promise.all([f.vm.confirmSubmit(), f.vm.confirmSubmit()])
+  assert.deepEqual(f.writes, [{ action:'submit', id:'capture' }])
 })
 
 test('adding guards busy navigation and consumes legacy source parameters after it closes', async t => {

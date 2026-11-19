@@ -26,7 +26,7 @@
             <div class="action-card action-pending">
               <div class="action-header no-results">
                 <div class="action-title">
-                  <ChatTimelineIcon class="action-title-icon" name="lightbulb" :active="true" />
+                  <ChatTimelineIcon class="action-title-icon" name="time" :active="true" />
                   <span class="action-name">{{ t('chat.preparingAnswer') }}</span>
                 </div>
               </div>
@@ -93,7 +93,7 @@
             <div class="action-card" :class="{ 'action-pending': !waitStepStalled }">
               <div class="action-header no-results">
                 <div class="action-title">
-                  <ChatTimelineIcon class="action-title-icon" name="lightbulb" :active="!waitStepStalled" />
+                  <ChatTimelineIcon class="action-title-icon" name="time" :active="!waitStepStalled" />
                   <span class="action-name">{{ waitStepText }}</span>
                 </div>
               </div>
@@ -110,7 +110,7 @@
             <div class="action-card" :class="{ 'action-pending': thinkingPending }">
               <div class="action-header" :class="{ 'no-results': !thinkingContent }" @click="toggleThinking">
                 <div class="action-title">
-                  <ChatTimelineIcon class="action-title-icon" name="lightbulb" :active="thinkingActive" />
+                  <ChatTimelineIcon class="action-title-icon" name="thinking" :active="thinkingActive" />
                   <span class="action-name">{{ t('agent.think') }}</span>
                 </div>
               </div>
@@ -215,7 +215,7 @@
               <div class="action-card" :class="{ 'action-pending': thinkingPending }">
                 <div class="action-header" :class="{ 'no-results': !thinkingContent }" @click="toggleThinking">
                   <div class="action-title">
-                    <ChatTimelineIcon class="action-title-icon" name="lightbulb" :active="thinkingActive" />
+                    <ChatTimelineIcon class="action-title-icon" name="thinking" :active="thinkingActive" />
                     <span class="action-name">{{ t('agent.think') }}</span>
                   </div>
                 </div>

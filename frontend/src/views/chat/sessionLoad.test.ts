@@ -39,7 +39,8 @@ function fixture(
     calls: any[] = [],
     streams: any[] = [],
     errors: any[] = [],
-    sent: any[] = []
+    sent: any[] = [],
+    suggestions: string[] = []
   const context: Record<string, any> = {
     ref,
     computed,
@@ -60,7 +61,7 @@ function fixture(
       restoreDefaultsIfSnapshotted() {},
     },
     cancelSuggestedQuestionsFetch() {},
-    fetchSuggestedQuestionsIfNeeded() {},
+    fetchSuggestedQuestionsIfNeeded: () => suggestions.push(context.session_id.value),
     clearCitationChunkCache() {},
     console: { error: (...args: any[]) => errors.push(args), warn() {}, log() {} },
     watch: (_value: any, callback: typeof change) => {
@@ -109,11 +110,13 @@ function fixture(
   ])
     context[name] = ref(name === 'hasMoreHistory')
   context.created_at = ref('')
+  context.historyStatus = ref('idle')
   context.currentAssistantMessageId = ref('')
   context.limit = ref(20)
   let afterHistory!: () => Promise<void>
-  context.handleMsgList = async (batch: any[]) => {
-    rows.push(...batch)
+  context.handleMsgList = async (batch: any[], prepend: boolean) => {
+    if (prepend) rows.unshift(...batch)
+    else rows.push(...batch)
     await afterHistory()
   }
   const after = block('    onAfterMsgList: async () => {', '    onAgentQuery: ')
@@ -130,7 +133,7 @@ function fixture(
     block('const sendMsg = ', '    const reasoningEffort = ') +
     'recordSend(value); };\n' +
     block('const clearData = ', '</script>') +
-    '\nreturn { currentSession, loadSessionAndHydrate, getmsgList, afterHistory, handleSessionMutation, sendMsg, clearData };'
+    '\nreturn { currentSession, loadSessionAndHydrate, getmsgList, retryHistory, afterHistory, handleSessionMutation, sendMsg, clearData };'
   const page = new Function(...Object.keys(context), code)(...Object.values(context))
   afterHistory = page.afterHistory
   return {
@@ -142,6 +145,7 @@ function fixture(
     streams,
     errors,
     sent,
+    suggestions,
     change: (id: string) => change([{ chatid: id }]),
     dispose: () => dispose(),
     leave: () => leave({}, {}, () => {}),
@@ -314,8 +318,77 @@ test('current failures preserve the history cursor and a later retry can succeed
   await f.page.getmsgList({ session_id: 'A', created_at: 'cursor' }, true)
   assert.deepEqual(
     f.rows.map((row) => row.id),
-    ['existing', 'older'],
+    ['older', 'existing'],
   )
+})
+
+test('initial history failure suppresses suggestions and retry loads the same session once', async () => {
+  const retryPage = deferred()
+  let failing = true
+  const f = fixture({
+    messages: async () => {
+      if (failing) throw new Error('Synthetic history failure')
+      return retryPage.promise
+    },
+  })
+  await f.page.getmsgList({ session_id: 'A' })
+  assert.equal(f.context.historyStatus.value, 'failed')
+  assert.deepEqual(f.suggestions, [])
+  failing = false
+  const retry = f.page.retryHistory()
+  await f.page.retryHistory()
+  assert.equal(f.context.historyLoading.value, true)
+  assert.deepEqual(f.calls.slice(1), [{ session_id: 'A', created_at: '', limit: 20 }])
+  retryPage.resolve({ data: [{ id: 'recovered', created_at: 'now' }] })
+  await retry
+  assert.equal(f.context.historyStatus.value, 'loaded')
+  assert.equal(f.context.historyLoading.value, false)
+  assert.deepEqual(f.rows.map(row => row.id), ['recovered'])
+  assert.deepEqual(f.suggestions, [])
+})
+
+test('only a successful empty history enables suggestions, including after retry', async () => {
+  let response: unknown = { success: false, data: [] }
+  const f = fixture({ messages: async () => response })
+  await f.page.getmsgList({ session_id: 'A' })
+  assert.equal(f.context.historyStatus.value, 'failed')
+  assert.deepEqual(f.suggestions, [])
+  response = { success: true, data: [] }
+  await f.page.retryHistory()
+  assert.equal(f.context.historyStatus.value, 'loaded')
+  assert.deepEqual(f.suggestions, ['A'])
+})
+
+test('a retry prepends recovered history without reattaching a locally streaming turn', async () => {
+  let failing = true
+  const f = fixture({
+    messages: async () => {
+      if (failing) throw new Error('Synthetic history failure')
+      return { data: [{ id: 'older', created_at: 'then', role: 'user', is_completed: true }] }
+    },
+  })
+  await f.page.getmsgList({ session_id: 'A' })
+  f.rows.push({ id: 'live-reply', role: 'assistant', is_completed: false })
+  f.context.isReplying.value = true
+  failing = false
+  await f.page.retryHistory()
+  assert.deepEqual(f.rows.map(row => row.id), ['older', 'live-reply'])
+  assert.deepEqual(f.streams, [])
+})
+
+test('a late initial failure cannot show an error in the new session', async () => {
+  const held = deferred()
+  const f = fixture({
+    messages: async ({ session_id }) => session_id === 'A' ? held.promise : { data: [] },
+  })
+  const previous = f.page.getmsgList({ session_id: 'A' })
+  await f.change('B')
+  await flush()
+  held.reject(new Error('Synthetic old failure'))
+  await previous
+  assert.equal(f.context.historyStatus.value, 'loaded')
+  assert.deepEqual(f.suggestions, ['B'])
+  assert.equal(f.errors.length, 0)
 })
 
 test('current detail retains a new-chat draft and embedded detail skips global settings', async () => {

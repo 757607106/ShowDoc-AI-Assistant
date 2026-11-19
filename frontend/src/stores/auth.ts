@@ -15,9 +15,11 @@ import { useEditorResourcesStore } from '@/stores/editorResources'
 import { useOrganizationStore } from '@/stores/organization'
 import { createSequencedRefresh } from '@/stores/sequencedRefresh'
 import { invalidateAuthRefresh } from '@/utils/authRefresh'
+import { clearChatDrafts } from '@/utils/chatComposerDrafts'
 
 /** 登出时丢弃 Pinia 内的空间级资源缓存，避免 SPA 重登复用上一账号数据。 */
 function clearSessionResourceCaches() {
+  clearChatDrafts()
   useChatResourcesStore().invalidate()
   useEditorResourcesStore().invalidate()
   useOrganizationStore().clearState()

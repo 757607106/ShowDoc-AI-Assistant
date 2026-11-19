@@ -245,6 +245,7 @@ import SettingDrawer from '@/components/settings/SettingDrawer.vue'
 import { debugModel, type ModelConfig, type ModelDebugResult } from '@/api/model'
 import { fileSizeVerification } from '@/utils'
 import { useModelProvidersStore } from '@/stores/modelProviders'
+import { modelSupportsType } from '@/utils/modelDefaults'
 import {
   clampLevel,
   levelDescriptionKey,
@@ -311,9 +312,9 @@ const reasoningOptions = computed(() => supportedLevels(selectedModel.value?.cap
 const acceptsImages = computed(() => {
   const model = selectedModel.value
   if (!model || model.type === 'ASR') return false
-  return model.type === 'VLLM'
-    || model.capabilities?.input?.includes('image') === true
-    || (model.type === 'KnowledgeQA' && model.parameters.supports_vision === true)
+  return model.type === 'VLLM' || model.type === 'KnowledgeQA'
+    ? modelSupportsType(model, 'VLLM')
+    : model.capabilities?.input?.includes('image') === true
 })
 const hasImageMode = computed(() => acceptsImages.value && ['Embedding', 'Rerank'].includes(selectedModel.value?.type || ''))
 const useImageMode = computed(() => hasImageMode.value && inputMode.value === 'image')

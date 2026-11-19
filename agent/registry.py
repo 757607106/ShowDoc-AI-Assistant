@@ -152,7 +152,7 @@ def save_record(kind, value, owner_id, *, _connection=None):
                 model = model_config(model_id, owner_id, _connection=conn)
                 if types and model['type'] not in types:
                     raise StoreError(f'{binding} 的模型类型必须为 {"、".join(types)}', 400)
-                if binding == 'vlm_model' and model['type'] == 'KnowledgeQA' and not model.get('parameters', {}).get('supports_vision'):
+                if binding == 'vlm_model' and not _supports(model, 'VLLM'):
                     raise StoreError('图片模型必须支持图片输入', 400)
                 config = value.get('config', {})
                 if kind == 'agent' and (binding == 'chat_model' or binding.startswith('subagent:')
@@ -298,9 +298,11 @@ def model_response(value, *, admin=False, system_admin=False):
 
 
 def _supports(model, kind):
+    if kind == 'VLLM':
+        from agent.models import supports_image_input
+        return model.get('source', 'remote') == 'remote' and supports_image_input(model)
     kind = 'KnowledgeQA' if kind == 'Utility' else kind
-    return model.get('type') == kind or (kind == 'VLLM' and model.get('type') == 'KnowledgeQA'
-                                         and model.get('parameters', {}).get('supports_vision'))
+    return model.get('type') == kind
 
 
 def workspace_defaults(owner_id, *, _connection=None):
@@ -326,6 +328,8 @@ def save_workspace_defaults(owner_id, updates, *, _connection=None):
             if not row:
                 raise StoreError(f'{field}: model not found', 400)
             if not _supports(row, kind):
+                if kind == 'VLLM':
+                    raise StoreError('默认视觉模型必须支持图片输入', 400)
                 raise StoreError(f'{field} must be a {"KnowledgeQA" if kind == "Utility" else kind} model', 400)
             if row.get('status', 'active') != 'active':
                 raise StoreError(f'{field}: model is not active', 400)
@@ -350,10 +354,12 @@ def models(owner_id, *, admin=False, system_admin=False):
     return [model_response(row, admin=admin, system_admin=system_admin) for row in rows]
 
 
-def default_model_id(owner_id, field='chat_model_id'):
+def default_model_id(owner_id, field='chat_model_id', *, preferred_id=None):
     kind = MODEL_SLOTS[field]
     rows = models(owner_id)
     active = [row for row in rows if _supports(row, kind) and row['status'] == 'active']
+    if preferred_id and any(row['id'] == preferred_id for row in active):
+        return preferred_id
     chosen = next((row for row in active if kind in row.get('default_for', [])), None)
     if not chosen and kind == 'Utility':
         chosen = next((row for row in active if 'KnowledgeQA' in row.get('default_for', [])), None)

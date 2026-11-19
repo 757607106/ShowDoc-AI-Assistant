@@ -1,19 +1,24 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import vm from 'node:vm'
+import ts from 'typescript'
 
-// A picked suggestion's origin must travel with that one send. Shared
-// "pending" state was lost when a send returned early (agent not ready,
-// upload in progress, a running turn) and was overwritten when a
-// second suggestion was picked before the first send went out.
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const inputField = read('../components/Input-field.vue')
 const homePage = read('../views/creatChat/creatChat.vue')
 const chatPage = read('../views/chat/index.vue')
 
-test('the composer forwards send options from triggerSend to send-msg', () => {
-  assert.match(inputField, /triggerSend\(text: string, options: SendMessageOptions = \{\}\)/)
-  assert.match(inputField, /nextTick\(\(\) => createSession\(text, options\)\)/)
+test('the composer forwards the origin only for the matching submitted draft', () => {
+  const start = inputField.indexOf('const suggestionOriginFor =')
+  const end = inputField.indexOf('const createSession =', start)
+  const origin = { knowledge_base_id: 'kb-1' }
+  const originFor = vm.runInNewContext(ts.transpile(inputField.slice(start, end) + '\nsuggestionOriginFor'), {
+    suggestedDraft: { value: { text: 'suggestion', origin } },
+  })
+  assert.equal(originFor('suggestion'), origin)
+  assert.equal(originFor('edited suggestion'), undefined)
+  assert.match(inputField, /const options: SendMessageOptions = \{ questionOrigin: suggestionOriginFor\(val\) \}/)
   const emits = inputField.match(/emit\('send-msg',[^\n]*\)/g) || []
   assert.ok(emits.length >= 2)
   for (const call of emits) {
@@ -21,10 +26,10 @@ test('the composer forwards send options from triggerSend to send-msg', () => {
   }
 })
 
-test('pages pass the origin through the send instead of shared pending state', () => {
+test('recommendations prefill the composer and the provenance travels with the later send', () => {
   for (const [name, source] of [['creatChat.vue', homePage], ['chat/index.vue', chatPage]]) {
     assert.doesNotMatch(source, /pendingQuestionOrigin/, `${name} must not keep a pending origin`)
-    assert.match(source, /triggerSend\(item\.question, \{ questionOrigin: questionOriginFromSuggestion\(item\) \}\)|triggerSend\(item\.question, options\)/, name)
+    assert.match(source, /prefillSuggestion\(item\.question, questionOriginFromSuggestion\(item\)\)/, name)
   }
   assert.match(homePage, /changeFirstQuery\([^)]*options\.questionOrigin \?\? null\)/)
   assert.match(chatPage, /@send-msg="\([^"]*options\) => sendMsg\([^"]*options\)"/)

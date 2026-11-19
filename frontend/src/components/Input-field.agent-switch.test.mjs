@@ -79,7 +79,7 @@ test('one composer action switches between stop and send', () => {
 
 test('stop waits for the API before confirming discard', () => {
   const fnStart = inputField.indexOf('const handleStop = async')
-  const fnEnd = inputField.indexOf('onBeforeRouteUpdate', fnStart)
+  const fnEnd = inputField.indexOf('const restoreDraft =', fnStart)
   assert.notEqual(fnStart, -1)
   assert.notEqual(fnEnd, -1)
   const fn = inputField.slice(fnStart, fnEnd)

@@ -2254,6 +2254,7 @@ export default {
     },
     openPage: {
       open: '打开',
+      retired: '已停用',
       openForm: '打开并填写',
       opened: '助手已打开',
       back: '返回',
@@ -5205,6 +5206,10 @@ export default {
   chat: {
     suggestedQuestions: '你可以这样问我',
     refreshSuggestedQuestions: '换一批',
+    replaceDraftTitle: '替换草稿？',
+    replaceDraftBody: '使用这条推荐问题替换输入框里的文字。',
+    historyLoadFailed: '无法加载会话历史。',
+    scrollToLatest: '跳到最新消息',
     thinking: '思考中...',
     thinkingAlt: '正在思考',
     conversationTime: {

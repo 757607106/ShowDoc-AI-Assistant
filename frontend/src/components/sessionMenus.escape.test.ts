@@ -33,6 +33,12 @@ function fixture(name: 'ChatHeader' | 'SessionSidebarRow') {
     require(module: string) {
       if (module === 'vue') return require('vue')
       if (module === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key }) }
+      if (module === 'vue-router') return {
+        RouterLink: defineComponent({
+          props: { to: String },
+          setup(props, { slots }) { return () => h('a', { href: props.to }, slots.default?.()) },
+        }),
+      }
       if (module === 'tdesign-vue-next') return { MessagePlugin: {} }
       if (module.endsWith('useSessionTitleMotion')) return { useSessionTitleMotion() {} }
       if (module.endsWith('deploymentCapabilities')) {
@@ -82,7 +88,7 @@ function fixture(name: 'ChatHeader' | 'SessionSidebarRow') {
   const props = name === 'ChatHeader'
     ? { session: { id: 'session-1', title: 'Original title' }, onDelete: () => events.push('delete') }
     : {
-      item: { id: 'session-1', path: '/chat/session-1', title: 'Original title' },
+      item: { id: 'session-1', path: 'chat/session-1', title: 'Original title' },
       batchMode: false, activePath: '', selectedIds: [],
       menuOptions: [
         { value: 'rename', content: 'Rename' },
@@ -167,7 +173,8 @@ for (const name of ['ChatHeader', 'SessionSidebarRow'] as const) {
     await f.click(action)
     const input = f.find(el => el.tag === 'input')
     await f.keydown(input)
-    f.find(el => el.tag === (name === 'ChatHeader' ? 'h1' : 'span') && f.text(el) === 'Original title')
+    const title = f.find(el => el.tag === (name === 'ChatHeader' ? 'h1' : 'a') && f.text(el) === 'Original title')
+    if (name === 'SessionSidebarRow') assert.equal(title.props.href, '/platform/chat/session-1')
     assert.deepEqual(f.events, [])
   })
 }

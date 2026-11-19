@@ -1,7 +1,8 @@
 <template>
   <Teleport to="body">
     <div v-if="visible" class="agent-selector-overlay" @click="$emit('close')">
-      <div class="agent-selector-dropdown" :style="dropdownStyle" @click.stop>
+      <div ref="dropdownRef" class="agent-selector-dropdown" :style="dropdownStyle" @click.stop
+        @keydown.esc.stop.prevent="closeFromKeyboard">
         <div class="agent-selector-header">
           <span>{{ $t('agent.selectAgent') }}</span>
           <router-link to="/platform/agents" class="agent-selector-add" @click="$emit('close')">
@@ -14,64 +15,64 @@
           <!-- 内置智能体 -->
           <div class="agent-group">
             <div class="agent-group-title">{{ $t('agent.builtinAgents') }}</div>
-            <div v-for="agent in builtinAgents" :key="agent.id" class="agent-option"
-              :class="{ selected: isMyAgentSelected(agent) }" @mouseenter="onOptionEnter(agent, $event)"
+            <button type="button" v-for="agent in builtinAgents" :key="agent.id" class="agent-option"
+              :class="{ selected: isMyAgentSelected(agent) }" :aria-pressed="isMyAgentSelected(agent)" @mouseenter="onOptionEnter(agent, $event)"
               @mouseleave="onOptionLeave" @click="selectAgent(agent)">
-              <div v-if="agent.id === BUILTIN_QUICK_ANSWER_ID || agent.id === BUILTIN_SMART_REASONING_ID"
+              <span v-if="agent.id === BUILTIN_QUICK_ANSWER_ID || agent.id === BUILTIN_SMART_REASONING_ID"
                 class="builtin-icon" :class="agent.config?.agent_mode === 'smart-reasoning' ? 'agent' : 'normal'">
                 <TIcon :name="agent.config?.agent_mode === 'smart-reasoning' ? 'control-platform' : 'chat'"
                   size="13px" />
-              </div>
-              <div v-else-if="agent.avatar" class="builtin-avatar">{{ agent.avatar }}</div>
-              <div v-else class="builtin-icon normal">
+              </span>
+              <span v-else-if="agent.avatar" class="builtin-avatar">{{ agent.avatar }}</span>
+              <span v-else class="builtin-icon normal">
                 <TIcon name="app" size="13px" />
-              </div>
+              </span>
               <span class="agent-option-name">{{ agent.name }}</span>
-              <div v-if="getAgentNotReadyLabels(agent).length" class="agent-option-actions">
+              <span v-if="getAgentNotReadyLabels(agent).length" class="agent-option-actions">
                 <t-tooltip :content="$t('agent.selector.notReadyHint', { items: formatNotReadyHint(agent) })"
                   placement="top">
                   <TIcon name="error-circle" size="14px" class="not-ready-icon" @click.stop />
                 </t-tooltip>
-              </div>
-            </div>
+              </span>
+            </button>
           </div>
 
           <!-- 自定义智能体 -->
           <div v-if="customAgents.length > 0" class="agent-group">
             <div class="agent-group-title">{{ $t('agent.customAgents') }}</div>
-            <div v-for="agent in customAgents" :key="agent.id" class="agent-option"
-              :class="{ selected: isMyAgentSelected(agent) }" @mouseenter="onOptionEnter(agent, $event)"
+            <button type="button" v-for="agent in customAgents" :key="agent.id" class="agent-option"
+              :class="{ selected: isMyAgentSelected(agent) }" :aria-pressed="isMyAgentSelected(agent)" @mouseenter="onOptionEnter(agent, $event)"
               @mouseleave="onOptionLeave" @click="selectAgent(agent)">
               <AgentAvatar :name="agent.name" size="small" />
               <span class="agent-option-name">{{ agent.name }}</span>
-              <div v-if="getAgentNotReadyLabels(agent).length" class="agent-option-actions">
+              <span v-if="getAgentNotReadyLabels(agent).length" class="agent-option-actions">
                 <t-tooltip :content="$t('agent.selector.notReadyHint', { items: formatNotReadyHint(agent) })"
                   placement="top">
                   <TIcon name="error-circle" size="14px" class="not-ready-icon" @click.stop />
                 </t-tooltip>
-              </div>
-            </div>
+              </span>
+            </button>
           </div>
 
           <!-- 共享给我 -->
           <div v-if="sharedAgentsList.length > 0" class="agent-group">
             <div class="agent-group-title">{{ $t('agent.tabs.sharedToMe') }}</div>
-            <div v-for="shared in sharedAgentsList" :key="`${shared.agent.id}-${shared.source_tenant_id}`"
-              class="agent-option" :class="{ selected: isSharedAgentSelected(shared) }"
+            <button type="button" v-for="shared in sharedAgentsList" :key="`${shared.agent.id}-${shared.source_tenant_id}`"
+              class="agent-option" :class="{ selected: isSharedAgentSelected(shared) }" :aria-pressed="isSharedAgentSelected(shared)"
               @mouseenter="onSharedOptionEnter(shared, $event)" @mouseleave="onOptionLeave"
               @click="selectSharedAgent(shared)">
               <AgentAvatar :name="shared.agent.name" size="small" />
               <span class="agent-option-name">{{ shared.agent.name }}</span>
               <span class="shared-tag">{{ $t('agent.selector.sharedLabel') }}</span>
-              <div v-if="getAgentNotReadyLabels(shared.agent, String(shared.source_tenant_id)).length"
+              <span v-if="getAgentNotReadyLabels(shared.agent, String(shared.source_tenant_id)).length"
                 class="agent-option-actions">
                 <t-tooltip
                   :content="$t('agent.selector.notReadyHint', { items: formatNotReadyHint(shared.agent, String(shared.source_tenant_id)) })"
                   placement="top">
                   <TIcon name="error-circle" size="14px" class="not-ready-icon" @click.stop />
                 </t-tooltip>
-              </div>
-            </div>
+              </span>
+            </button>
           </div>
 
           <div v-if="builtinAgents.length === 0 && customAgents.length === 0 && sharedAgentsList.length === 0"
@@ -235,6 +236,7 @@ type SharedAgentSelection = Omit<SharedAgentInfo, 'agent'> & {
   agent: CustomAgent;
 };
 
+const dropdownRef = ref<HTMLElement>();
 const dropdownStyle = ref<Record<string, string>>({});
 const activeDetail = ref<AgentDetailTarget | null>(null);
 const detailAnchorEl = ref<HTMLElement | null>(null);
@@ -591,9 +593,20 @@ const updateDropdownPosition = () => {
   }
 };
 
+const closeFromKeyboard = () => {
+  emit('close');
+  props.anchorEl?.focus();
+};
+
 watch(() => props.visible, (newVal) => {
   if (newVal) {
-    nextTick(() => updateDropdownPosition());
+    void nextTick(() => {
+      updateDropdownPosition();
+      if (document.activeElement === props.anchorEl && props.anchorEl?.matches(':focus-visible')) {
+        (dropdownRef.value?.querySelector<HTMLElement>('.agent-option.selected')
+          || dropdownRef.value?.querySelector('.agent-option, .agent-selector-add'))?.focus();
+      }
+    });
     chatResources.ensureWebSearchProviders();
   } else {
     hideDetailPanel();
@@ -740,6 +753,19 @@ watch(activeDetail, (detail) => {
     width: 22px;
     height: 22px;
     border-radius: 5px;
+  }
+}
+
+button.agent-option {
+  width: calc(100% - 8px);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+
+  &:focus-visible {
+    outline: 2px solid var(--td-brand-color);
+    outline-offset: -2px;
   }
 }
 

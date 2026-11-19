@@ -185,7 +185,7 @@ def debug_model(model_id):
     import json
     import time
     from agent.config import validate_config
-    from agent.models import build_model_record
+    from agent.models import build_model_record, supports_image_input
     from agent.model_catalog import LEVELS, resolve
     from webapi.model_runtime import debug_chat_stream, debug_nonchat_model, debug_preview
     if request.is_json:
@@ -232,7 +232,7 @@ def debug_model(model_id):
     size = 0
     if saved['type'] == 'VLLM' and not file:
         raise StoreError('请提供视觉模型调试图片', 400)
-    if file and saved['type'] == 'KnowledgeQA' and not (saved['parameters'].get('supports_vision') or 'image' in caps.get('input', [])):
+    if file and not supports_image_input(saved):
         raise StoreError('当前对话模型不支持图片输入', 400)
     if file:
         import base64

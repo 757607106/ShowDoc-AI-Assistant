@@ -554,8 +554,7 @@ def apply_image_model(resolved, owner_id):
 def _select_image_model(config, owner_id):
     if not config.get('image_upload_enabled'):
         raise StoreError('当前 Agent 未启用图片输入', 400)
-    model_id = config.get('vlm_model_id') or registry.default_model_id(owner_id, 'vlm_model_id') or config.get('model_id')
-    model = registry.model_config(model_id, owner_id)
-    if model['type'] != 'VLLM' and not model.get('parameters', {}).get('supports_vision'):
-        raise StoreError('请选择 VLLM 模型或明确支持图片的对话模型', 400)
+    model_id = registry.default_model_id(owner_id, 'vlm_model_id', preferred_id=config.get('vlm_model_id'))
+    if not model_id:
+        raise StoreError('没有可用的视觉模型，请配置声明支持图片输入的模型', 400)
     config['model_id'] = model_id

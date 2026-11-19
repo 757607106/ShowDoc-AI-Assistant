@@ -2252,6 +2252,7 @@ export default {
     },
     openPage: {
       open: 'Открыть',
+      retired: 'Недоступно',
       openForm: 'Открыть и заполнить',
       opened: 'Открыто ассистентом',
       back: 'Назад',
@@ -5203,6 +5204,10 @@ export default {
   chat: {
     suggestedQuestions: 'Вы можете спросить меня',
     refreshSuggestedQuestions: 'Ещё',
+    replaceDraftTitle: 'Заменить черновик?',
+    replaceDraftBody: 'Заменить текст в поле ввода этим предложенным вопросом.',
+    historyLoadFailed: 'Не удалось загрузить историю чата.',
+    scrollToLatest: 'Перейти к последнему сообщению',
     thinking: 'Думаю...',
     thinkingAlt: 'Обдумывание...',
     conversationTime: {

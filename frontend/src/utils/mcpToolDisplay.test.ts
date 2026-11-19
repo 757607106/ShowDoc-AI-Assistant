@@ -20,7 +20,9 @@ test('MCP proxies have dedicated renderers and icons', () => {
   assert.equal(getMcpToolDisplayType('call_mcp_tool'), 'mcp_call')
   assert.equal(getMcpToolDisplayType('mcp_orders_lookup'), undefined) // Existing target reference drawer.
   assert.equal(getAgentToolIconName('discover_mcp_tools'), 'search')
-  assert.equal(getAgentToolIconName('call_mcp_tool'), 'terminal')
+  assert.equal(getAgentToolIconName('call_mcp_tool'), 'plug')
+  assert.equal(getAgentToolIconName('mcp_orders_lookup'), 'plug')
+  assert.equal(getAgentToolIconName('shell_exec'), 'terminal')
 })
 
 test('old output-only discovery and schema records remain readable', () => {

@@ -90,6 +90,28 @@ test('raw HTML images cannot override preview loading attributes', () => {
   assert.equal(attributes.get('fetchpriority'), 'low')
 })
 
+test('external source previews resolve relative images without changing absolute or provider URLs', () => {
+  const base = 'https://docs.example.com/manual/orders.html'
+  function imageSrc(src: string, sourceBaseUrl?: string) {
+    const attributes = new Map([['src', src]])
+    const image = {
+      tagName: 'IMG',
+      setAttribute: (name: string, value: string) => attributes.set(name, value),
+      getAttribute: (name: string) => attributes.get(name),
+    }
+    applyDocumentPreviewImageAttributes(image as unknown as Node, sourceBaseUrl)
+    return attributes.get('src')
+  }
+  assert.equal(imageSrc('/uploads/order.jpg', base), 'https://docs.example.com/uploads/order.jpg')
+  assert.equal(imageSrc('images/chart.png', base), 'https://docs.example.com/manual/images/chart.png')
+  assert.equal(imageSrc('//cdn.example.com/chart.png', base), 'https://cdn.example.com/chart.png')
+  assert.equal(imageSrc('https://elsewhere.example/chart.png?s=a&showdoc=b', base), 'https://elsewhere.example/chart.png?s=a&showdoc=b')
+  assert.equal(imageSrc('resource://protected-image', base), 'resource://protected-image')
+  assert.equal(imageSrc('data:image/png;base64,AAAA', base), 'data:image/png;base64,AAAA')
+  assert.equal(imageSrc('assets/sibling.png'), 'assets/sibling.png')
+  assert.equal(imageSrc('images/chart.png', 'file:///tmp'), 'images/chart.png')
+})
+
 // GFM task lists must survive the preview pipeline as sanitizer-safe spans:
 // marked's default <input type="checkbox"> is stripped by the DOMPurify tag
 // allowlist, which degraded "- [x] 任务" to a plain bullet.

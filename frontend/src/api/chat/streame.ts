@@ -253,7 +253,11 @@ export function useStream() {
         onopen: async (res) => {
           // 401 is recoverable (refresh + replay); everything else is not.
           if (res.status === 401) throw new StreamAuthError(res.status);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            const message = typeof body?.message === 'string' ? body.message.trim() : '';
+            throw new Error(message || `HTTP ${res.status}`);
+          }
           // A reopened turn already knows its persisted message ID. Arm
           // recovery before the first replay event can be interrupted.
           if (params.method === 'GET' && params.url === '/api/v1/sessions/continue-stream') {

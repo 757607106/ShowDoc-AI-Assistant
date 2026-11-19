@@ -6,7 +6,7 @@ import ContextDBAttachment from './ContextDBAttachment.vue'
 import type { KnowledgeAttachment } from '@/utils/contextdbResources'
 
 const props = defineProps<{ content: string; title?: string; sourceName?: string; sourceDisplayName?: string;
-  attachments?: KnowledgeAttachment[]; kbId?: string }>()
+  attachments?: KnowledgeAttachment[]; kbId?: string; sourceBaseUrl?: string }>()
 const html = ref('')
 const showSource = ref(false)
 const body = ref<HTMLElement | null>(null)
@@ -17,10 +17,10 @@ function render() {
     // Only the parser's standalone filename labels are presentation aliases.
     content = content.split('\n').map(line => line.trim().replace(/^#{1,6}\s+/, '') === props.sourceName ? props.sourceDisplayName : line).join('\n')
   }
-  html.value = renderDocumentPreviewMarkdown(content, undefined, { titles: [props.title] })
+  html.value = renderDocumentPreviewMarkdown(content, undefined, { titles: [props.title], sourceBaseUrl: props.sourceBaseUrl })
   void nextTick(() => hydrateProtectedFileImages(body.value))
 }
-watch(() => [props.content, props.title, props.sourceName, props.sourceDisplayName, showSource.value], render, {immediate:true})
+watch(() => [props.content, props.title, props.sourceName, props.sourceDisplayName, props.sourceBaseUrl, showSource.value], render, {immediate:true})
 </script>
 
 <template>

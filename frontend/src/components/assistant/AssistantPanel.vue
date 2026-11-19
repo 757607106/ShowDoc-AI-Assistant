@@ -256,7 +256,9 @@ watch([docked, panelWidth], ([isDocked, width]) => {
   if (typeof document === 'undefined') return
   const root = document.documentElement
   root.classList.toggle('has-assistant-dock', isDocked)
-  root.style.setProperty('--assistant-dock-width', isDocked ? `${width}px` : '0px')
+  root.style.setProperty('--assistant-dock-width', isDocked
+    ? `calc(${width}px + var(--platform-workspace-inset, 0px))`
+    : '0px')
 }, { immediate: true })
 
 const defaultModelId = computed(() =>

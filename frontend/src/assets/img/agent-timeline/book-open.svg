@@ -1,0 +1,51 @@
+<!-- Kubai Icons v1.2.0 · MIT · /third-party-licenses/kubai-icons.txt -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -3 31 31" width="24" height="24" fill="none">
+<defs>
+<linearGradient id="loS-ki-book-open" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#97BCCC"/>
+<stop offset="1" stop-color="#83B0C3"/>
+</linearGradient>
+<linearGradient id="upS-ki-book-open" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#CEE0E7"/>
+<stop offset="1" stop-color="#B0CCD8"/>
+</linearGradient>
+<filter id="sh-ki-book-open" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dy="2"/>
+<feGaussianBlur stdDeviation="2"/>
+<feComposite in2="hardAlpha" operator="out"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0.5569 0 0 0 0 0.7176 0 0 0 0 0.7843 0 0 0 0.21 0"/>
+<feBlend in2="BackgroundImageFix" mode="normal" result="shadow"/>
+<feBlend in="SourceGraphic" in2="shadow" mode="normal"/>
+</filter>
+<filter id="hi-ki-book-open" x="-10%" y="-10%" width="120%" height="130%" color-interpolation-filters="sRGB">
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="a"/>
+<feOffset in="a" dy="0.7"/>
+<feGaussianBlur stdDeviation="0.35"/>
+<feComposite in2="a" operator="arithmetic" k2="-1" k3="1"/>
+<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0"/>
+<feBlend in2="SourceGraphic" mode="overlay"/>
+</filter>
+<mask id="ol-ki-book-open-0" maskUnits="userSpaceOnUse" x="-40" y="-40" width="111" height="109">
+<rect x="-40" y="-40" width="111" height="109" fill="#fff"/>
+<path d="M4 5.8Q4 3.6 6.2 3.6L24.8 3.6Q27 3.6 27 5.8L27 19Q27 21.2 24.821 21.503L16.689 22.635Q15.5 22.8 14.311 22.635L6.179 21.503Q4 21.2 4 19Z" fill="#000"/>
+</mask>
+</defs>
+<path d="M4 5.8Q4 3.6 6.2 3.6L24.8 3.6Q27 3.6 27 5.8L27 19Q27 21.2 24.821 21.503L16.689 22.635Q15.5 22.8 14.311 22.635L6.179 21.503Q4 21.2 4 19Z" fill="none" stroke-width="1" stroke="url(#loS-ki-book-open)"/>
+<g filter="url(#sh-ki-book-open)">
+<g filter="url(#hi-ki-book-open)">
+<path d="M4 5.8Q4 3.6 6.2 3.6L24.8 3.6Q27 3.6 27 5.8L27 19Q27 21.2 24.821 21.503L16.689 22.635Q15.5 22.8 14.311 22.635L6.179 21.503Q4 21.2 4 19Z" fill="url(#loS-ki-book-open)"/>
+</g>
+</g>
+<path d="M4 5.8Q4 3.6 6.2 3.6L24.8 3.6Q27 3.6 27 5.8L27 19Q27 21.2 24.821 21.503L16.689 22.635Q15.5 22.8 14.311 22.635L6.179 21.503Q4 21.2 4 19Z" mask="url(#ol-ki-book-open-0)" fill="none" stroke-width="2" stroke="#5995AE"/>
+<path d="M15.5 7C12.8 5.6 9.4 5.2 6.2 5.6V19.2C9.4 18.8 12.8 19.4 15.5 20.6Z" fill="#fff"/>
+<path d="M13.2 10.6H8M13.2 13.6H9.6" fill="none" stroke-width="1.6" stroke-linecap="round" stroke="#5995AE"/>
+<path d="M15.5 7C18.2 5.6 21.6 5.2 24.8 5.6V19.2C21.6 18.8 18.2 19.4 15.5 20.6Z" fill="#fff"/>
+<path d="M17.8 10.6H23M17.8 13.6H21.4" fill="none" stroke-width="1.6" stroke-linecap="round" stroke="#5995AE"/>
+<g transform="translate(15.5 0) scale(1 1) translate(-15.5 0)">
+<path d="M15.5 7C18.2 5.6 21.6 5.2 24.8 5.6V19.2C21.6 18.8 18.2 19.4 15.5 20.6Z" fill="#fff"/>
+<path d="M17.8 10.6H23M17.8 13.6H21.4" fill="none" stroke-width="1.6" stroke-linecap="round" stroke="#5995AE"/>
+<path d="M15.5 7C18.2 5.6 21.6 5.2 24.8 5.6V19.2C21.6 18.8 18.2 19.4 15.5 20.6Z" opacity="0" fill="#46638A"/>
+</g>
+</svg>

@@ -12,7 +12,7 @@ export function getAgentToolIconName(
 ): string {
   if (toolName === 'local_browser') return 'browser'
   if (toolName === 'thinking') {
-    return 'ai-search'
+    return 'thinking'
   }
   if (toolName === 'search_knowledge' || toolName === 'knowledge_search' || toolName === 'knowledge.search') {
     if (searchSource === 'web') {
@@ -20,24 +20,36 @@ export function getAgentToolIconName(
     }
     return 'data-search'
   }
-  if (toolName === 'wiki_search') {
-    return 'search'
+  if (toolName === 'wiki_search' || toolName === 'knowledge.wiki_search' || toolName === 'grep_chunks') {
+    return 'data-search'
   }
-  if (toolName === 'grep_chunks') {
+  if (toolName === 'glob' || toolName === 'grep') {
     return 'search'
   }
   if (toolName === 'web_search' || toolName === 'web_fetch') {
     return 'internet'
   }
-  if (toolName === 'read_document' || toolName === 'list_documents') {
+  if (toolName === 'read_document' || toolName === 'get_document_content' || toolName === 'wiki_read_page' || toolName === 'wiki_read_source_doc' || toolName === 'knowledge.get_wiki_page') {
+    return 'book-open'
+  }
+  if (toolName === 'knowledge.get_document') {
+    return 'document'
+  }
+  if (toolName === 'knowledge.list_documents' || toolName === 'knowledge.list_entity_chunks' || toolName === 'get_capture_provenance') {
+    return 'data-search'
+  }
+  if (toolName === 'list_documents') {
     return 'file-search'
+  }
+  if (toolName === 'knowledge.list_graph_entities' || toolName === 'knowledge.get_graph') {
+    return 'network'
   }
   // Retired names still present in stored chat history
   if (toolName === 'get_document_info' || toolName === 'list_knowledge_chunks') {
     return 'file-search'
   }
-  if (toolName === 'get_document_content' || toolName === 'wiki_read_page' || toolName === 'wiki_read_source_doc') {
-    return 'file-search'
+  if (toolName === 'list_governance_releases') {
+    return 'clipboard'
   }
   if (toolName === 'todo_write' || toolName === 'write_todos') {
     return 'task'
@@ -52,19 +64,22 @@ export function getAgentToolIconName(
     return 'search'
   }
   if (toolName === 'call_mcp_tool' || toolName.startsWith('mcp_')) {
-    return 'terminal'
+    return 'plug'
   }
   if (toolName === 'shell_exec' || toolName === 'execute') {
     return 'terminal'
   }
-  if (toolName === 'list_sandbox_files') {
+  if (toolName === 'ls' || toolName === 'list_sandbox_files') {
     return 'folder'
   }
   if (toolName === 'read_file' || toolName === 'read_sandbox_file' || toolName === 'read_skill') {
-    return 'file'
+    return 'book-open'
   }
-  if (toolName === 'write_sandbox_file' || toolName === 'edit_sandbox_file') {
+  if (toolName === 'write_file' || toolName === 'edit_file' || toolName === 'write_sandbox_file' || toolName === 'edit_sandbox_file') {
     return 'edit'
+  }
+  if (toolName === 'delete') {
+    return 'delete'
   }
   if (toolName === 'execute_skill_script') {
     return 'code'
@@ -75,7 +90,7 @@ export function getAgentToolIconName(
   if (toolName === 'run_operation') {
     return 'terminal'
   }
-  if (isCollaborationTool(toolName)) {
+  if (toolName === 'task' || isCollaborationTool(toolName)) {
     return 'agent'
   }
   if (toolName === 'open_page' || toolName === 'view_page') {
@@ -85,7 +100,7 @@ export function getAgentToolIconName(
     return 'search'
   }
   if (toolName === 'read_weknora_doc') {
-    return 'file'
+    return 'book-open'
   }
-  return 'file-paste'
+  return 'tools'
 }

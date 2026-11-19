@@ -148,9 +148,13 @@ async function fixture(options: { kbId?: string; unsupported?: boolean; missingK
     return result
   }
   const click = async (tag: string, index?: number) => { find(tag, index).props.onClick(); await flush() }
-  const key = async (key: string, cmd = false) => {
-    find('dialog').children.find(el => el.props.class === 'cmdk')!.props.onKeydown({ key, metaKey: cmd, preventDefault() {} })
+  const key = async (key: string, { cmd = false, fromInput = true, isComposing = false } = {}) => {
+    const event = { key, metaKey: cmd, isComposing, defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true } }
+    if (fromInput) find('input').props.onKeydown(event)
+    find('dialog').children.find(el => el.props.class === 'cmdk')!.props.onKeydown(event)
     await flush()
+    return event
   }
   const open = async () => { store.initialQuery = 'travel'; store.open = true; await flush() }
   return { store, route, requests, pushed, recent, events, chats, find, click, key, open, preview: () => preview, hasDrawer: () => descendants(root).some(el => el.tag === 'drawer'), dispose: () => app.unmount() }
@@ -213,13 +217,23 @@ test('route changes and reopening the palette dismiss an existing source drawer'
 test('Command-Enter keeps starting a chat scoped to the document', async t => {
   const f = await fixture()
   t.after(f.dispose)
-  await f.key('Enter', true)
+  await f.key('Enter', { cmd: true })
   assert.equal(f.hasDrawer(), false)
   assert.equal(f.requests.length, 0)
   assert.equal(f.chats.length, 1)
   assert.equal(f.chats[0][0], 'travel')
   assert.equal((f.chats[0][1] as string[])[0], 'travel-kb')
   assert.equal((f.chats[0][2] as string[])[0], 'handbook')
+})
+
+test('Enter from another control or an active IME composition leaves search results alone', async t => {
+  const f = await fixture()
+  t.after(f.dispose)
+  assert.equal((await f.key('Enter', { fromInput: false })).defaultPrevented, false)
+  assert.equal((await f.key('Enter', { isComposing: true })).defaultPrevented, false)
+  assert.equal(f.store.open, true)
+  assert.deepEqual(f.requests, [])
+  assert.deepEqual(f.chats, [])
 })
 
 test('a result without a knowledge base closes the palette without opening a source', async t => {

@@ -22,21 +22,3 @@ export const INTEGRATION_TAB_CAPABILITY: Partial<Record<IntegrationTab, Deployme
   api: 'integrations.api',
   mcpserver: 'integrations.mcpserver',
 }
-
-export type IntegrationPreviewIcon =
-  | { type: 'icon'; name: string }
-  | { type: 'emoji'; value: string }
-
-/** Sidebar hover preview + Integrations modal nav — add new entries here. */
-export const INTEGRATION_PREVIEW_ITEMS: Array<{
-  key: IntegrationTab
-  icon: IntegrationPreviewIcon
-}> = [
-  { key: 'im', icon: { type: 'icon', name: 'chat-message' } },
-  { key: 'embed', icon: { type: 'icon', name: 'code' } },
-  { key: 'api', icon: { type: 'icon', name: 'secured' } },
-  { key: 'mcpserver', icon: { type: 'icon', name: 'tools' } },
-  { key: 'cli', icon: { type: 'icon', name: 'code' } },
-  { key: 'chrome', icon: { type: 'icon', name: 'extension' } },
-  { key: 'claw', icon: { type: 'emoji', value: '🦞' } },
-]

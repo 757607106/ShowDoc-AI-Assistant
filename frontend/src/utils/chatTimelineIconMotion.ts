@@ -68,7 +68,10 @@ function reveal(path: string, delay = 0): TimelineIconPart {
   }
 }
 
-export function getTimelineIconMotion(name: string, paths: string[]): TimelineIconPart[] {
+export function getTimelineIconMotion(name: string, paths?: string[]): TimelineIconPart[] {
+  // Full-colour SVG artwork moves as one piece, retaining its layered fills.
+  if (!paths) return [move({ path: '' }, 'translate', '0 0', '0 -1.25', '0 -.8')]
+
   const parts: TimelineIconPart[] = paths.map(path => ({ path }))
   switch (name) {
     case 'lightbulb':
@@ -78,20 +81,16 @@ export function getTimelineIconMotion(name: string, paths: string[]): TimelineIc
       return [...parts, trace('M9.5 9.5 12 12l2.5-2.5M12 12v2')]
     case 'search':
       return [...parts, trace('M6 10a4 4 0 0 1 4-4')]
-    case 'data-search':
     case 'file-search':
       // One deliberate lens pass, followed by a small settle at the destination.
       return [parts[0], move(parts[1], 'translate', '0 0', '-2.5 -1.5', '-2 -1')]
-    case 'internet':
-      // Meridian bends across the globe instead of rocking the entire world.
-      return [
-        parts[0], parts[1],
-        morph('M12 4C7 7 7 17 12 20', 'M12 4C17 7 17 17 12 20'),
-        morph('M12 4C17 7 17 17 12 20', 'M12 4C7 7 7 17 12 20'),
-      ]
     case 'file':
     case 'file-paste':
       return [parts[0], trace('M8 14h8'), trace('M8 17h5', .18)]
+    case 'tools':
+      return [parts[0], parts[1], trace(parts[2].path)]
+    case 'delete':
+      return [move(parts[0], 'translate', '0 0', '0 -1.25', '0 -.8'), parts[1]]
     case 'folder':
       // The front opens while the back and tab stay anchored.
       return [
@@ -106,15 +105,8 @@ export function getTimelineIconMotion(name: string, paths: string[]): TimelineIc
       return [parts[0], parts[1], trace(parts[2].path), trace(parts[3].path, .2)]
     case 'bookmark':
       return [...parts, trace('M9 10h6'), trace('M9 13h4', .16)]
-    case 'edit':
-      return [move(parts[0], 'translate', '0 0', '2 -2', '1.5 -1.5'), trace('M5 21h8', .2)]
     case 'attach':
       return [move(parts[0], 'rotate', '0 12 12', '-16 12 12', '-12 12 12')]
-    case 'terminal':
-      return [
-        move(parts[0], 'translate', '0 0', '2.5 0', '2 0'),
-        trace('M15 18h5', .16),
-      ]
     case 'code':
       return [
         move(parts[0], 'translate', '0 0', '-1.5 0', '-1 0'),
@@ -123,11 +115,6 @@ export function getTimelineIconMotion(name: string, paths: string[]): TimelineIc
       ]
     case 'chat':
       return [parts[0], trace('M8 10h8'), trace('M8 13h5', .18)]
-    case 'agent':
-      return [
-        move(parts[0], 'translate', '0 0', '-1.2 0', '-.8 0'),
-        { ...move(parts[1], 'translate', '0 0', '1.2 0', '.8 0'), delay: .14 },
-      ]
     case 'browser':
       return [
         parts[0],
@@ -180,11 +167,7 @@ export function getTimelineIconMotion(name: string, paths: string[]): TimelineIc
     case 'minus-circle':
     case 'close-circle':
       return [parts[0], trace(parts[1].path)]
-    case 'chevron-right':
-    case 'chevron-down':
-      return parts
     default:
-      // Unknown tools keep the generic file glyph and its reading gesture.
-      return [parts[0], trace('M8 14h8'), trace('M8 17h5', .18)]
+      return parts
   }
 }

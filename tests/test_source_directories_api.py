@@ -3,8 +3,10 @@ import os
 from unittest.mock import Mock
 
 import pytest
+from requests import Timeout
 
 import app as app_module
+from crawlers.base import CrawledDocument
 from crawlers.showdoc import ShowDocCrawler
 from crawlers.web import WebCrawler
 from governance.store import Store, source_scope
@@ -44,6 +46,59 @@ def test_unknown_web_site_preview_is_explicitly_incomplete(client, tmp_path, mon
     assert result['directory'] == {'root_name': 'docs.example.test', 'source_key': 'web:docs.example.test', 'preview_complete': False}
     assert result['pages'][0]['directory_path'] == []
     crawler._crawl_site.assert_not_called()
+
+
+def test_showdoc_document_preview_reads_only_a_page_in_the_requested_project(client, tmp_path, monkeypatch):
+    crawler = ShowDocCrawler(str(tmp_path), item_id='399')
+    crawler._post = Mock(side_effect=[
+        {'error_code': 0, 'data': {'menu': {'pages': [{'page_id': '15', 'page_title': '进货订单'}]}}},
+        {'error_code': 0, 'data': {'page_id': '15', 'page_title': '进货订单', 'page_content': '## 操作步骤'}},
+    ])
+    monkeypatch.setattr(app_module, 'create_crawler', lambda *args, **kwargs: crawler)
+    result = client.post('/entries/showdoc/preview', json={'item_id': '399', 'doc_id': '15'})
+    assert result.status_code == 200
+    assert result.headers['Cache-Control'] == 'no-store'
+    assert result.json['content'] == '## 操作步骤'
+    assert result.json['source_format'] == 'markdown'
+    assert crawler._post.call_args.args == ('/api/page/info', {'page_id': '15'})
+    crawler._post.reset_mock()
+    result = client.post('/entries/showdoc/preview', json={'item_id': '399', 'doc_id': '16'})
+    assert result.status_code == 404
+    crawler._post.assert_not_called()
+
+
+def test_web_document_preview_uses_the_fetched_page_base_for_relative_images(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(WebCrawler, 'validate_url', staticmethod(lambda value: value))
+    requested = 'https://docs.example.test/start'
+    crawler = WebCrawler(str(tmp_path), requested)
+    stub = crawler.list_documents()[0]
+    source = '<p>操作说明</p><img src="images/chart.png">'
+    crawler.fetch_document = Mock(return_value=CrawledDocument(
+        id=stub.id, title='说明', category='网页', content=source, updated_at='',
+        source_format='html', metadata={'url': 'https://docs.example.test/guide/start.html?access=private#main'},
+    ))
+    monkeypatch.setattr(app_module, 'create_crawler', lambda *args, **kwargs: crawler)
+
+    response = client.post('/entries/web/preview', json={'url': requested, 'doc_id': stub.id})
+
+    assert response.status_code == 200
+    assert response.json['content'] == source
+    assert response.json['source_base_url'] == 'https://docs.example.test/guide/start.html'
+
+
+@pytest.mark.parametrize(('failure', 'status'), [('missing', 422), ('denied', 502), ('timeout', 504)])
+def test_showdoc_document_preview_distinguishes_empty_failed_and_timed_out_reads(client, tmp_path, monkeypatch, failure, status):
+    crawler = ShowDocCrawler(str(tmp_path), item_id='399')
+    crawler._post = Mock(side_effect=[
+        {'error_code': 0, 'data': {'menu': {'pages': [{'page_id': '15', 'page_title': '进货订单'}]}}},
+        {'missing': {'error_code': 0, 'data': {}}, 'denied': {'error_code': 1, 'error_message': 'upstream-private'},
+         'timeout': Timeout('upstream-private')}[failure],
+    ])
+    monkeypatch.setattr(app_module, 'create_crawler', lambda *args, **kwargs: crawler)
+    result = client.post('/entries/showdoc/preview', json={'item_id': '399', 'doc_id': '15'})
+    assert result.status_code == status
+    assert result.json['success'] is False
+    assert 'upstream-private' not in result.json['message']
 
 
 def test_custom_root_is_job_metadata_and_does_not_change_source_params(client, monkeypatch):

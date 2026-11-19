@@ -1,5 +1,6 @@
 """Native model transports against local provider protocols and PostgreSQL checkpoints."""
 import asyncio
+import base64
 import io
 import json
 import os
@@ -117,6 +118,76 @@ def sdk_provider():
 def model_record(provider, name, base):
     return {'name': name, 'type': 'KnowledgeQA', 'source': 'remote', 'parameters': {'provider': provider,
         'base_url': base if provider in ('anthropic', 'gemini') else base + '/v1', 'api_key': 'fixture-key'}}
+
+
+@pytest.mark.parametrize('kind,has_vision_default', [
+    ('KnowledgeQA', False), ('VLLM', False), ('KnowledgeQA', True),
+])
+def test_image_chat_uses_declared_input_modalities(authenticated_client, sdk_provider, monkeypatch, kind, has_vision_default):
+    from types import SimpleNamespace
+    from starlette.testclient import TestClient
+    import app as app_module
+    from agent import config, sessions
+    from asgi import create_app
+    from tests.aegra_fake import install
+    from tests.test_platform_harness import frames
+    from webapi import harness
+
+    base, calls, state = sdk_provider
+    state.update(tool='ls', args={'path': '/'})
+    owner = os.environ['TEST_PLATFORM_USER']
+    text_record = {**model_record('aliyun', 'glm-5.3', base), 'type': kind}
+    text_record['parameters'].update(supports_vision=kind == 'KnowledgeQA', spec={'input': ['text', 'image']})
+    text_only = registry.save_model(text_record, owner)
+    agent = config.save_agent({'name': 'Image chat fixture', 'config': {
+        'model_id': text_only['id'], 'vlm_model_id': text_only['id'], 'image_upload_enabled': True,
+        'kb_selection_mode': 'none', 'access_level': 'read_only', 'memory_enabled': False}}, owner)
+    # Simulate an existing binding whose model now declares text only.
+    text_only['parameters'].pop('spec')
+    registry.save_record('model', text_only, owner)
+    with pytest.raises(StoreError, match='必须支持图片输入'):
+        config.save_agent(agent, owner, agent_id=agent['id'])
+    with pytest.raises(StoreError, match='必须支持图片输入'):
+        registry.save_workspace_defaults(owner, {'vlm_model_id': text_only['id']})
+    if has_vision_default:
+        vision = registry.save_model(model_record('aliyun', 'qwen3.7-plus', base), owner)
+        registry.save_workspace_defaults(owner, {'vlm_model_id': vision['id']})
+
+    monkeypatch.setenv('FLASK_SECRET_KEY', app_module.app.secret_key)
+    monkeypatch.setattr(harness, 'client_for_user', lambda *args: SimpleNamespace(api_key=''))
+    install(monkeypatch, harness)
+    sid = sessions.create_session('Image chat', owner)['id']
+    png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6HqkAAAAASUVORK5CYII='
+    uploaded = authenticated_client.post(f'/api/v1/sessions/{sid}/attachments',
+        data={'file': (io.BytesIO(base64.b64decode(png)), 'picture.png')})
+    assert uploaded.status_code == 200, uploaded.text
+    headers = {'Authorization': authenticated_client.environ_base['HTTP_AUTHORIZATION']}
+    query = '请描述这张图片'
+    with TestClient(create_app(app_module.app), headers=headers) as client:
+        response = client.post(f'/api/v1/agent-chat/{sid}', json={'query': query, 'agent_id': agent['id'],
+            'summary_model_id': text_only['id'], 'reasoning_effort': 'auto', 'attachment_ids': [uploaded.json['data']['id']]})
+        image_calls = len(calls)
+        if has_vision_default:
+            followup = client.post(f'/api/v1/agent-chat/{sid}', json={'query': '继续用文字说明', 'agent_id': agent['id'],
+                'summary_model_id': text_only['id']})
+            checkpoint = client.get(f'/api/v1/harness/sessions/{sid}/state').json()['values']
+    if not has_vision_default:
+        assert response.status_code == 400, response.text
+        assert '没有可用的视觉模型' in response.json()['message']
+        assert not calls
+        return
+
+    events = [data for _, data in frames(response)]
+    assert any(event['response_type'] == 'answer' and event['content'] == 'fixture answer' for event in events)
+    assert events[-1]['response_type'] == 'complete'
+    assert {call['payload']['model'] for call in calls[:image_calls]} == {'qwen3.7-plus'}
+    user = next(message for message in calls[0]['payload']['messages'] if message['role'] == 'user')
+    assert user['content'] == [{'type': 'text', 'text': query},
+        {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' + png}}]
+    assert [data for _, data in frames(followup)][-1]['response_type'] == 'complete'
+    assert {call['payload']['model'] for call in calls[image_calls:]} == {'glm-5.3'}
+    assert all('image_url' not in json.dumps(call['payload']['messages']) for call in calls[image_calls:])
+    assert checkpoint['messages'][0]['content'] == user['content']
 
 
 @pytest.mark.parametrize('provider,name', MODELS)

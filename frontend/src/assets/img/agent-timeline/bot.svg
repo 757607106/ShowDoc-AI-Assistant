@@ -1,0 +1,70 @@
+<!-- Kubai Icons v1.2.0 · MIT · /third-party-licenses/kubai-icons.txt -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -3 31 31" width="24" height="24" fill="none">
+<defs>
+<linearGradient id="loS-ki-bot" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#A5BACC"/>
+<stop offset="1" stop-color="#94ADC3"/>
+</linearGradient>
+<linearGradient id="upS-ki-bot" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#D4DFE7"/>
+<stop offset="1" stop-color="#BACBD8"/>
+</linearGradient>
+<filter id="sh-ki-bot" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dy="2"/>
+<feGaussianBlur stdDeviation="2"/>
+<feComposite in2="hardAlpha" operator="out"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0.6157 0 0 0 0 0.7098 0 0 0 0 0.7843 0 0 0 0.21 0"/>
+<feBlend in2="BackgroundImageFix" mode="normal" result="shadow"/>
+<feBlend in="SourceGraphic" in2="shadow" mode="normal"/>
+</filter>
+<filter id="hi-ki-bot" x="-10%" y="-10%" width="120%" height="130%" color-interpolation-filters="sRGB">
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="a"/>
+<feOffset in="a" dy="0.7"/>
+<feGaussianBlur stdDeviation="0.35"/>
+<feComposite in2="a" operator="arithmetic" k2="-1" k3="1"/>
+<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0"/>
+<feBlend in2="SourceGraphic" mode="overlay"/>
+</filter>
+<mask id="ol-ki-bot-0" maskUnits="userSpaceOnUse" x="-40" y="-40" width="111" height="109">
+<rect x="-40" y="-40" width="111" height="109" fill="#fff"/>
+<path d="M2.8 12.8Q2.8 11.6 4 11.6L5.2 11.6Q6.4 11.6 6.4 12.8L6.4 16.8Q6.4 18 5.2 18L4 18Q2.8 18 2.8 16.8Z" fill="#000"/>
+</mask>
+<mask id="ol-ki-bot-1" maskUnits="userSpaceOnUse" x="-40" y="-40" width="111" height="109">
+<rect x="-40" y="-40" width="111" height="109" fill="#fff"/>
+<path d="M24.6 12.8Q24.6 11.6 25.8 11.6L27 11.6Q28.2 11.6 28.2 12.8L28.2 16.8Q28.2 18 27 18L25.8 18Q24.6 18 24.6 16.8Z" fill="#000"/>
+</mask>
+<mask id="ol-ki-bot-2" maskUnits="userSpaceOnUse" x="-40" y="-40" width="111" height="109">
+<rect x="-40" y="-40" width="111" height="109" fill="#fff"/>
+<path d="M5.2 11Q5.2 7 9.2 7L21.8 7Q25.8 7 25.8 11L25.8 18.6Q25.8 22.6 21.8 22.6L9.2 22.6Q5.2 22.6 5.2 18.6Z" fill="#000"/>
+</mask>
+</defs>
+<path d="M2.8 12.8Q2.8 11.6 4 11.6L5.2 11.6Q6.4 11.6 6.4 12.8L6.4 16.8Q6.4 18 5.2 18L4 18Q2.8 18 2.8 16.8Z" fill="none" stroke-width="1" stroke="url(#upS-ki-bot)"/>
+<g filter="url(#sh-ki-bot)">
+<g filter="url(#hi-ki-bot)">
+<path d="M2.8 12.8Q2.8 11.6 4 11.6L5.2 11.6Q6.4 11.6 6.4 12.8L6.4 16.8Q6.4 18 5.2 18L4 18Q2.8 18 2.8 16.8Z" fill="url(#upS-ki-bot)"/>
+</g>
+</g>
+<path d="M2.8 12.8Q2.8 11.6 4 11.6L5.2 11.6Q6.4 11.6 6.4 12.8L6.4 16.8Q6.4 18 5.2 18L4 18Q2.8 18 2.8 16.8Z" mask="url(#ol-ki-bot-0)" fill="none" stroke-width="2" stroke="#6F92AE"/>
+<path d="M24.6 12.8Q24.6 11.6 25.8 11.6L27 11.6Q28.2 11.6 28.2 12.8L28.2 16.8Q28.2 18 27 18L25.8 18Q24.6 18 24.6 16.8Z" fill="none" stroke-width="1" stroke="url(#upS-ki-bot)"/>
+<g filter="url(#sh-ki-bot)">
+<g filter="url(#hi-ki-bot)">
+<path d="M24.6 12.8Q24.6 11.6 25.8 11.6L27 11.6Q28.2 11.6 28.2 12.8L28.2 16.8Q28.2 18 27 18L25.8 18Q24.6 18 24.6 16.8Z" fill="url(#upS-ki-bot)"/>
+</g>
+</g>
+<path d="M24.6 12.8Q24.6 11.6 25.8 11.6L27 11.6Q28.2 11.6 28.2 12.8L28.2 16.8Q28.2 18 27 18L25.8 18Q24.6 18 24.6 16.8Z" mask="url(#ol-ki-bot-1)" fill="none" stroke-width="2" stroke="#6F92AE"/>
+<g transform="rotate(0 15.5 7.4)">
+<path d="M15.5 7.4V4.4" fill="none" stroke-width="2.2" stroke-linecap="round" stroke="#58618A"/>
+<circle cx="15.5" cy="3" r="1.8" fill="#58618A"/>
+</g>
+<path d="M5.2 11Q5.2 7 9.2 7L21.8 7Q25.8 7 25.8 11L25.8 18.6Q25.8 22.6 21.8 22.6L9.2 22.6Q5.2 22.6 5.2 18.6Z" fill="none" stroke-width="1" stroke="url(#loS-ki-bot)"/>
+<g filter="url(#sh-ki-bot)">
+<g filter="url(#hi-ki-bot)">
+<path d="M5.2 11Q5.2 7 9.2 7L21.8 7Q25.8 7 25.8 11L25.8 18.6Q25.8 22.6 21.8 22.6L9.2 22.6Q5.2 22.6 5.2 18.6Z" fill="url(#loS-ki-bot)"/>
+</g>
+</g>
+<path d="M5.2 11Q5.2 7 9.2 7L21.8 7Q25.8 7 25.8 11L25.8 18.6Q25.8 22.6 21.8 22.6L9.2 22.6Q5.2 22.6 5.2 18.6Z" mask="url(#ol-ki-bot-2)" fill="none" stroke-width="2" stroke="#6F92AE"/>
+<path d="M8.2 12.6Q8.2 10 10.8 10L20.2 10Q22.8 10 22.8 12.6L22.8 17Q22.8 19.6 20.2 19.6L10.8 19.6Q8.2 19.6 8.2 17Z" fill="#fff"/>
+<path d="M10.8 14.3Q10.8 12.9 12.2 12.9L12.2 12.9Q13.6 12.9 13.6 14.3L13.6 15.3Q13.6 16.7 12.2 16.7L12.2 16.7Q10.8 16.7 10.8 15.3ZM17.4 14.3Q17.4 12.9 18.8 12.9L18.8 12.9Q20.2 12.9 20.2 14.3L20.2 15.3Q20.2 16.7 18.8 16.7L18.8 16.7Q17.4 16.7 17.4 15.3Z" fill="#58618A"/>
+</svg>

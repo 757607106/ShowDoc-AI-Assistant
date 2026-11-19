@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { getDocument, nativeAPI, uploadDocumentFile, updateDocumentMetadata, retryDocument } from '@/api/contextdb'
 import api from '@/api/backend'
 import { batchDownloadKnowledge, getKnowledgeDetailsCon } from '@/api/knowledge-base'
@@ -11,10 +11,11 @@ import ContextDBMetadata from './ContextDBMetadata.vue'
 import { formatFileSize, getFileIcon } from '@/utils/files'
 import { documentDisplayName, documentDownloadName } from '@/utils/contextdbDocumentName'
 
-const props=defineProps<{kbId:string;canEdit:boolean;wikiEnabled?:boolean;graphEnabled?:boolean;reviewEnabled?:boolean;documentId?:string;folderId?:string;baseName?:string}>()
+const props=defineProps<{kbId:string;canEdit:boolean;wikiEnabled?:boolean;graphEnabled?:boolean;reviewEnabled?:boolean;documentId?:string;folderId?:string;baseName?:string;syncLocation?:boolean}>()
+const emit = defineEmits<{ navigate: [folderId: string, documentId?: string] }>()
 const rows=ref<any[]>([]),tree=ref<any[]>([]),breadcrumbs=ref<any[]>([]),parent=ref(''),rootId=ref(''),page=ref(1),pageSize=ref(20),total=ref(0),loading=ref(false),error=ref(''),selected=ref<string[]>([])
 const sortBy=ref('created_at'),sortOrder=ref('desc'),width=ref(260);let startWidth=260,request=0,previewRequest=0,uploadRequest=0,chunkRequest=0,writeEpoch=0,metadataRequest=0
-const preview=ref<any>(null),previewMode=ref('original'),chunks=ref<any[]>([]),chunkPage=ref(1),chunkTotal=ref(0),chunkLoading=ref(false)
+const preview=ref<any>(null),previewLoading=ref(false),previewError=ref(''),previewMode=ref('original'),chunks=ref<any[]>([]),chunkPage=ref(1),chunkTotal=ref(0),chunkLoading=ref(false)
 const nodeDialog=ref(''),node=ref<any>(null),nodeName=ref(''),target=ref(''),folderOptions=ref<any[]>([]),saving=ref(false)
 const removing=ref<any[]>([]),recursiveDelete=ref(false),metadata=ref<any>(null),metadataText=ref(''),mutating=ref(false)
 const uploadOpen=ref(false),files=ref<File[]>([]),uploading=ref(false),review=ref(false),fileInput=ref<HTMLInputElement|null>(null)
@@ -45,12 +46,56 @@ async function load(){
   }catch(e:any){if(token===request)error.value=e.message}finally{if(token===request)loading.value=false}
 }
 async function refresh(){const kb=props.kbId,items=await load();if(kb!==props.kbId)return;try{const nodes=await children('');if(kb===props.kbId)tree.value=nodes}catch(e:any){if(kb===props.kbId)error.value=e.message}return items}
-async function enterNode(id=''){previewRequest++;preview.value=null;parent.value=id;page.value=1;await load()}
+async function enterNode(id=''){
+  if (props.syncLocation) { emit('navigate', id); return }
+  await clearPreview(false)
+  parent.value=id;page.value=1;await load()
+}
 async function open(row:any){
   if(!row.document_id&&!row.id)return enterNode(row.node_id)
-  const token=++previewRequest,kb=props.kbId;error.value=''
+  const token=++previewRequest,kb=props.kbId;error.value='';previewError.value='';previewLoading.value=true
   try{const data=(await getDocument(row.document_id||row.id)).data;if(token!==previewRequest||kb!==props.kbId)return;preview.value={...row,...data,display_name:row.display_name||data.name,node_id:row.node_id||data.node_id,tree_version:row.tree_version??data.tree_version,wiki_status:row.node_id?row.wiki_status:data.wiki_status,id:data.id};previewMode.value='original';chunkPage.value=1;chunkRequest++;chunks.value=[];chunkTotal.value=0}
-  catch(e:any){if(token===previewRequest)error.value=e.message}
+  catch(e:any){if(token===previewRequest)previewError.value=e.message}
+  finally{if(token===previewRequest)previewLoading.value=false}
+}
+const documentMain = ref<HTMLElement | null>(null)
+let openedFromTable = ''
+let pendingFile: { row: any; fromTable: boolean } | undefined
+async function openFile(row: any, fromTable = false) {
+  const id = row.document_id || row.id
+  if (!id) return enterNode(row.node_id)
+  if (props.syncLocation) {
+    pendingFile = { row, fromTable }
+    emit('navigate', parent.value, id)
+    return
+  }
+  await showFile(row, fromTable)
+}
+async function showFile(row: any, fromTable: boolean) {
+  const loadingFile = open(row)
+  const token = previewRequest
+  if (fromTable && props.syncLocation) openedFromTable = row.node_id
+  await loadingFile
+  if (!fromTable || token !== previewRequest || (!props.syncLocation && !preview.value)) return
+  openedFromTable = row.node_id
+  await nextTick()
+  documentMain.value?.querySelector<HTMLElement>('.preview-heading button')?.focus()
+}
+async function closePreview() {
+  if (props.syncLocation) { emit('navigate', parent.value); return }
+  await clearPreview()
+}
+async function clearPreview(restoreFocus = true) {
+  const trigger = restoreFocus ? openedFromTable : ''
+  openedFromTable = ''
+  previewRequest++
+  preview.value = null
+  previewLoading.value = false
+  previewError.value = ''
+  await nextTick()
+  if (trigger) {
+    documentMain.value?.querySelector<HTMLElement>('[data-node-open="' + CSS.escape(trigger) + '"]')?.focus()
+  }
 }
 async function loadChunks(){
   if(!preview.value)return
@@ -95,12 +140,12 @@ async function remove(){
     if(items.length===1){const item=items[0],query=new URLSearchParams({knowledge_base_id:kb,node_id:item.node_id,expected_tree_version:String(item.tree_version),recursive:String(recursive)});const res=await nativeAPI.del('knowledge/nodes?'+query);if(epoch!==writeEpoch)return;if(res.data.deleted!==true)throw new Error('删除结果未确认，请刷新后核对')}
     else{const res=await nativeAPI.del('knowledge/nodes/batch?knowledge_base_id='+encodeURIComponent(kb),{ids:items.map(item=>item.node_id),expected_tree_versions:Object.fromEntries(items.map(item=>[item.node_id,item.tree_version])),recursive});if(epoch!==writeEpoch)return;const failures=items.filter(item=>!res.data.results?.find((r:any)=>r.id===item.node_id)?.success);removing.value=failures;if(failures.length)throw new Error(failures.map((n:any)=>res.data.results?.find((r:any)=>r.id===n.node_id)?.error||'删除结果未确认，请刷新后核对').join('；'))}
     if(epoch!==writeEpoch)return
-    removing.value=[];preview.value=null;previewRequest++;await refresh()
+    removing.value=[];if(preview.value)await closePreview();await refresh()
   }catch(e:any){
     if(epoch!==writeEpoch)return
     const pending=[...removing.value]
     rows.value=[];tree.value=[];total.value=0
-    preview.value=null;previewRequest++
+    if(preview.value)await closePreview()
     const fresh=await refresh()
     if(epoch!==writeEpoch)return
     removing.value=pending.filter(item=>fresh?.some((row:any)=>row.node_id===item.node_id&&row.tree_version===item.tree_version))
@@ -135,22 +180,45 @@ async function upload(){
 }
 async function download(row:any){try{const id=row.document_id||row.id,doc=row.name?row:(await getDocument(id)).data;await api.downloadFile('/api/contextdb/documents/'+encodeURIComponent(id)+'/download',documentDownloadName({...doc,document_display_name:title(row)}))}catch(e:any){error.value=e.message}}
 async function downloadSelected(){try{const ids=selection.value.filter(row=>row.document_id).map(row=>row.document_id);if(!ids.length)return;const blob=await batchDownloadKnowledge(props.kbId,ids),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='knowledge-documents.zip';link.click();URL.revokeObjectURL(url)}catch(e:any){error.value=e.message}}
-watch(()=>[props.kbId,props.folderId],()=>{request++;previewRequest++;uploadRequest++;writeEpoch++;metadataRequest++;chunkRequest++;saving.value=false;mutating.value=false;uploading.value=false;rows.value=[];tree.value=[];breadcrumbs.value=[];rootId.value='';total.value=0;preview.value=null;parent.value=props.folderId||'';page.value=1;removing.value=[];nodeDialog.value='';metadata.value=null;uploadOpen.value=false;void refresh()},{immediate:true})
-watch(()=>props.documentId,value=>{if(value)void open({id:value})},{immediate:true})
+watch(()=>[props.kbId,props.folderId] as const,([kb,folder],previous)=>{
+  request++;uploadRequest++;writeEpoch++;metadataRequest++;chunkRequest++
+  saving.value=false;mutating.value=false;uploading.value=false;rows.value=[];breadcrumbs.value=[];total.value=0
+  parent.value=folder||'';page.value=1;removing.value=[];nodeDialog.value='';metadata.value=null;uploadOpen.value=false
+  if(kb!==previous?.[0]||!props.syncLocation){tree.value=[];rootId.value='';void refresh()}
+  else void load()
+},{immediate:true})
+watch(()=>[props.kbId,props.folderId,props.documentId] as const,([kb,folder,id],previous)=>{
+  const requested=pendingFile
+  pendingFile=undefined
+  void clearPreview(!id && kb===previous?.[0] && folder===previous?.[1])
+  if(!id)return
+  if(requested&&(requested.row.document_id||requested.row.id)===id)void showFile(requested.row,requested.fromTable)
+  else void open(rows.value.find(row=>row.document_id===id)||{id})
+},{immediate:true})
 onUnmounted(()=>{request++;previewRequest++;uploadRequest++;chunkRequest++;writeEpoch++;metadataRequest++})
 </script>
 <template>
-  <section class="document-workspace"><aside class="document-tree" :style="{width:width+'px'}"><button class="tree-home" :class="{active:!parent&&!preview}" @click="enterNode()"><t-icon name="view-module" />主页</button><div class="tree-heading"><span><t-icon name="view-list" />目录</span><t-dropdown v-if="canEdit" :options="[{content:'新建目录',value:'folder'}]" @click="editNode('folder')"><t-button variant="text" shape="square" aria-label="目录 更多操作"><t-icon name="more" /></t-button></t-dropdown></div>
-    <t-tree :data="tree" :keys="{value:'node_id',label:'label',children:'children'}" :load="loadChildren" activable :expand-on-click-node="false" @click="({node}:any)=>node.data.node_type==='file'?open(node.data):enterNode(node.value)"><template #icon="{node}"><t-icon :name="node.data.node_type==='file'?getFileIcon(node.label):'folder'" /></template><template #operations="{node}"><t-dropdown :options="menu(node.data)" @click="(item:any)=>act(node.data,item.value)"><t-button variant="text" shape="square" :aria-label="'更多操作 '+node.label" @click.stop><t-icon name="more" /></t-button></t-dropdown></template></t-tree>
+  <section class="document-workspace"><aside class="document-tree" :style="{width:width+'px'}"><button class="tree-home" :class="{active:!parent&&!preview}" @click="enterNode()"><t-icon name="view-module" size="var(--app-text-xl)" />主页</button><div class="tree-heading"><span><t-icon name="view-list" />目录</span><t-dropdown v-if="canEdit" :options="[{content:'新建目录',value:'folder'}]" @click="editNode('folder')"><t-button variant="text" shape="square" aria-label="目录 更多操作"><t-icon name="more" /></t-button></t-dropdown></div>
+    <t-tree :data="tree" :keys="{value:'node_id',label:'label',children:'children'}" :load="loadChildren" activable :expand-on-click-node="false" @click="({node}:any)=>node.data.node_type==='file'?openFile(node.data):enterNode(node.value)"><template #icon="{node}"><t-icon :name="node.data.node_type==='file'?getFileIcon(node.label):'folder'" /></template><template #operations="{node}"><t-dropdown :options="menu(node.data)" @click="(item:any)=>act(node.data,item.value)"><t-button variant="text" shape="square" :aria-label="'更多操作 '+node.label" @click.stop><t-icon name="more" /></t-button></t-dropdown></template></t-tree>
     <PanelResizeHandle edge="right" label="拖拽调整文档列表宽度" :value="width" :min="200" :max="480" @start="startWidth=width" @resize="delta=>width=Math.max(200,Math.min(480,startWidth+delta))" />
-  </aside><main class="document-main"><t-alert v-if="error" theme="error" :message="error" close />
-    <template v-if="!preview"><t-breadcrumb class="document-location"><t-breadcrumb-item @click="enterNode()">主页</t-breadcrumb-item><t-breadcrumb-item v-for="crumb in breadcrumbs.filter(item=>item.node_type!=='root')" :key="crumb.node_id" @click="enterNode(crumb.node_id)">{{crumb.display_name}}</t-breadcrumb-item></t-breadcrumb>
+  </aside><main ref="documentMain" class="document-main"><t-alert v-if="error || previewError" theme="error" :message="previewError || error" close />
+    <template v-if="!preview && !(syncLocation && documentId)"><t-breadcrumb class="document-location">
+      <t-breadcrumb-item><button type="button" class="document-text-button" @click="enterNode()">主页</button></t-breadcrumb-item>
+      <t-breadcrumb-item v-for="crumb in breadcrumbs.filter(item=>item.node_type!=='root')" :key="crumb.node_id">
+        <button type="button" class="document-text-button" @click="enterNode(crumb.node_id)">{{crumb.display_name}}</button>
+      </t-breadcrumb-item>
+    </t-breadcrumb>
       <div class="document-toolbar"><t-select v-model="sortBy" aria-label="排序" :options="[{value:'created_at',label:'创建时间'},{value:'updated_at',label:'更新时间'}]" @change="page=1;load()" /><t-button variant="outline" aria-label="排序方向" @click="sortOrder=sortOrder==='asc'?'desc':'asc';page=1;load()"><t-icon :name="sortOrder==='asc'?'arrow-up':'arrow-down'" /></t-button><div class="toolbar-actions"><t-button v-if="canEdit" variant="outline" @click="editNode('folder')">新建目录</t-button><t-button v-if="canEdit" @click="add"><t-icon name="upload" />上传文件</t-button><t-button variant="outline" :loading="loading" @click="refresh"><t-icon name="refresh" />刷新</t-button></div></div>
       <div v-if="selected.length" class="selection-actions"><span>已选择 {{selected.length}} 项</span><t-button variant="text" @click="downloadSelected">下载</t-button><t-button v-if="canEdit" variant="text" :disabled="selected.length>50" @click="editNode('move',selection)">移动到…</t-button><t-button v-if="canEdit" variant="text" theme="danger" :disabled="selected.length>50" @click="removing=[...selection];recursiveDelete=false">删除</t-button></div>
       <t-table row-key="node_id" :data="rows" :loading="loading" :selected-row-keys="selected" @select-change="(keys:(string|number)[])=>selected=keys.map(String)" :columns="[{colKey:'selection',type:'multiple' as const,width:44},{colKey:'name',title:'文件名称',minWidth:200},{colKey:'metadata',title:'元数据',width:150},{colKey:'ingest_status',title:'入库状态',width:100},...(wikiEnabled?[{colKey:'wiki_status',title:'WIKI 状态',width:100}]:[]),...(graphEnabled?[{colKey:'graph_status',title:'图谱状态',width:100}]:[]),{colKey:'size_bytes',title:'文件大小',width:100},{colKey:'updated_at',title:'最后一次更新时间',width:170},{colKey:'actions',title:'操作',width:160}]">
-        <template #name="{row}"><t-link theme="primary" @click="row.node_type==='file'?open(row):enterNode(row.node_id)"><t-icon :name="row.node_type==='file'?getFileIcon(title(row)):'folder'" />{{title(row)}}</t-link></template><template #metadata="{row}"><span v-if="!Object.keys(row.metadata||{}).length">-</span><t-link v-else @click="editMetadata(row)">{{Object.entries(row.metadata).slice(0,2).map(([key,value])=>key+' '+value).join(' ')}}</t-link></template><template #ingest_status="{row}"><span :class="{'status-success':row.ingest_status==='succeeded','status-failure':row.ingest_status==='failed'}">{{state(row.ingest_status)}}</span></template><template #wiki_status="{row}">{{state(row.wiki_status)}}</template><template #graph_status="{row}"><span :class="{'status-success':row.graph_status==='succeeded'}">{{state(row.graph_status)}}</span></template><template #size_bytes="{row}">{{formatFileSize(row.size_bytes)||'-'}}</template><template #updated_at="{row}">{{time(row.updated_at)}}</template><template #actions="{row}"><t-space><t-button v-if="row.node_type==='file'" variant="text" @click="editMetadata(row)">元数据</t-button><t-dropdown :options="menu(row)" @click="(item:any)=>act(row,item.value)"><t-button variant="text">更多<t-icon name="chevron-down" /></t-button></t-dropdown></t-space></template>
+        <template #name="{row}">
+          <button type="button" class="document-text-button document-file-open" :data-node-open="row.node_id"
+            @click="row.node_type==='file'?openFile(row, true):enterNode(row.node_id)">
+            <t-icon :name="row.node_type==='file'?getFileIcon(title(row)):'folder'" aria-hidden="true" />{{title(row)}}
+          </button>
+        </template><template #metadata="{row}"><span v-if="!Object.keys(row.metadata||{}).length">-</span><t-link v-else @click="editMetadata(row)">{{Object.entries(row.metadata).slice(0,2).map(([key,value])=>key+' '+value).join(' ')}}</t-link></template><template #ingest_status="{row}"><span :class="{'status-success':row.ingest_status==='succeeded','status-failure':row.ingest_status==='failed'}">{{state(row.ingest_status)}}</span></template><template #wiki_status="{row}">{{state(row.wiki_status)}}</template><template #graph_status="{row}"><span :class="{'status-success':row.graph_status==='succeeded'}">{{state(row.graph_status)}}</span></template><template #size_bytes="{row}">{{formatFileSize(row.size_bytes)||'-'}}</template><template #updated_at="{row}">{{time(row.updated_at)}}</template><template #actions="{row}"><t-space><t-button v-if="row.node_type==='file'" variant="text" @click="editMetadata(row)">元数据</t-button><t-dropdown :options="menu(row)" @click="(item:any)=>act(row,item.value)"><t-button variant="text">更多<t-icon name="chevron-down" /></t-button></t-dropdown></t-space></template>
       </t-table><div class="document-pagination"><span>当前层共 {{total}} 项</span><t-pagination :current="page" :total="total" :page-size="pageSize" :page-size-options="[20,50,100]" :total-content="false" @current-change="(value:number)=>{page=value;load()}" @page-size-change="(value:number)=>{pageSize=value;page=1;load()}" /></div>
-    </template><template v-else><div class="preview-heading"><t-button variant="text" shape="square" aria-label="返回文件列表" @click="previewRequest++;preview=null"><t-icon name="chevron-left" /></t-button><h2>{{title(preview)}}</h2><t-space><t-button variant="outline" @click="editMetadata(preview)">元数据</t-button><t-button v-if="canEdit&&preview.node_id" variant="outline" @click="removing=[preview];recursiveDelete=false">删除</t-button><t-button variant="outline" @click="download(preview)">下载原文</t-button><t-button variant="outline" @click="open(preview)">刷新</t-button></t-space></div><p class="preview-status">入库状态：{{state(preview.ingest_status)}} <span v-if="wikiEnabled">WIKI 状态：{{state(preview.wiki_status)}}</span><span v-if="graphEnabled">图谱状态：{{state(preview.graph_status)}}</span>文件大小：{{formatFileSize(preview.size_bytes)||'-'}}　最后一次更新时间：{{time(preview.updated_at)}}</p><t-radio-group v-model="previewMode" variant="default-filled"><t-radio-button value="original">原文</t-radio-button><t-radio-button value="chunks">Chunks</t-radio-button></t-radio-group><ContextDBSourcePreview v-if="previewMode==='original'" :key="`${preview.id}:${preview.current_snapshot_id || preview.updated_at || ''}`" :document-id="preview.id" :kb-id="kbId" :title="title(preview)" /><t-loading v-else :loading="chunkLoading"><section v-for="chunk in chunks" :key="chunk.id" class="document-chunk"><DocMarkdown :content="chunk.content||''" :source-name="preview.name" :source-display-name="title(preview)" :attachments="chunkAttachments([chunk], preview.id)" :kb-id="kbId" /></section><t-pagination :current="chunkPage" :total="chunkTotal" :page-size="25" :show-page-size="false" @current-change="(value:number)=>{chunkPage=value;loadChunks()}" /></t-loading></template>
+    </template><template v-else><div class="preview-heading"><t-button variant="text" shape="square" aria-label="返回文件列表" @click="closePreview"><t-icon name="chevron-left" /></t-button><h2>{{preview ? title(preview) : '文件预览'}}</h2><t-space v-if="preview"><t-button variant="outline" @click="editMetadata(preview)">元数据</t-button><t-button v-if="canEdit&&preview.node_id" variant="outline" @click="removing=[preview];recursiveDelete=false">删除</t-button><t-button variant="outline" @click="download(preview)">下载原文</t-button><t-button variant="outline" @click="open(preview)">刷新</t-button></t-space></div><t-loading v-if="!preview && previewLoading" text="正在加载文件" /><template v-if="preview"><p class="preview-status">入库状态：{{state(preview.ingest_status)}} <span v-if="wikiEnabled">WIKI 状态：{{state(preview.wiki_status)}}</span><span v-if="graphEnabled">图谱状态：{{state(preview.graph_status)}}</span>文件大小：{{formatFileSize(preview.size_bytes)||'-'}}　最后一次更新时间：{{time(preview.updated_at)}}</p><t-radio-group v-model="previewMode" variant="default-filled"><t-radio-button value="original">原文</t-radio-button><t-radio-button value="chunks">Chunks</t-radio-button></t-radio-group><ContextDBSourcePreview v-if="previewMode==='original'" :key="`${preview.id}:${preview.current_snapshot_id || preview.updated_at || ''}`" :document-id="preview.id" :kb-id="kbId" :title="title(preview)" /><t-loading v-else :loading="chunkLoading"><section v-for="chunk in chunks" :key="chunk.id" class="document-chunk"><DocMarkdown :content="chunk.content||''" :source-name="preview.name" :source-display-name="title(preview)" :attachments="chunkAttachments([chunk], preview.id)" :kb-id="kbId" /></section><t-pagination :current="chunkPage" :total="chunkTotal" :page-size="25" :show-page-size="false" @current-change="(value:number)=>{chunkPage=value;loadChunks()}" /></t-loading></template></template>
   </main>
   <t-dialog dialog-class-name="contextdb-overlay" :visible="!!nodeDialog" :header="nodeDialog==='rename'?'重命名':nodeDialog==='move'?'移动到…':'新建目录'" :confirm-btn="{content:'确定',loading:saving}" :close-on-overlay-click="!saving" @update:visible="(value:boolean)=>{if(!value&&!saving)nodeDialog=''}" @confirm="saveNode"><t-input v-if="nodeDialog!=='move'" v-model="nodeName" :maxlength="512" placeholder="名称" @enter="saveNode" /><t-cascader v-else v-model="target" :options="folderOptions" :keys="{value:'node_id',label:'display_name',children:'children'}" :load="loadChildren" check-strictly placeholder="选择目标目录" /><t-alert v-if="error" theme="error" :message="error" /></t-dialog>
   <t-dialog dialog-class-name="contextdb-overlay" :visible="!!removing.length" header="删除" :confirm-btn="{content:'确定',theme:'danger',loading:mutating}" :close-on-overlay-click="!mutating" @update:visible="(value:boolean)=>{if(!value&&!mutating)removing=[]}" @confirm="remove"><p>确定删除所选的 {{removing.length}} 项吗？</p><t-checkbox v-model="recursiveDelete">同时删除子目录及其中的文件</t-checkbox><t-alert v-if="error" theme="error" :message="error" /></t-dialog>
@@ -159,7 +227,32 @@ onUnmounted(()=>{request++;previewRequest++;uploadRequest++;chunkRequest++;write
   </section>
 </template>
 <style scoped lang="less">
-.document-workspace{display:flex;flex:1;min-height:440px;overflow:hidden;border:1px solid var(--td-component-stroke);border-radius:var(--app-space-4) 16px 0 0}.document-tree{flex:none;position:relative;padding:16px 10px;box-sizing:border-box;border-right:1px solid var(--td-component-stroke);background:var(--td-bg-color-sidebar);overflow-y:auto;overflow-x:hidden;min-width:200px}.tree-home{width:100%;height:36px;display:flex;align-items:center;gap:4px;padding:0 12px;border:0;border-radius:var(--app-radius-md);font:inherit;font-size:var(--app-text-base);background:transparent;cursor:pointer;color:var(--td-text-color-primary)}.tree-home .t-icon{font-size:16px}.tree-home.active{background:var(--app-selection-bg);color:var(--app-selection-text)}.tree-heading{display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:8px 12px}.tree-heading>span{display:flex;align-items:center;gap:10px}.document-tree :deep(.t-tree__label){font-size:var(--app-text-base);overflow:hidden;text-overflow:ellipsis}.document-tree :deep(.t-tree__item){height:36px;min-width:0;padding-left:calc(12px + var(--td-comp-margin-xxl)*var(--level))}.document-tree :deep(.panel-resize-handle__grip){display:none}.document-main{flex:1;min-width:0;padding:16px 20px;overflow:auto}.document-location{margin-bottom:16px}.document-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:16px}.document-toolbar>.t-select__wrap{width:144px}.toolbar-actions{margin-left:auto;display:flex;gap:8px}.document-pagination{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:16px;font-size:var(--app-text-md);color:var(--td-text-color-secondary)}.document-pagination>span{flex:none;white-space:nowrap}.document-pagination :deep(.t-pagination){justify-content:flex-end}.document-main :deep(.t-table td){height:64px}.document-main :deep(.t-table__header th){height:44px}.selection-actions{display:flex;align-items:center;gap:12px;margin-bottom:16px}.status-success{color:var(--td-success-color)}.status-failure{color:var(--td-error-color)}.preview-heading{display:flex;align-items:center;gap:8px}.preview-heading h2{flex:1;margin:0;font-size:var(--app-text-3xl);font-weight:600}.preview-status{display:flex;gap:24px;flex-wrap:wrap;font-size:var(--app-text-md);color:var(--td-text-color-secondary);margin:20px 0}.document-chunk{padding:16px;border-bottom:1px solid var(--td-component-stroke)}.document-main :deep(.doc-markdown-toggle){display:none}.file-drop{display:flex;align-items:center;flex-direction:column;justify-content:center;gap:12px;padding:32px;width:100%;border:1px dashed var(--td-component-stroke);border-radius:var(--app-radius-lg);background:var(--td-bg-color-secondarycontainer);font:inherit;cursor:pointer}.file-drop span{font-size:var(--app-text-md);color:var(--td-text-color-secondary)}.upload-file{display:flex;align-items:center;justify-content:space-between}.document-main>.t-alert{margin-bottom:12px}@media(max-width:900px){.document-tree{display:none}.document-main{padding:16px 10px}.document-toolbar{flex-wrap:wrap}.toolbar-actions{margin-left:0}.preview-heading{flex-wrap:wrap}}
+.document-text-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+
+  &:hover { text-decoration: underline; }
+  &:focus-visible {
+    outline: 2px solid var(--td-brand-color);
+    outline-offset: 2px;
+  }
+}
+.document-file-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--td-brand-color);
+}
+
+.document-workspace{display:flex;flex:1;min-height:440px;overflow:hidden;border:1px solid var(--td-component-stroke);border-radius:var(--app-radius-lg) var(--app-radius-lg) 0 0}.document-tree{flex:none;position:relative;padding:16px 10px;box-sizing:border-box;border-right:1px solid var(--td-component-stroke);background:var(--td-bg-color-sidebar);overflow-y:auto;overflow-x:hidden;min-width:200px}.tree-home{width:100%;height:36px;display:flex;align-items:center;gap:4px;padding:0 12px;border:0;border-radius:var(--app-radius-md);font:inherit;font-size:var(--app-text-base);background:transparent;cursor:pointer;color:var(--td-text-color-primary)}.tree-home.active{background:var(--app-selection-bg);color:var(--app-selection-text)}.tree-heading{display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:8px 12px}.tree-heading>span{display:flex;align-items:center;gap:10px}.document-tree :deep(.t-tree__label){font-size:var(--app-text-base);overflow:hidden;text-overflow:ellipsis}.document-tree :deep(.t-tree__item){height:36px;min-width:0;padding-left:calc(12px + var(--td-comp-margin-xxl)*var(--level))}.document-tree :deep(.panel-resize-handle__grip){display:none}.document-main{flex:1;min-width:0;padding:16px 20px;overflow:auto}.document-location{margin-bottom:16px}.document-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:16px}.document-toolbar>.t-select__wrap{width:144px}.toolbar-actions{margin-left:auto;display:flex;gap:8px}.document-pagination{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:16px;font-size:var(--app-text-md);color:var(--td-text-color-secondary)}.document-pagination>span{flex:none;white-space:nowrap}.document-pagination :deep(.t-pagination){justify-content:flex-end}.document-main :deep(.t-table td){height:64px}.document-main :deep(.t-table__header th){height:44px}.selection-actions{display:flex;align-items:center;gap:12px;margin-bottom:16px}.status-success{color:var(--td-success-color)}.status-failure{color:var(--td-error-color)}.preview-heading{display:flex;align-items:center;gap:8px}.preview-heading h2{flex:1;margin:0;font-size:var(--app-text-3xl);font-weight:600}.preview-status{display:flex;gap:24px;flex-wrap:wrap;font-size:var(--app-text-md);color:var(--td-text-color-secondary);margin:20px 0}.document-chunk{padding:16px;border-bottom:1px solid var(--td-component-stroke)}.document-main :deep(.doc-markdown-toggle){display:none}.file-drop{display:flex;align-items:center;flex-direction:column;justify-content:center;gap:12px;padding:32px;width:100%;border:1px dashed var(--td-component-stroke);border-radius:var(--app-radius-lg);background:var(--td-bg-color-secondarycontainer);font:inherit;cursor:pointer}.file-drop span{font-size:var(--app-text-md);color:var(--td-text-color-secondary)}.upload-file{display:flex;align-items:center;justify-content:space-between}.document-main>.t-alert{margin-bottom:12px}@media(max-width:900px){.document-tree{display:none}.document-main{padding:16px 10px}.document-toolbar{flex-wrap:wrap}.toolbar-actions{margin-left:0}.preview-heading{flex-wrap:wrap}}
+.document-toolbar,.toolbar-actions,.document-pagination { flex-wrap: wrap; }
+.document-pagination :deep(.t-pagination) { width: auto; }
+.document-pagination :deep(.t-pagination),.preview-heading :deep(.t-space) { max-width: 100%; flex-wrap: wrap; }
 </style>
 
 <style scoped lang="less">

@@ -17,10 +17,18 @@ test('links use the deep links each page reads', () => {
   assert.deepEqual(pageLinkLocation(link({ page: 'settings_models', model_id: 'm' })),
     { path: '/platform/settings', query: { section: 'models', model_id: 'm' } })
   assert.deepEqual(pageLinkLocation(link({ page: 'mcp_services' })), { path: '/platform/toolbox/mcp', query: {} })
-  assert.deepEqual(pageLinkLocation(link({ page: 'automations', automation_id: 'a/1' })),
-    { path: '/platform/automations/a%2F1', query: {} })
-  assert.deepEqual(pageLinkLocation(link({ page: 'automations' })), { path: '/platform/automations', query: {} })
   assert.equal(pageLinkLocation(link({ page: 'agent_editor' })), null, 'a link without its target goes nowhere')
+})
+
+test('retired page links remain readable history without a navigation destination', () => {
+  for (const entry of [
+    link({ page: 'automations', automation_id: 'a/1' }),
+    link({ page: 'automations' }),
+    link({ page: 'organizations' }),
+  ]) {
+    assert.equal(isAssistantPageLink(entry), true)
+    assert.equal(pageLinkLocation(entry), null)
+  }
 })
 
 test('a page the assistant opened goes back only to an in-app path', () => {
@@ -42,7 +50,6 @@ test('pages without a resource open the settings section, the tool or the list',
   assert.deepEqual(pageLinkLocation(link({ page: 'toolbox' })), { path: '/platform/toolbox', query: {} })
   assert.deepEqual(pageLinkLocation(link({ page: 'agents' })), { path: '/platform/agents', query: {} })
   assert.deepEqual(pageLinkLocation(link({ page: 'knowledge_bases' })), { path: '/platform/knowledge-bases', query: {} })
-  assert.deepEqual(pageLinkLocation(link({ page: 'organizations' })), { path: '/platform/organizations', query: {} })
 })
 
 test('only a new model or service carries a form, and its endpoint is shown', () => {

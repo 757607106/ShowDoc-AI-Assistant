@@ -85,7 +85,7 @@ test('done row appears only after the full turn completes', () => {
 test('rag pipeline renders model thinking inside the timeline before the done row', () => {
   assert.match(source, /rag-thinking-step/)
   assert.match(source, /showThinkingStep/)
-  assert.match(source, /name="lightbulb"/)
+  assert.match(source, /name="thinking" :active="thinkingActive"/)
   const doneIndex = source.indexOf('agent-step-done')
   const thinkingIndex = source.indexOf('rag-thinking-step')
   assert.ok(doneIndex > -1 && thinkingIndex > -1)

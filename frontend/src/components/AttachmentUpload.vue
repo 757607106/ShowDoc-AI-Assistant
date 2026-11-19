@@ -140,10 +140,11 @@ const addFiles = async (files: File[]) => {
 const emitFiles = () => emit('update:files', [...attachments.value]);
 
 const uploadAttachment = async (attachment: AttachmentFile) => {
-  if (!props.sessionId) return;
+  const sessionId = props.sessionId;
+  if (!sessionId) return;
   try {
     const response = await uploadTemporaryAttachment(
-      props.sessionId,
+      sessionId,
       attachment.file,
       props.agentId,
       props.agentSourceTenantId,
@@ -153,11 +154,11 @@ const uploadAttachment = async (attachment: AttachmentFile) => {
         emitFiles();
       },
     );
-    attachment.documentId = response.data.id;
-    if (disposed || !attachments.value.some(item => item.id === attachment.id)) {
-      await deleteTemporaryAttachment(props.sessionId, response.data.id).catch(() => undefined);
+    if (disposed || !attachments.value.includes(attachment)) {
+      await deleteTemporaryAttachment(sessionId, response.data.id).catch(() => undefined);
       return;
     }
+    attachment.documentId = response.data.id;
     attachment.status = response.data.status;
     attachment.progress = 100;
     emitFiles();
@@ -180,6 +181,7 @@ const pollStatus = async (attachment: AttachmentFile) => {
   if (!props.sessionId || !attachment.documentId || !attachments.value.some(item => item.id === attachment.id)) return;
   try {
     const response = await getTemporaryAttachment(props.sessionId, attachment.documentId);
+    if (disposed || !attachments.value.includes(attachment)) return;
     attachment.status = response.data.status;
     attachment.error = response.data.error_message;
     emitFiles();
@@ -236,10 +238,12 @@ defineExpose({
   triggerFileSelect,
   addFiles,
   restore: (files: AttachmentFile[]) => {
-    attachments.value = files;
+    attachments.value = files.map(file => ({ ...file }));
     emitFiles();
     for (const attachment of attachments.value) {
-      if (attachment.documentId && attachment.status !== 'ready' && attachment.status !== 'failed') {
+      if (props.sessionId && !attachment.documentId && attachment.status === 'uploading') {
+        void uploadAttachment(attachment);
+      } else if (attachment.documentId && attachment.status !== 'ready' && attachment.status !== 'failed') {
         scheduleStatusPoll(attachment);
       }
     }
@@ -281,7 +285,8 @@ defineExpose({
             {{ statusLabel(attachment) }}
           </div>
         </div>
-        <span class="attachment-preview-remove" @click="removeAttachment(attachment.id)" :aria-label="$t('common.remove')">×</span>
+        <button type="button" class="attachment-preview-remove" :disabled="disabled"
+          :aria-label="$t('common.remove') + ' ' + attachment.name" @click="removeAttachment(attachment.id)">×</button>
       </div>
     </div>
     
@@ -363,6 +368,8 @@ defineExpose({
   }
 
   .attachment-preview-remove {
+    border: 0;
+    padding: 0;
     position: absolute;
     top: 4px;
     right: 6px;

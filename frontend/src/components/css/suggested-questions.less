@@ -104,6 +104,8 @@
 .suggested-question-card {
     position: relative;
     display: inline-flex;
+    font: inherit;
+    text-align: start;
     align-items: center;
     gap: 8px;
     min-width: 0;
@@ -121,6 +123,11 @@
 
     &:not(.sq-card-skeleton):hover {
         .suggestion-chip-hover();
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--td-brand-color);
+        outline-offset: 2px;
     }
 
     &:not(.sq-card-skeleton):active {

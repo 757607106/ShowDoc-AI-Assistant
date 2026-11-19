@@ -1,38 +1,39 @@
 <template>
-  <div class="user-menu" :class="{ 'user-menu--collapsed': uiStore.sidebarCollapsed }" ref="menuRef">
+  <div class="user-menu" :class="{ 'user-menu--collapsed': collapsed }" ref="menuRef" @keydown.esc="handleEscape">
     <div class="user-bar">
     <!-- 用户按钮 -->
-    <div class="user-button" data-guide="user-menu" @click="toggleMenu">
-      <div class="user-avatar">
+    <button ref="userButton" type="button" class="user-button" data-guide="user-menu" :aria-label="userName"
+      :aria-expanded="menuVisible" @click="toggleMenu">
+      <span class="user-avatar">
         <img v-if="userAvatar" :src="userAvatar" :alt="$t('common.avatar')" />
         <span v-else class="avatar-placeholder">{{ userInitial }}</span>
-      </div>
-      <div v-if="!uiStore.sidebarCollapsed" class="user-info">
+      </span>
+      <span v-if="!collapsed" class="user-info">
           <!-- 多空间 / superuser：首行空间名，次行 username · 角色。单空间：昵称 + 邮箱。 -->
           <template v-if="showTenantIdentityLine">
-            <div class="user-tenant-name" :title="activeTenantName">{{ activeTenantName }}</div>
-            <div class="user-tenant-meta">
+            <span class="user-tenant-name" :title="activeTenantName">{{ activeTenantName }}</span>
+            <span class="user-tenant-meta">
               <span v-if="userName && userName !== activeTenantName" class="user-tenant-meta-name">{{ userName }}</span>
               <span v-if="(userName && userName !== activeTenantName) && currentRoleLabel"
                 class="user-tenant-meta-sep">·</span>
               <t-icon v-if="currentRoleIcon" :name="currentRoleIcon" size="12px" class="user-tenant-meta-icon" />
               <span v-if="currentRoleLabel" class="user-tenant-meta-role">{{ currentRoleLabel }}</span>
-            </div>
+            </span>
           </template>
           <template v-else>
-            <div class="user-name">{{ userName }}</div>
-            <div class="user-email">{{ userEmail }}</div>
+            <span class="user-name">{{ userName }}</span>
+            <span class="user-email">{{ userEmail }}</span>
           </template>
-        </div>
-    </div>
+        </span>
+    </button>
     </div>
     <!-- 下拉菜单 -->
     <Transition name="dropdown">
       <div v-if="menuVisible" class="user-dropdown" @click.stop>
         <!-- 弹出菜单：账号（头像+昵称）／当前空间（名称+权限）；底部侧栏样式不改。 -->
         <div v-if="userName" class="dropdown-user-header is-clickable" role="button" tabindex="0"
-          @click="handleQuickNav('userprofile')" @keydown.enter.prevent="handleQuickNav('userprofile')"
-          @keydown.space.prevent="handleQuickNav('userprofile')">
+          @click="handleQuickNav('userprofile')" @keydown.enter.self.prevent="handleQuickNav('userprofile')"
+          @keydown.space.self.prevent="handleQuickNav('userprofile')">
           <div class="dropdown-user-avatar">
             <img v-if="userAvatar" :src="userAvatar" :alt="$t('common.avatar')" />
             <span v-else class="dropdown-user-avatar-placeholder">{{ userInitial }}</span>
@@ -72,24 +73,24 @@
         </div>
         <div class="menu-divider"></div>
         <!-- 账号与空间是头像菜单的核心上下文；具体配置经快捷入口直达设置弹窗对应分区。 -->
-        <div class="menu-item" @click="handleQuickNav('general')">
+        <button type="button" class="menu-item" @click="handleQuickNav('general')">
           <t-icon name="user" class="menu-icon" />
           <span>{{ $t('general.personalSettings') }}</span>
-        </div>
-        <div v-if="!authStore.isLiteMode" class="menu-item" @click="handleQuickNav('tenant')">
+        </button>
+        <button v-if="!authStore.isLiteMode" type="button" class="menu-item" @click="handleQuickNav('tenant')">
           <t-icon name="user-circle" class="menu-icon" />
           <span>{{ $t('settings.workspaceSettings') }}</span>
-        </div>
+        </button>
         <!-- “管理”类快捷入口只对真正具备写权限的人展示。只读名册和模型列表
              仍可从侧栏「设置」进入，避免 viewer 看到名不副实的管理入口。 -->
-        <div v-if="canManageMembers" class="menu-item" @click="handleQuickNav('members')">
+        <button v-if="canManageMembers" type="button" class="menu-item" @click="handleQuickNav('members')">
           <t-icon name="usergroup" class="menu-icon" />
           <span>{{ $t('tenantMember.title') }}</span>
-        </div>
-        <div v-if="canManageModels" class="menu-item" @click="handleQuickNav('models')">
+        </button>
+        <button v-if="canManageModels" type="button" class="menu-item" @click="handleQuickNav('models')">
           <t-icon name="control-platform" class="menu-icon" />
           <span>{{ $t('settings.modelManagement') }}</span>
-        </div>
+        </button>
         <div class="menu-divider"></div>
         <!--
           System administration entry — visible only to users with the
@@ -97,16 +98,16 @@
           including tenant Owners. Real authorisation lives server-side
           (RequireSystemAdmin middleware); this is UI gating only.
         -->
-        <div v-if="authStore.isSystemAdmin" class="menu-item" @click="handleSystemAdmin">
+        <button v-if="authStore.isSystemAdmin" type="button" class="menu-item" @click="handleSystemAdmin">
           <t-icon name="server" class="menu-icon" />
           <span>{{ $t('settings.navGroups.systemAdministration') }}</span>
-        </div>
+        </button>
         <template v-if="!authStore.isLiteMode">
           <div class="menu-divider"></div>
-          <div class="menu-item danger" @click="handleLogout">
+          <button type="button" class="menu-item danger" @click="handleLogout">
             <t-icon name="logout" class="menu-icon" />
             <span>{{ $t('auth.logout') }}</span>
-          </div>
+          </button>
         </template>
       </div>
     </Transition>
@@ -189,6 +190,8 @@ import { openNewUserGuide } from '@/config/contextualGuides'
 import { SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE } from '@/config/settingsAccess'
 const { t } = useI18n()
 
+defineProps<{ collapsed: boolean }>()
+
 const router = useRouter()
 const uiStore = useUIStore()
 const authStore = useAuthStore()
@@ -228,6 +231,7 @@ const canManageModels = computed(() =>
   authStore.hasRole(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE.models),
 )
 const menuRef = ref<HTMLElement>()
+const userButton = ref<HTMLButtonElement>()
 const tenantMenuItemRef = ref<HTMLElement>()
 const menuVisible = ref(false)
 const tenantSubmenuOpen = ref(false)
@@ -258,7 +262,8 @@ const toggleMenu = () => {
 
 // 快捷导航到设置的特定部分
 const handleQuickNav = (section: string) => {
-  menuVisible.value = false
+  closeAll()
+  userButton.value?.focus()
   uiStore.openSettings()
   router.push({ path: '/platform/settings', query: { section } })
 }
@@ -267,7 +272,8 @@ const handleQuickNav = (section: string) => {
 // modal. Global settings is the group's landing page; task queues, platform
 // API keys and the audit log remain available beside it in the settings nav.
 const handleSystemAdmin = () => {
-  menuVisible.value = false
+  closeAll()
+  userButton.value?.focus()
   uiStore.openSettings('system-global')
   router.push({ path: '/platform/settings', query: { section: 'system-global' } })
 }
@@ -277,6 +283,13 @@ const handleSystemAdmin = () => {
 const closeAll = () => {
   tenantSubmenuOpen.value = false
   menuVisible.value = false
+}
+
+function handleEscape(event: KeyboardEvent) {
+  if (!menuVisible.value) return
+  event.stopPropagation()
+  closeAll()
+  userButton.value?.focus()
 }
 
 // ---------- Create new tenant ----------
@@ -563,6 +576,8 @@ onUnmounted(() => {
   gap: 6px;
   min-width: 0;
   padding: 8px 6px;
+  border: 0;
+  font: inherit;
   border-radius: var(--app-radius-md);
   cursor: pointer;
   transition: background-color var(--app-motion-base);
@@ -873,8 +888,13 @@ onUnmounted(() => {
 .menu-item {
   display: flex;
   align-items: center;
+  width: 100%;
   gap: 10px;
   padding: 9px 12px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   transition: all var(--app-motion-base);
   font-size: var(--app-text-base);
@@ -954,6 +974,12 @@ onUnmounted(() => {
     color: var(--td-brand-color);
     letter-spacing: 0.02em;
   }
+}
+
+.user-button:focus-visible,
+.menu-item:focus-visible {
+  outline: 2px solid var(--td-brand-color);
+  outline-offset: -2px;
 }
 
 .menu-divider {

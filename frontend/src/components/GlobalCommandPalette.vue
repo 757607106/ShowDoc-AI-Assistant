@@ -1,6 +1,6 @@
 <template>
   <t-dialog v-model:visible="dialogVisible" :footer="false" :header="false" :close-btn="false" width="640px" top="10vh"
-    :close-on-esc="!settingsVisible" destroy-on-close class="cmdk-dialog" @close="handleClose" @opened="onDialogOpened">
+    :close-on-esc-keydown="!settingsVisible" destroy-on-close class="cmdk-dialog" @close="handleClose" @opened="onDialogOpened">
     <div class="cmdk" @keydown="onKeyDown">
       <!-- Input row -->
       <div class="cmdk__input-row">
@@ -21,16 +21,16 @@
         </span>
         <t-popup v-model:visible="settingsVisible" trigger="click" placement="bottom-right"
           overlay-class-name="cmdk-settings-popup" :overlay-inner-style="{ padding: '0' }" :z-index="3100">
-          <button type="button" class="cmdk__icon-btn" :class="{ active: settingsVisible }"
+          <button ref="settingsTrigger" type="button" class="cmdk__icon-btn" :class="{ active: settingsVisible }"
             :title="t('commandPalette.retrieval')" :aria-label="t('retrievalSettings.title')"
             aria-haspopup="dialog" :aria-expanded="settingsVisible">
             <t-icon name="setting" size="16px" />
           </button>
           <template #content>
             <div class="cmdk-settings-popover" role="dialog" :aria-label="t('retrievalSettings.title')"
-              @keydown.stop @keydown.esc.prevent="settingsVisible = false">
-              <button type="button" class="cmdk__icon-btn cmdk-settings-popover__close"
-                :aria-label="t('commandPalette.hotkey.esc')" @click="settingsVisible = false">
+              @keydown.stop @keydown.esc.prevent="closeSearchSettings">
+              <button ref="settingsClose" type="button" class="cmdk__icon-btn cmdk-settings-popover__close"
+                :aria-label="t('commandPalette.hotkey.esc')" @click="closeSearchSettings">
                 <t-icon name="close" size="16px" />
               </button>
               <RetrievalSettings />
@@ -222,6 +222,13 @@ const {
 })
 
 const settingsVisible = ref(false)
+const settingsTrigger = ref<HTMLButtonElement | null>(null)
+const settingsClose = ref<HTMLButtonElement | null>(null)
+watch([settingsVisible, settingsClose], ([visible, button]) => {
+  if (visible && button) requestAnimationFrame(() => {
+    if (settingsVisible.value) button.focus({ preventScroll: true })
+  })
+}, { flush: 'post' })
 const inputRef = ref<HTMLInputElement | null>(null)
 const scrollRef = ref<HTMLElement | null>(null)
 
@@ -528,18 +535,14 @@ const shortcutFor = (flatIndex: number): number | undefined => {
 }
 
 const onKeyDown = (e: KeyboardEvent) => {
+  if (e.isComposing) return
   if (settingsVisible.value && e.key === 'Escape') {
     e.preventDefault()
-    settingsVisible.value = false
+    e.stopPropagation()
+    closeSearchSettings()
     return
   }
-  if (e.key === 'ArrowDown') {
-    e.preventDefault()
-    moveSelection(1)
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault()
-    moveSelection(-1)
-  } else if (
+  if (
     (e.metaKey || e.ctrlKey) &&
     e.key >= '1' && e.key <= '9'
   ) {
@@ -552,27 +555,29 @@ const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault()
       item.run({ cmd: false })
     }
-  } else if (e.key === 'Enter') {
-    e.preventDefault()
-    primaryActionForSelected({ cmd: e.metaKey || e.ctrlKey })
   } else if (e.key === 'Escape') {
     e.preventDefault()
     handleClose()
   }
 }
 
-// Keys handled specifically on the input element. Main purpose: let the user
-// escape a KB scope chip with the keyboard. Mirrors how chat apps treat
-// pill/tag tokens — Backspace on an empty input removes the preceding chip.
 const onInputKeyDown = (e: KeyboardEvent) => {
-  if (
-    e.key === 'Backspace' &&
-    !query.value &&
-    activeKbScope.value
-  ) {
+  if (e.isComposing) return
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    moveSelection(e.key === 'ArrowDown' ? 1 : -1)
+  } else if (e.key === 'Enter') {
+    e.preventDefault()
+    primaryActionForSelected({ cmd: e.metaKey || e.ctrlKey })
+  } else if (e.key === 'Backspace' && !query.value && activeKbScope.value) {
     e.preventDefault()
     clearKbScope()
   }
+}
+
+const closeSearchSettings = () => {
+  settingsVisible.value = false
+  settingsTrigger.value?.focus({ preventScroll: true })
 }
 
 const handleClose = () => {
@@ -664,7 +669,7 @@ const focusInputWithRetry = () => {
 }
 
 const onDialogOpened = () => {
-  focusInputWithRetry()
+  if (!settingsVisible.value) focusInputWithRetry()
 }
 
 // Once KB list loads, backfill the scope name if we only had an id at open time.
@@ -910,6 +915,11 @@ onUnmounted(() => {
 </style>
 
 <style lang="less">
+// Keep the entering popup focusable while TDesign fades it in.
+.cmdk-settings-popup.t-popup--animation-enter-from {
+  visibility: visible;
+}
+
 .cmdk-settings-popup .t-popup__content {
   border-radius: var(--app-radius-xl);
   background: var(--td-bg-color-container);

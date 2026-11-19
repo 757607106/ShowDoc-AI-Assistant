@@ -10,9 +10,9 @@ import { createServer, type ViteDevServer } from 'vite'
 import { getAgentToolIconName } from '../utils/agent-tool-icons'
 
 const iconNames = [
-  'lightbulb', 'ai-search', 'bookmark', 'search', 'internet', 'data-search', 'file-search',
-  'file', 'file-paste', 'task', 'folder', 'edit', 'attach', 'terminal', 'code', 'chat',
-  'agent', 'browser', 'jump', 'compaction', 'ellipsis', 'check-circle', 'play-circle',
+  'lightbulb', 'ai-search', 'thinking', 'bookmark', 'search', 'internet', 'data-search', 'file-search',
+  'file', 'file-paste', 'book-open', 'task', 'folder', 'edit', 'attach', 'terminal', 'plug', 'code', 'chat', 'tools', 'delete',
+  'agent', 'network', 'document', 'clipboard', 'browser', 'jump', 'compaction', 'ellipsis', 'check-circle', 'play-circle',
   'time', 'minus-circle', 'close-circle', 'help-circle', 'secured', 'lock-on',
 ]
 const filename = fileURLToPath(new URL('./ChatTimelineIcon.vue', import.meta.url))
@@ -57,7 +57,7 @@ test('active icons keep their viewport and stroke, while completed and historica
   }
 })
 
-test('every tool icon family has a semantic motion, including the unknown-tool fallback', async () => {
+test('every tool icon animates while active, including the unknown-tool fallback', async () => {
   const tools = [
     'thinking', 'search_knowledge', 'wiki_search', 'web_search', 'web_fetch', 'read_document',
     'todo_write', 'attachment_parsing', 'call_mcp_tool', 'shell_exec', 'list_sandbox_files',
@@ -68,11 +68,29 @@ test('every tool icon family has a semantic motion, including the unknown-tool f
   for (const name of names) {
     const html = await render(name, true)
     assert.ok(html.includes(`data-icon="${name}"`), `${name} must use its own glyph`)
-    assert.match(html, /<animate(?:Transform)?\s/i, `${name} must have a motion on its working part`)
+    assert.match(html, /<animate(?:Transform)?\s/i, `${name} must have a running animation`)
   }
-  assert.match(await render('unknown_tool', true), /data-icon="file-paste"/)
+  assert.match(await render('unknown_tool', true), /data-icon="tools"/)
   for (const name of ['chevron-right', 'chevron-down']) {
     assert.doesNotMatch(await render(name, true), /<animate/i, 'disclosure controls remain still')
+  }
+})
+
+test('selected tool icons use the same local Kubai artwork at rest and while running', async () => {
+  const artwork = {
+    thinking: 'lightbulb', 'data-search': 'search', internet: 'globe', 'book-open': 'book-open',
+    edit: 'notebook-pen', terminal: 'terminal', plug: 'plug', agent: 'bot', network: 'network',
+    document: 'file', clipboard: 'clipboard',
+  }
+  for (const [name, asset] of Object.entries(artwork)) {
+    const images = (html: string) => Array.from(html.matchAll(/<image href="([^"]+)" width="24" height="24"/g), match => match[1])
+    const [still] = images(await render(name))
+    assert.ok(still?.split('?')[0].endsWith(`/agent-timeline/${asset}.svg`), `${name}: ${still}`)
+    assert.deepEqual(images(await render(name, true)), [still, still], name)
+    assert.match(readFileSync(new URL(`../assets/img/agent-timeline/${asset}.svg`, import.meta.url), 'utf8'), /<linearGradient/)
+  }
+  for (const name of ['file', 'file-search', 'task', 'check-circle']) {
+    assert.doesNotMatch(await render(name), /<image\b/, name)
   }
 })
 
@@ -137,7 +155,7 @@ test('native timelines have valid spline segments, compatible path morphs and a 
 })
 
 test('drawing strokes have a normalized length and reset only after fading out', async () => {
-  for (const name of ['lightbulb', 'file', 'task', 'terminal', 'chat', 'check-circle']) {
+  for (const name of ['lightbulb', 'file', 'task', 'chat', 'check-circle']) {
     const html = await render(name, true)
     const strokes = [...html.matchAll(/<path[^>]*pathLength="1"[^>]*>[\s\S]*?<\/path>/gi)]
     assert.ok(strokes.length, name)
@@ -161,11 +179,12 @@ test('drawing strokes have a normalized length and reset only after fading out',
 test('both agent timeline branches gate tools and reasoning on the live segment', () => {
   const agent = readFileSync(new URL('../views/chat/components/AgentStreamDisplay.vue', import.meta.url), 'utf8')
   assert.equal((agent.match(/:name="getToolIconName\(event.tool_name\)" :active="!isSegmentDone && event.pending"/g) || []).length, 2)
-  assert.equal((agent.match(/:active="!isSegmentDone && isThinkingActive\(event.event_id\)"/g) || []).length, 2)
-  assert.equal((agent.match(/:active="!isSegmentDone && \(event.pending \|\| isThinkingActive\(event.tool_call_id\)\)"/g) || []).length, 2)
+  assert.equal((agent.match(/name="thinking" :active="!isSegmentDone && isThinkingActive\(event.event_id\)"/g) || []).length, 2)
+  assert.equal((agent.match(/name="thinking" :active="!isSegmentDone && \(event.pending \|\| isThinkingActive\(event.tool_call_id\)\)"/g) || []).length, 2)
   assert.equal((agent.match(/:motion-paused="isSegmentDone"/g) || []).length, 2)
   const rag = readFileSync(new URL('../views/chat/components/RagPipelineProgress.vue', import.meta.url), 'utf8')
   assert.equal((rag.match(/:active="step.pending && !hasAnswer && !session\?\.is_completed"/g) || []).length, 2)
-  assert.equal((rag.match(/:active="thinkingActive"/g) || []).length, 2)
-  assert.match(rag, /:active="!waitStepStalled"/)
+  assert.equal((rag.match(/name="thinking" :active="thinkingActive"/g) || []).length, 2)
+  assert.match(rag, /name="time" :active="!waitStepStalled"/)
+  assert.match(rag, /name="time" :active="true"/)
 })

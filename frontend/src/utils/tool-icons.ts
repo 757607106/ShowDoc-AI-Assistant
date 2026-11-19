@@ -1,28 +1,10 @@
 /**
  * Tool Icons Utility
- * Maps tool names and match types to icons for better UI display
+ * Maps match types to icons and tool names to display labels.
  */
 import i18n from '@/i18n'
 
 const t = (key: string) => i18n.global.t(key)
-
-// Tool name to icon mapping
-export const toolIcons: Record<string, string> = {
-    multi_kb_search: '🔍',
-    search_knowledge: '📚',
-    read_document: '🧩',
-    list_documents: 'ℹ️',
-    get_chunk_detail: '📄',
-    list_knowledge_bases: '📂',
-    query_knowledge_graph: '🕸️',
-    think: '💭',
-    todo_write: '📋',
-    // Retired names (still present in stored chat history)
-    knowledge_search: '📚',
-    grep_chunks: '🔎',
-    list_knowledge_chunks: '🧩',
-    get_document_info: 'ℹ️',
-};
 
 // Match type internal keys for icon mapping
 const matchTypeIconKeys: Record<string, string> = {
@@ -45,11 +27,6 @@ export const matchTypeIcons: Record<string, string> = {
     'Relation Chunk Match': '🔗',
     'Graph Match': '🕸️',
 };
-
-// Get icon for a tool name
-export function getToolIcon(toolName: string): string {
-    return toolIcons[toolName] || '🛠️';
-}
 
 // Get icon for a match type
 export function getMatchTypeIcon(matchType: string): string {

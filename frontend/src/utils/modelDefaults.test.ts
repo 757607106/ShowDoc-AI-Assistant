@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isDefaultModelForType, selectInitialModelId } from './modelDefaults'
+import { isDefaultModelForType, modelSupportsType, selectInitialModelId } from './modelDefaults'
 
 test('creation picks independent vision, chat and ASR defaults', () => {
   const models = [
@@ -26,4 +26,13 @@ test('vision fallback prefers a native default and skips unavailable models', ()
   assert.equal(selectInitialModelId(models, 'VLLM'), 'native')
   assert.equal(selectInitialModelId(models.slice(0, 2), 'VLLM'), 'chat')
   assert.equal(selectInitialModelId(models, 'ASR'), null)
+})
+
+test('declared image input takes precedence over visual type or the legacy flag', () => {
+  const text = { capabilities: { input: ['text'] }, parameters: { supports_vision: true }, default_for: ['VLLM'] }
+  const invalid = [{ ...text, id: 'text-chat', type: 'KnowledgeQA' }, { ...text, id: 'text-vllm', type: 'VLLM' }]
+  const image = { id: 'vision-chat', capabilities: { input: ['text', 'image'] } }
+  assert.equal(selectInitialModelId(invalid, 'VLLM'), null)
+  assert.equal(selectInitialModelId([...invalid, { ...image, type: 'KnowledgeQA' }], 'VLLM'), 'vision-chat')
+  assert.equal(modelSupportsType({ ...image, type: 'Embedding' }, 'VLLM'), false)
 })

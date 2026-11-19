@@ -31,6 +31,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAssistantStore } from '@/stores/assistant'
 import {
+  isRetiredPageLink,
   pageLinkDraft,
   pageLinkEndpoint,
   pageLinkLocation,
@@ -44,6 +45,7 @@ const { t } = useI18n()
 const router = useRouter()
 const assistant = useAssistantStore()
 
+const retired = computed(() => isRetiredPageLink(props.link))
 const location = computed(() => pageLinkLocation(props.link))
 const draft = computed(() => pageLinkDraft(props.link))
 const endpoint = computed(() => pageLinkEndpoint(props.link))
@@ -58,12 +60,15 @@ const atTarget = computed(() => {
 })
 const canReturn = computed(() => atTarget.value && !!returnPath.value
   && router.resolve(returnPath.value).fullPath !== router.currentRoute.value.fullPath)
-const actionLabel = computed(() => canReturn.value
-  ? t('agentStream.openPage.back')
-  : draft.value ? t('agentStream.openPage.openForm') : t('agentStream.openPage.open'))
+const actionLabel = computed(() => {
+  if (retired.value) return t('agentStream.openPage.retired')
+  if (canReturn.value) return t('agentStream.openPage.back')
+  return draft.value ? t('agentStream.openPage.openForm') : t('agentStream.openPage.open')
+})
 
 const meta = computed(() => {
   const parent = props.link.detail ? props.link.label : ''
+  if (retired.value) return [actionLabel.value, parent].filter(Boolean).join(' · ')
   if (!props.link.navigated) return parent
   return [t('agentStream.openPage.opened'), parent].filter(Boolean).join(' · ')
 })

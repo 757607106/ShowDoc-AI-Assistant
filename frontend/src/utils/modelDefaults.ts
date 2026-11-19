@@ -5,11 +5,14 @@ export interface ModelDefaultCandidate {
   is_default?: boolean
   default_for?: string[]
   parameters?: { supports_vision?: boolean }
+  capabilities?: { input?: string[] }
 }
 
 export function modelSupportsType(model: ModelDefaultCandidate, modelType: string): boolean {
-  return model.type === modelType
-    || (modelType === 'VLLM' && model.type === 'KnowledgeQA' && model.parameters?.supports_vision === true)
+  if (modelType !== 'VLLM') return model.type === modelType
+  if (model.type !== 'VLLM' && model.type !== 'KnowledgeQA') return false
+  return model.capabilities?.input?.includes('image')
+    ?? (model.type === 'VLLM' || model.parameters?.supports_vision === true)
 }
 
 export function isDefaultModelForType(model: ModelDefaultCandidate, modelType: string): boolean {

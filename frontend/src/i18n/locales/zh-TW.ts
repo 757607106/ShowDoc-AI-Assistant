@@ -2254,6 +2254,7 @@ export default {
     },
     openPage: {
       open: '開啟',
+      retired: '已停用',
       openForm: '開啟並填寫',
       opened: '助手已開啟',
       back: '返回',
@@ -5205,6 +5206,10 @@ export default {
   chat: {
     suggestedQuestions: '你可以這樣問我',
     refreshSuggestedQuestions: '換一批',
+    replaceDraftTitle: '取代草稿？',
+    replaceDraftBody: '使用這條推薦問題取代輸入框裡的文字。',
+    historyLoadFailed: '無法載入對話記錄。',
+    scrollToLatest: '跳到最新訊息',
     thinking: '思考中...',
     thinkingAlt: '正在思考',
     conversationTime: {

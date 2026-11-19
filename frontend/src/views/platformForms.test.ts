@@ -2,40 +2,44 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test, { type TestContext } from 'node:test'
 import { fixture, flush } from '../test-utils/vueFixture.ts'
+import * as fileTypes from '../utils/fileTypeVerification.ts'
+import * as files from '../utils/files.ts'
 import * as presentation from '../utils/platformPresentation.ts'
-import * as reviewSupport from '../utils/contextdbReviewSupport.ts'
 import * as suspendedRun from '../utils/suspendedRun.ts'
 
 function collection(t: TestContext, listing = async () => ({pages:[{page_id:'doc-123',page_title:'操作手册',directory_path:['说明']}],directory:{root_name:'产品文档',source_key:'showdoc:42'}})) {
   const requests: any[]=[]
+  const warnings: string[]=[]
   const f=fixture(t)
   const {vm}=f.component(new URL('./CollectView.vue',import.meta.url),{
     'vue-router':{useRoute:()=>({fullPath:'/collect',query:{}}),useRouter:()=>({push(){}})},
+    'tdesign-vue-next':{MessagePlugin:{warning:(message:string)=>warnings.push(message)}},
     '@/stores/auth':{useAuthStore:()=>({hasRole:()=>true})},
-    '@/utils/platformPresentation':presentation,
-    '@/utils/contextdbReviewSupport':reviewSupport,
+    '@/utils/files':files,
+    '@/utils/fileTypeVerification':fileTypes,
+    '@/components/DocMarkdown.vue':{},
     '@/api/knowledgeSpaces':{getSpaces:async()=>({spaces:[{scope:'space-a',name:'产品知识'}]})},
     '@/api/contextdb':{listBases:async()=>({data:[{id:'kb-a',name:'产品知识',wiki_enabled:true,graph_enabled:false}]}),getBasePermissions:async()=>({member:{role:'owner'}}),knowledgeAccess:()=>({write:true}),knowledgeModeLabel:()=> 'Wiki 编译',bindBase:async()=>({space:{scope:'space-a'}})},
     '@/api/backend':{entries:async()=>({entries:[{key:'showdoc',display_name:'ShowDoc'},{key:'web'}]}),entryDocuments:listing,
       taskStatus:async()=>({status:'completed',directory_sync_complete:true}),startTask:async(entry:string,payload:any)=>{requests.push({entry,payload:JSON.parse(JSON.stringify(payload))});return {task_id:'task-1'}}},
   })
-  return {vm,requests}
+  return {vm,requests,warnings}
 }
 
 test('ordinary collection fields and named document selection retain the source identifiers in the API',async t=>{
-  const {vm,requests}=collection(t);await flush()
-  vm.projectId='42';await flush()
+  const {vm,requests,warnings}=collection(t);await flush()
+  vm.selectSource('showdoc');vm.projectId='42';await flush()
   vm.selection='selected';await vm.loadPages();vm.selectedIds=['doc-123']
   await vm.launch()
   assert.deepEqual(requests,[{entry:'showdoc',payload:{item_id:'42',knowledge_base_id:'kb-a',import_root_name:'产品文档',selected_ids:['doc-123']}}])
   vm.selectedIds=[];await vm.launch()
-  assert.equal(requests.length,1);assert.equal(vm.error,'请选择要采集的文档')
+  assert.equal(requests.length,1);assert.equal(warnings.at(-1),'请选择要采集的文档')
 })
 
 test('web collection validates addresses and preserves explicit crawl limits',async t=>{
   const {vm,requests}=collection(t);await flush()
   vm.entryKey='web';vm.url='not a website';await flush();await vm.launch()
-  assert.equal(requests.length,0);assert.match(vm.error,/网站地址/)
+  assert.equal(requests.length,0);assert.match(vm.sourceError,/网站地址/)
   vm.url='https://example.com/manual';vm.crawlMode='site';vm.maxPages=25;vm.maxDepth=2;await flush();await vm.loadPages();await vm.launch()
   assert.deepEqual(requests[0].payload,{url:'https://example.com/manual',crawl_mode:'site',max_pages:25,max_depth:2,knowledge_base_id:'kb-a',import_root_name:'产品文档'})
 })
@@ -43,9 +47,9 @@ test('web collection validates addresses and preserves explicit crawl limits',as
 test('a slow document list cannot populate the selector after its source changes',async t=>{
   let resolve!:(value:any)=>void
   const {vm}=collection(t,()=>new Promise(yes=>resolve=yes));await flush()
-  vm.projectId='42';await flush()
+  vm.selectSource('showdoc');vm.projectId='42';await flush()
   const pending=vm.loadPages();vm.entryKey='web';await flush()
-  resolve({pages:[{page_id:'wrong-source',page_title:'旧来源'}]});await pending
+  resolve({pages:[{page_id:'wrong-source',page_title:'旧来源'}],directory:{root_name:'旧目录',source_key:'showdoc:42'}});await pending
   assert.equal(vm.pages.length,0);assert.equal(vm.selectedIds.length,0);assert.equal(vm.directory,null);assert.equal(vm.rootName,'')
 })
 

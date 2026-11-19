@@ -318,3 +318,17 @@ test('an unavailable replay buffer still reports its initial HTTP error', async 
   assert.match(String(stream.error.value), /HTTP 404/)
   assert.equal(stream.isStreaming.value, false)
 })
+
+test('an image chat rejection reports the response JSON message', async () => {
+  let stream!: ReturnType<typeof useStream>
+  await renderToString(createSSRApp({ setup() { stream = useStream(); return () => null } }))
+  const base = transport.calls.length
+  const run = stream.startStream({ session_id: 's', query: '识别图片', method: 'POST',
+    url: '/api/v1/agent-chat', attachment_ids: ['fixture-image'] })
+  const request = await nextCall(base + 1)
+  const message = '没有可用的视觉模型，请配置支持图片输入的模型'
+  await request.options.onopen(Response.json({ message }, { status: 400 })).catch(request.reject)
+  await run
+  assert.equal(stream.error.value, message)
+  assert.equal(stream.isStreaming.value, false)
+})

@@ -2,9 +2,9 @@
 import { ref, onMounted, onBeforeUnmount, onUnmounted, computed, watch, nextTick, h } from "vue";
 import { storeToRefs } from 'pinia';
 import { useRoute, useRouter } from 'vue-router';
-import { onBeforeRouteUpdate } from 'vue-router';
-import { MessagePlugin } from "tdesign-vue-next";
-import type { SendMessageOptions } from '@/utils/questionOrigin';
+import { DialogPlugin, MessagePlugin } from "tdesign-vue-next";
+import type { QuestionOrigin, SendMessageOptions } from '@/utils/questionOrigin';
+import { saveChatDraft, takeChatDraft } from '@/utils/chatComposerDrafts';
 import { useSettingsStore } from '@/stores/settings';
 import { useUIStore } from '@/stores/ui';
 import { useMenuStore } from '@/stores/menu';
@@ -80,7 +80,9 @@ const {
 } = storeToRefs(chatResources);
 const { t, locale } = useI18n();
 
-let query = ref("");
+const query = ref("");
+const suggestedDraft = ref<{ text: string; origin?: QuestionOrigin }>();
+let replaceDraftDialog: ReturnType<typeof DialogPlugin.confirm> | undefined;
 const showKbSelector = ref(false);
 
 // Image upload state
@@ -102,7 +104,7 @@ const isImageFile = (file: File) => {
 };
 
 const handleDroppedFiles = (files: File[]) => {
-  if (!files.length) return;
+  if (creatingNewSession.value || !files.length) return;
 
   const imageFiles = files.filter(isImageFile);
   const attachmentFiles = files.filter(file => !isImageFile(file));
@@ -135,7 +137,7 @@ const handleImageSelect = (event: Event) => {
 };
 
 const addImageFiles = (files: File[]) => {
-  if (!isImageUploadEnabledByAgent.value) return;
+  if (creatingNewSession.value || !isImageUploadEnabledByAgent.value) return;
   const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
   const maxSize = 10 * 1024 * 1024;
   for (const file of files) {
@@ -673,6 +675,13 @@ const props = defineProps({
     default: ''
   },
 });
+
+const creatingNewSession = computed(() => !props.embeddedMode && !props.sessionId && props.composerLocked);
+const draftUser = mentionAuth.currentUserId;
+const draftTenant = mentionAuth.effectiveTenantId;
+const draftKey = !props.embeddedMode && draftUser
+  ? JSON.stringify([draftUser, draftTenant, props.sessionId ? 'session' : 'new', props.sessionId || route.params.kbId || ''])
+  : '';
 
 const hostApprovalModeVisible = computed(() =>
   !props.embeddedMode && !!props.sessionId && deploymentCapabilities.isSupported('settings.sandbox.host'),
@@ -1800,6 +1809,7 @@ const onInput = (val: string | InputEvent) => {
 
   // TDesign t-textarea passes the value directly, not an event
   const inputVal = typeof val === 'string' ? val : query.value;
+  if (suggestedDraft.value?.text !== inputVal) suggestedDraft.value = undefined;
 
   const textarea = getTextareaEl();
   if (!textarea) {
@@ -2030,7 +2040,7 @@ const removeFile = (id: string) => {
   delete fileIdToKbId.value[id];
 };
 
-const toggleModelSelector = () => {
+const toggleModelSelector = (event: MouseEvent) => {
   showReasoningSelector.value = false;
   // 如果智能体锁定了模型，不允许打开选择器
   if (isModelLockedByAgent.value) {
@@ -2050,17 +2060,24 @@ const toggleModelSelector = () => {
     // 多次更新位置确保准确
     nextTick(() => {
       updateModelDropdownPosition();
+      if (event.detail === 0) {
+        (modelDropdownRef.value?.querySelector<HTMLElement>('button.model-option.selected')
+          || modelDropdownRef.value?.querySelector<HTMLElement>('button.model-option')
+          || modelDropdownRef.value?.querySelector('button'))?.focus();
+      }
       requestAnimationFrame(() => {
         updateModelDropdownPosition();
         setTimeout(() => {
           updateModelDropdownPosition();
-          document.querySelector('.model-selector-content .model-option.selected')
+          modelDropdownRef.value?.querySelector('.model-selector-content .model-option.selected')
             ?.scrollIntoView({ block: 'nearest' });
         }, 50);
       });
     });
   }
 };
+
+const modelDropdownRef = ref<HTMLElement>();
 
 const closeModelSelector = () => {
   showModelSelector.value = false;
@@ -2135,14 +2152,10 @@ onMounted(() => {
     settingsStore.addKnowledgeBase(kbId);
   }
 
+  const draft = draftKey ? takeChatDraft(draftKey) : undefined;
+  if (draft) restoreDraft(draft.text, draft.images, draft.attachments, draft.questionOrigin);
   const prefill = menuStore.consumePrefillQuery();
-  if (prefill) {
-    query.value = prefill;
-    nextTick(() => {
-      const textarea = getTextareaEl();
-      if (textarea) textarea.focus();
-    });
-  }
+  if (prefill) prefillSuggestion(prefill);
 
   // 监听点击外部关闭下拉菜单
   document.addEventListener('click', closeAgentModeSelector);
@@ -2172,6 +2185,16 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  replaceDraftDialog?.destroy();
+  if (draftKey && draftUser === mentionAuth.currentUserId && draftTenant === mentionAuth.effectiveTenantId) {
+    saveChatDraft(draftKey, {
+      text: query.value,
+      images: uploadedImages.value.map(({ file }) => file),
+      attachments: uploadedAttachments.value.map(attachment => ({ ...attachment })),
+      questionOrigin: suggestionOriginFor(query.value),
+    });
+  }
+  uploadedImages.value.forEach(({ preview }) => URL.revokeObjectURL(preview));
   // Let TDesign handle blur while its textarea is still attached to the DOM.
   const textarea = getTextareaEl();
   if (textarea?.isConnected && document.activeElement === textarea) textarea.blur();
@@ -2217,11 +2240,10 @@ const emit = defineEmits<{
   (e: 'stop-failed'): void;
 }>();
 
-// Options belong to this send only; a rejected send must not consume the draft.
-const createSession = async (
-  val: string,
-  options: SendMessageOptions = {},
-) => {
+const suggestionOriginFor = (text: string) =>
+  suggestedDraft.value?.text === text ? suggestedDraft.value?.origin : undefined;
+
+const createSession = async (val: string) => {
   if (props.composerLocked) {
     return;
   }
@@ -2233,6 +2255,7 @@ const createSession = async (
     MessagePlugin.info(t('input.messages.replying'));
     return;
   }
+  const options: SendMessageOptions = { questionOrigin: suggestionOriginFor(val) };
   // Only block while the file is still uploading (no document ID yet). Once
   // uploaded, sending is allowed even if parsing is still in progress: the
   // backend shows a "parsing attachment" step on the timeline and waits.
@@ -2317,15 +2340,8 @@ const createSession = async (
 
   emit('send-msg', val, selectedModelId.value, mentionedItems, imageFiles, attachmentFiles, options);
 
-  // Clean up image previews
-  uploadedImages.value.forEach(img => URL.revokeObjectURL(img.preview));
-  uploadedImages.value = [];
-
-  // Clean up attachments
-  attachmentUploadRef.value?.clear();
-  uploadedAttachments.value = [];
-
-  clearvalue();
+  // A new chat keeps its draft until the session has been created.
+  if (props.sessionId) clearDraft();
   void focusInput();
 }
 
@@ -2517,6 +2533,7 @@ const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) =>
   }
 
   showAgentModeSelector.value = false;
+  agentModeButtonRef.value?.focus();
 
   // Only the two "mode-entry" built-ins are re-branded as "Normal / Agent Mode"
   // in the dropdown — the switched-on/off toasts only make sense for them.
@@ -2539,11 +2556,10 @@ const clearvalue = () => {
   query.value = "";
 }
 
-// Drop any pending images/attachments and stop their status polling. Used when
-// switching sessions: leftover documentIds belong to the previous session, so
-// keeping them would make polling 404 (falsely marking them failed) or send IDs
-// the new session does not own ("attachment ... not found in this session").
-const clearPendingUploads = () => {
+const clearDraft = () => {
+  if (draftKey) takeChatDraft(draftKey);
+  clearvalue();
+  suggestedDraft.value = undefined;
   uploadedImages.value.forEach(img => URL.revokeObjectURL(img.preview));
   uploadedImages.value = [];
   attachmentUploadRef.value?.clear();
@@ -2831,39 +2847,58 @@ const handleStop = async () => {
   }
 }
 
-onBeforeRouteUpdate((to, from, next) => {
-  // The route belongs to the page behind an embedded assistant. Its draft
-  // and uploads belong to the assistant session, which the host manages.
-  if (!props.embeddedMode) {
-    clearvalue()
-    clearPendingUploads()
+const restoreDraft = (text: string, imageFiles: File[] = [], attachments: AttachmentFile[] = [], origin?: QuestionOrigin) => {
+  if (query.value || uploadedImages.value.length || uploadedAttachments.value.length) return;
+  query.value = text;
+  suggestedDraft.value = origin ? { text, origin } : undefined;
+  uploadedImages.value = imageFiles.map(file => ({ file, preview: URL.createObjectURL(file) }));
+  attachmentUploadRef.value?.restore(attachments);
+};
+
+const prefillSuggestion = (text: string, origin?: QuestionOrigin) => {
+  const apply = () => {
+    query.value = text;
+    suggestedDraft.value = { text, origin };
+    void focusInput();
+  };
+
+  if (query.value.trim() && query.value !== text) {
+    const close = () => {
+      replaceDraftDialog?.destroy();
+      replaceDraftDialog = undefined;
+    };
+    replaceDraftDialog = DialogPlugin.confirm({
+      header: t('chat.replaceDraftTitle'),
+      body: t('chat.replaceDraftBody'),
+      confirmBtn: t('common.confirm'),
+      cancelBtn: t('common.cancel'),
+      confirmOnEnter: false,
+      onConfirm: () => {
+        close();
+        void nextTick(apply);
+      },
+      onCancel: close,
+      onClose: close,
+    });
+    return;
   }
-  next()
-})
+  apply();
+};
 
 defineExpose({
   focusInput,
   getComposerModelId: () => composerModelId.value,
-  triggerSend(text: string, options: SendMessageOptions = {}) {
-    if (!text.trim()) return;
-    query.value = text;
-    nextTick(() => createSession(text, options));
-  },
+  clearDraft,
+  prefillSuggestion,
   /**
    * Puts text in the composer WITHOUT sending it. Session fork uses this so
-   * the user lands on the branch with the original question ready to edit —
-   * the whole point of branching at a user message.
+   * the user lands on the branch with the original question ready to edit.
    */
   prefill(text: string) {
+    suggestedDraft.value = undefined;
     query.value = text;
   },
-  restoreDraft(text: string, imageFiles: File[] = [], attachmentFiles: AttachmentFile[] = []) {
-    if (query.value || uploadedImages.value.length || uploadedAttachments.value.length) return;
-    query.value = text;
-    uploadedImages.value = imageFiles.map(file => ({ file, preview: URL.createObjectURL(file) }));
-    uploadedAttachments.value = attachmentFiles;
-    attachmentUploadRef.value?.restore(attachmentFiles);
-  }
+  restoreDraft,
 });
 
 </script>
@@ -2876,13 +2911,13 @@ defineExpose({
       <!-- 图片预览区域 -->
       <div v-if="uploadedImages.length > 0" class="image-preview-bar">
         <div v-for="(img, idx) in uploadedImages" :key="idx" class="image-preview-item">
-          <img :src="img.preview" class="image-preview-thumb" />
-          <span class="image-preview-remove" @click="removeImage(idx)">×</span>
+          <img :src="img.preview" :alt="img.file.name" class="image-preview-thumb" />
+          <button type="button" class="image-preview-remove" :disabled="creatingNewSession" :aria-label="$t('common.remove')" @click="removeImage(idx)">×</button>
         </div>
       </div>
 
       <!-- 附件列表区域 (由 AttachmentUpload 组件渲染) -->
-      <AttachmentUpload ref="attachmentUploadRef" :max-files="5"
+      <AttachmentUpload ref="attachmentUploadRef" :max-files="5" :disabled="creatingNewSession"
         :session-id="sessionId" :agent-id="selectedAgentId"
         :agent-source-tenant-id="settingsStore.selectedAgentSourceTenantId ?? undefined"
         @update:files="uploadedAttachments = $event" />
@@ -2905,13 +2940,14 @@ defineExpose({
             </span>
           </span>
           <span class="mention-chip__name" :title="item.name">{{ item.name }}</span>
-          <span class="mention-chip__remove" @click.stop="removeSelectedItem(item)"
-            :aria-label="$t('common.remove')">×</span>
+          <button type="button" class="mention-chip__remove" @click.stop="removeSelectedItem(item)"
+            :aria-label="$t('common.remove')">×</button>
         </span>
       </div>
 
       <!-- 实际输入框 -->
-      <t-textarea ref="textareaRef" v-model="query" :placeholder="t('input.placeholder')" name="description" :autosize="true"
+      <t-textarea ref="textareaRef" v-model="query" :placeholder="t('input.placeholder')" :aria-label="t('input.placeholder')"
+        name="description" :autosize="true" :readonly="creatingNewSession"
         @keydown="onKeydown" @input="onInput" @compositionstart="onCompositionStart" @compositionend="onCompositionEnd"
         @paste="onPaste" />
 
@@ -2922,11 +2958,11 @@ defineExpose({
           <!-- 嵌入时宿主已定好 agent/KB，只保留模型选择 -->
           <template v-if="!embeddedMode">
           <!-- Agent 模式切换按钮 -->
-          <div ref="agentModeButtonRef" class="control-btn agent-mode-btn" :class="{
+          <button type="button" ref="agentModeButtonRef" class="control-btn agent-mode-btn" :class="{
             'is-normal': !isCustomAgent && !isAgentEnabled,
             'is-agent': !isCustomAgent && isAgentEnabled,
             'is-custom': isCustomAgent
-          }" @click.stop="toggleAgentModeSelector">
+          }" :aria-expanded="showAgentModeSelector" @click.stop="toggleAgentModeSelector">
             <span class="agent-mode-text">
               {{ selectedAgent.name || (isAgentEnabled ? $t('input.agentMode') : $t('input.normalMode')) }}
             </span>
@@ -2934,7 +2970,7 @@ defineExpose({
               :class="{ 'rotate': showAgentModeSelector }">
               <path d="M2.5 4.5L6 8L9.5 4.5H2.5Z" />
             </svg>
-          </div>
+          </button>
 
           <!-- Agent 选择器下拉菜单 -->
           <AgentSelector :visible="showAgentModeSelector" :anchorEl="agentModeButtonRef"
@@ -2954,7 +2990,7 @@ defineExpose({
                 <a href="#" @click.prevent="handleGoToWebSearchConfig">{{ $t('input.goToAgentSettings') }}</a>
               </div>
             </template>
-            <div class="control-btn websearch-btn" :class="{
+            <button type="button" :aria-label="$t('input.webSearch.toggleOn')" :aria-pressed="isWebSearchEnabled" class="control-btn websearch-btn" :class="{
               'active': isWebSearchEnabled && isWebSearchConfigured,
               'disabled': !isWebSearchConfigured
             }" @click.stop="toggleWebSearch">
@@ -2968,7 +3004,7 @@ defineExpose({
                 <line x1="2.94" y1="12.5" x2="15.06" y2="12.5" stroke="currentColor" stroke-width="1.2"
                   stroke-linecap="round" />
               </svg>
-            </div>
+            </button>
           </t-tooltip>
 
           <!-- 图片上传按钮（智能体未启用时不显示） -->
@@ -2977,7 +3013,7 @@ defineExpose({
             <template #content>
               <span>{{ $t('chat.imageUploadTooltip') }}</span>
             </template>
-            <div class="control-btn image-upload-btn" :class="{
+            <button type="button" :aria-label="$t('chat.imageUploadTooltip')" :disabled="creatingNewSession" class="control-btn image-upload-btn" :class="{
               'active': uploadedImages.length > 0
             }" @click.stop="triggerImageUpload()">
               <svg width="18" height="18" viewBox="0 0 1024 1024" fill="currentColor" class="control-icon">
@@ -2987,7 +3023,7 @@ defineExpose({
                 <path d="M128 768l224-288 160 160 192-256L896 640v128H128z" />
               </svg>
               <span v-if="uploadedImages.length > 0" class="image-count">{{ uploadedImages.length }}</span>
-            </div>
+            </button>
           </t-tooltip>
 
           <!-- 附件上传按钮 -->
@@ -2997,7 +3033,7 @@ defineExpose({
                 count: uploadedAttachments.length
               }) : $t('chat.attachmentUploadTooltip') }}</span>
             </template>
-            <div class="control-btn attachment-upload-btn" :class="{ 'active': uploadedAttachments.length > 0 }"
+            <button type="button" :aria-label="$t('chat.attachmentUploadTooltip')" :disabled="creatingNewSession" class="control-btn attachment-upload-btn" :class="{ 'active': uploadedAttachments.length > 0 }"
               @click.stop="attachmentUploadRef?.triggerFileSelect()">
               <!-- 回形针图标 -->
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
@@ -3007,7 +3043,7 @@ defineExpose({
               </svg>
               <span v-if="uploadedAttachments.length > 0" class="attachment-count">{{ uploadedAttachments.length
               }}</span>
-            </div>
+            </button>
           </t-tooltip>
 
           <!-- 语音输入按钮（智能体启用音频上传并配置 ASR 模型时显示）：按住说话 -->
@@ -3051,10 +3087,10 @@ defineExpose({
                   allSelectedItems.length
               }) : $t('input.knowledgeBase') }}</span>
             </template>
-            <div ref="atButtonRef" class="control-btn kb-btn" data-guide="chat-kb-mention" :class="{
+            <button type="button" :aria-label="$t('input.knowledgeBase')" :aria-expanded="showMention" ref="atButtonRef" class="control-btn kb-btn" data-guide="chat-kb-mention" :class="{
               'active': allSelectedItems.length > 0,
               'disabled': isMentionDisabled
-            }" @click.stop @mousedown.prevent="triggerMention">
+            }" :aria-disabled="isMentionDisabled" @mousedown.prevent @click.stop="triggerMention">
               <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"
                 class="control-icon at-icon">
                 <circle cx="10" cy="10" r="3.5" stroke="currentColor" stroke-width="1.8" />
@@ -3062,7 +3098,7 @@ defineExpose({
                   d="M13.5 10V11.5C13.5 12.163 13.7634 12.7989 14.2322 13.2678C14.7011 13.7366 15.337 14 16 14C16.663 14 17.2989 13.7366 17.7678 13.2678C18.2366 12.7989 18.5 12.163 18.5 11.5V10C18.5 7.74566 17.6045 5.58365 16.0104 3.98959C14.4163 2.39553 12.2543 1.5 10 1.5C7.74566 1.5 5.58365 2.39553 3.98959 3.98959C2.39553 5.58365 1.5 7.74566 1.5 10C1.5 12.2543 2.39553 14.4163 3.98959 16.0104C5.58365 17.6045 7.74566 18.5 10 18.5H12"
                   stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
-            </div>
+            </button>
           </t-tooltip>
           <slot name="background-work" />
           </template>
@@ -3073,7 +3109,7 @@ defineExpose({
           <!-- 模型显示 -->
           <t-tooltip :content="modelTriggerTooltip" :disabled="!modelTriggerTooltip">
             <div class="model-display" :class="{ 'agent-controlled': isModelLockedByAgent }">
-              <div ref="modelButtonRef" class="model-selector-trigger" @click.stop="toggleModelSelector">
+              <button type="button" ref="modelButtonRef" class="model-selector-trigger" :aria-expanded="showModelSelector" @click.stop="toggleModelSelector">
                 <span class="model-selector-name">
                   {{ selectedModelDisplayName }}
                 </span>
@@ -3090,7 +3126,7 @@ defineExpose({
                   :class="{ 'rotate': showModelSelector }">
                   <path d="M2.5 4.5L6 8L9.5 4.5H2.5Z" />
                 </svg>
-              </div>
+              </button>
             </div>
           </t-tooltip>
           <t-popup v-if="!embeddedMode && reasoningLevels.length > 0" v-model:visible="showReasoningSelector"
@@ -3125,7 +3161,8 @@ defineExpose({
 
         <Teleport to="body">
           <div v-if="showModelSelector" class="model-selector-overlay" @click="closeModelSelector">
-            <div class="model-selector-dropdown" :style="modelDropdownStyle" @click.stop>
+            <div ref="modelDropdownRef" class="model-selector-dropdown" :style="modelDropdownStyle" @click.stop
+              @keydown.esc.stop.prevent="closeModelSelector(); modelButtonRef?.focus()">
               <div class="model-selector-header">
                 <span>{{ $t('conversationSettings.models.chatGroupLabel') }}</span>
                 <button class="model-selector-add" type="button" @click="handleModelChange('__add_model__')">
@@ -3134,28 +3171,29 @@ defineExpose({
                 </button>
               </div>
               <div class="model-selector-content">
-                <div v-if="embeddedMode && embeddedDefaultModel" class="model-option"
+                <button type="button" v-if="embeddedMode && embeddedDefaultModel" class="model-option"
                   :class="{ selected: followsDefaultModel }"
-                  :title="$t('input.modelAutoHint')" @click="handleModelChange(EMBEDDED_AUTO_MODEL)">
-                  <div class="model-option-left">
-                    <div class="model-option-name-wrap">
+                  :title="$t('input.modelAutoHint')" @click="handleModelChange(EMBEDDED_AUTO_MODEL); modelButtonRef?.focus()" :aria-pressed="followsDefaultModel">
+                  <span class="model-option-left">
+                    <span class="model-option-name-wrap">
                       <span class="model-option-name">{{ $t('input.modelFollowDefault') }}</span>
                       <span class="model-option-raw-name">{{ modelDisplayName(embeddedDefaultModel) }}</span>
-                    </div>
-                  </div>
+                    </span>
+                  </span>
                   <span class="model-option-check">
                     <t-icon v-if="followsDefaultModel" name="check" size="14px" />
                   </span>
-                </div>
-                <div v-for="model in availableModels" :key="model.id" class="model-option"
+                </button>
+                <button type="button" v-for="model in availableModels" :key="model.id" class="model-option"
                   :class="{ selected: !followsDefaultModel && model.id === composerModelId }"
-                  @click="handleModelChange(model.id || '')">
-                  <div class="model-option-left">
-                    <div class="model-option-name-wrap">
+                  @click="handleModelChange(model.id || ''); modelButtonRef?.focus()"
+                  :aria-pressed="!followsDefaultModel && model.id === composerModelId">
+                  <span class="model-option-left">
+                    <span class="model-option-name-wrap">
                       <span class="model-option-name">{{ modelDisplayName(model) }}</span>
                       <span v-if="model.display_name" class="model-option-raw-name">{{ model.name }}</span>
-                    </div>
-                  </div>
+                    </span>
+                  </span>
                   <span
                     class="model-option-ctx"
                     :class="{ 'is-default': isUnknownContextWindow(modelContextWindow(model)) }"
@@ -3164,7 +3202,7 @@ defineExpose({
                   <span class="model-option-check">
                     <t-icon v-if="model.id === composerModelId" name="check" size="14px" />
                   </span>
-                </div>
+                </button>
                 <div v-if="availableModels.length === 0" class="model-option empty">
                   {{ $t('input.noModel') }}
                 </div>
@@ -3243,11 +3281,12 @@ const getImgSrc = (url: string) => {
 
 /* 富文本输入框容器 */
 .rich-input-container {
+  --composer-radius: var(--app-radius-lg);
   position: relative;
   width: 100%;
   max-width: 960px;
   background: var(--td-bg-color-container);
-  border-radius: var(--app-radius-xl);
+  border-radius: var(--composer-radius);
   border: 1px solid var(--td-component-stroke);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 16px -4px rgba(0, 0, 0, 0.06);
 
@@ -3264,8 +3303,7 @@ const getImgSrc = (url: string) => {
   gap: 6px;
   padding: 12px 16px 0;
   background: var(--td-bg-color-container);
-  border-radius: 11px 11px 0 0;
-  /* 与 .rich-input-container 内缘上边圆角一致（12px - 1px 边框） */
+  border-radius: calc(var(--composer-radius) - 1px) calc(var(--composer-radius) - 1px) 0 0;
 }
 
 .rich-input-container:has(.selected-tags-inline) :deep(.t-textarea__inner) {
@@ -3342,6 +3380,9 @@ const getImgSrc = (url: string) => {
 }
 
 .mention-chip__remove {
+  border: 0;
+  background: transparent;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3363,7 +3404,8 @@ const getImgSrc = (url: string) => {
   opacity: 0.85;
 }
 
-.mention-chip__remove:hover {
+.mention-chip__remove:hover,
+.mention-chip__remove:focus-visible {
   opacity: 1;
   background: var(--td-bg-color-component);
   color: var(--td-text-color-primary);
@@ -3429,7 +3471,7 @@ const getImgSrc = (url: string) => {
   line-height: 24px;
   font-family: var(--app-font-family);
   padding: 12px 16px;
-  border-radius: 0 0 12px 12px;
+  border-radius: 0 0 var(--composer-radius) var(--composer-radius);
   border: none;
   box-sizing: border-box;
   background: transparent;
@@ -3451,7 +3493,7 @@ const getImgSrc = (url: string) => {
 
 /* 当没有选中标签时，textarea 样式 */
 .rich-input-container:not(:has(.selected-tags-inline)) :deep(.t-textarea__inner) {
-  border-radius: var(--app-radius-xl);
+  border-radius: var(--composer-radius);
   padding-top: 16px;
 }
 
@@ -3518,6 +3560,7 @@ const getImgSrc = (url: string) => {
 
 .control-btn {
   border: 0;
+  background: transparent;
   font: inherit;
   display: flex;
   align-items: center;
@@ -3778,6 +3821,8 @@ const getImgSrc = (url: string) => {
   }
 
   .image-preview-remove {
+    border: 0;
+    padding: 0;
     position: absolute;
     top: 2px;
     right: 2px;
@@ -4004,6 +4049,8 @@ const getImgSrc = (url: string) => {
 
 .model-selector-trigger {
   display: flex;
+  background: transparent;
+  font: inherit;
   align-items: center;
   gap: 6px;
   padding: 0 8px;
@@ -4193,6 +4240,21 @@ const getImgSrc = (url: string) => {
       background: transparent;
     }
   }
+}
+
+button.model-option {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+}
+
+.control-btn:focus-visible,
+.model-selector-trigger:focus-visible,
+button.model-option:focus-visible {
+  outline: 2px solid var(--td-brand-color);
+  outline-offset: -2px;
 }
 
 .model-option-left {

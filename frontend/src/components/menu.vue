@@ -1,15 +1,15 @@
 <template>
-    <div class="aside_box" :class="{ 'aside_box--collapsed': uiStore.sidebarCollapsed, 'aside_box--resizing': uiStore.sidebarResizing }">
+    <div class="aside_box" :class="{ 'aside_box--collapsed': sidebarCollapsed, 'aside_box--resizing': uiStore.sidebarResizing }">
         <!-- 展开时：Logo + 搜索/折叠按钮同行 -->
-        <div class="logo_row" v-if="!uiStore.sidebarCollapsed">
-            <div class="logo_box" @click="router.push('/platform/knowledge-bases')" style="cursor: pointer;">
+        <div class="logo_row" v-if="!sidebarCollapsed">
+            <RouterLink class="logo_box" to="/platform/knowledge-bases" @click.capture="onNavigationClick($event)">
                 <img class="logo" src="@/assets/img/renwoxing-knowledge.svg" alt="任我行知识库">
                 <sup v-if="isLiteEdition" class="lite-badge">Lite</sup>
-            </div>
+            </RouterLink>
             <div class="logo_actions">
                 <t-tooltip v-if="assistantStore.entry === 'sidebar'" :content="assistantName" placement="bottom">
                     <AssistantButton data-guide="assistant-entry" icon-only :icon-size="18" :label="assistantName"
-                        :active="assistantStore.visible" @click="assistantStore.toggle()" />
+                        :active="assistantStore.visible" @click="openAssistant" />
                 </t-tooltip>
                 <t-tooltip placement="bottom">
                     <template #content>
@@ -18,26 +18,28 @@
                             <span class="cmdk-tip-keys">{{ cmdModKeyLabel }}K</span>
                         </span>
                     </template>
-                    <div class="header-icon-btn" @click="commandPaletteStore.openPalette('')"
+                    <button type="button" class="header-icon-btn" @click="openSearch"
                         :aria-label="t('menu.search')">
                         <img class="header-icon-img" :src="getImgSrc('search.svg')" alt="">
-                    </div>
+                    </button>
                 </t-tooltip>
-                <div class="sidebar-toggle" @click="uiStore.toggleSidebar" :title="t('menu.collapseSidebar')">
+                <button v-if="!compact" type="button" class="sidebar-toggle" @click="toggleSidebar"
+                    :aria-label="t('menu.collapseSidebar')" :title="t('menu.collapseSidebar')">
                     <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <rect x="1.5" y="1.5" width="17" height="17" rx="3" stroke="currentColor" stroke-width="1.5" />
                         <line x1="7.5" y1="1.5" x2="7.5" y2="18.5" stroke="currentColor" stroke-width="1.5" />
                         <line x1="4" y1="7.5" x2="4" y2="12.5" stroke="currentColor" stroke-width="1.5"
                             stroke-linecap="round" />
                     </svg>
-                </div>
+                </button>
             </div>
         </div>
         <!-- 折叠时：展开按钮 -->
         <t-tooltip v-else :content="t('menu.expandSidebar')" placement="right">
-            <div class="menu_item sidebar-toggle-item" @click="uiStore.toggleSidebar">
-                <div class="menu_item-box">
-                    <div class="menu_icon">
+            <button type="button" class="menu_item sidebar-toggle-item" @click="toggleSidebar"
+                :aria-label="t('menu.expandSidebar')">
+                <span class="menu_item-box">
+                    <span class="menu_icon">
                         <svg class="icon icon--toggle" viewBox="0 0 20 20" width="16" height="16" fill="none"
                             xmlns="http://www.w3.org/2000/svg">
                             <rect x="1.5" y="1.5" width="17" height="17" rx="3" stroke="currentColor"
@@ -48,16 +50,16 @@
                             <line x1="5" y1="10" x2="3" y2="12" stroke="currentColor" stroke-width="1.5"
                                 stroke-linecap="round" />
                         </svg>
-                    </div>
-                </div>
-            </div>
+                    </span>
+                </span>
+            </button>
         </t-tooltip>
 
         <!-- 空间选择器：仅在用户可切换空间时显示 -->
-        <TenantSelector v-if="canAccessAllTenants && !uiStore.sidebarCollapsed" />
+        <TenantSelector v-if="canAccessAllTenants && !sidebarCollapsed" />
 
         <!-- 侧栏边缘拖拽调宽，拖窄时自动收缩 -->
-        <PanelResizeHandle edge="right" :label="t('knowledgeStages.resizeDrawer')"
+        <PanelResizeHandle v-if="!compact" edge="right" :label="t('knowledgeStages.resizeDrawer')"
             :value="uiStore.sidebarDisplayWidth" :min="SIDEBAR_COLLAPSED_WIDTH" :max="SIDEBAR_MAX_WIDTH"
             @start="startSidebarResize" @resize="resizeSidebar" @end="uiStore.sidebarResizing = false" />
 
@@ -65,7 +67,7 @@
         <div class="menu_top" ref="scrollContainer" @scroll="handleScroll">
             <!-- 全局搜索入口：点击打开命令面板（⌘K）。展开态移至顶部 logo_row 的图标按钮；
                  折叠态在此处保留为图标项 + 深色 tooltip。 -->
-            <div class="menu_box menu_box--cmdk" v-if="uiStore.sidebarCollapsed">
+            <div class="menu_box menu_box--cmdk" v-if="sidebarCollapsed">
                 <t-tooltip placement="right">
                     <template #content>
                         <span class="cmdk-tip">
@@ -73,24 +75,25 @@
                             <span class="cmdk-tip-keys">{{ cmdModKeyLabel }}K</span>
                         </span>
                     </template>
-                    <div class="menu_item menu_item--cmdk" @click="commandPaletteStore.openPalette('')">
-                        <div class="menu_item-box">
-                            <div class="menu_icon">
+                    <button type="button" class="menu_item menu_item--cmdk" @click="openSearch"
+                        :aria-label="t('menu.search')">
+                        <span class="menu_item-box">
+                            <span class="menu_icon">
                                 <img class="icon" :src="getImgSrc('search.svg')" alt="">
-                            </div>
-                        </div>
-                    </div>
+                            </span>
+                        </span>
+                    </button>
                 </t-tooltip>
                 <t-tooltip v-if="assistantStore.entry === 'sidebar'" :content="assistantName" placement="right">
                     <AssistantButton data-guide="assistant-entry" class="assistant-sidebar-entry" icon-only :icon-size="18"
-                        :label="assistantName" :active="assistantStore.visible" @click="assistantStore.toggle()" />
+                        :label="assistantName" :active="assistantStore.visible" @click="openAssistant" />
                 </t-tooltip>
             </div>
-            <div class="menu_box" :class="{ 'menu_box--sticky': item.children && !uiStore.sidebarCollapsed }"
+            <div class="menu_box" :class="{ 'menu_box--sticky': item.children && !sidebarCollapsed }"
                 v-for="(item, index) in topMenuItems" :key="index">
-                <t-tooltip :content="item.title" placement="right" :disabled="!uiStore.sidebarCollapsed">
-                    <div @click="handleMenuClick(item.path)" @mouseenter="mouseenteMenu(item.path)"
-                        @mouseleave="mouseleaveMenu(item.path)" :data-guide="`nav-${item.path}`"
+                <t-tooltip :content="item.title" placement="right" :disabled="!sidebarCollapsed">
+                    <RouterLink :to="menuLocation(item.path)" @click.capture="onNavigationClick($event, item.path)"
+                        :aria-label="item.title" :data-guide="`nav-${item.path}`"
                         :class="['menu_item', item.childrenPath && item.childrenPath == currentpath ? 'menu_item_c_active' : isMenuItemActive(item.path) ? 'menu_item_active' : '']">
                         <div class="menu_item-box">
                             <div class="menu_icon" :class="`menu_icon--${item.icon}`">
@@ -98,7 +101,7 @@
                                     :src="getImgSrc(item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'agent' ? agentIcon : item.icon == 'artifact' ? artifactIcon : item.icon == 'automation' ? automationIcon : item.icon == 'toolbox' ? toolboxIcon : item.icon == 'organization' ? organizationIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
                                     alt="">
                             </div>
-                            <template v-if="!uiStore.sidebarCollapsed">
+                            <template v-if="!sidebarCollapsed">
                                 <span class="menu_title" :title="item.title">{{ item.title }}</span>
                                 <span v-if="item.path === 'organizations' && orgStore.totalPendingJoinRequestCount > 0"
                                     class="menu-pending-badge"
@@ -112,12 +115,12 @@
                                 </span>
                             </template>
                         </div>
-                    </div>
+                    </RouterLink>
                 </t-tooltip>
             </div>
 
             <!-- 历史会话：按来源筛选后统一按日期分组展示 -->
-            <div class="submenu" v-if="!uiStore.sidebarCollapsed">
+            <div class="submenu" v-if="!sidebarCollapsed">
                 <!-- Stable, always-mounted source filter: reserving its row here
                      (instead of embedding it in the first date group, which
                      appears/disappears while a bucket loads) prevents the
@@ -168,7 +171,6 @@
                                             :unread="Boolean(sessionUnread[subitem.id])"
                                             :active-path="currentSecondpath" :selected-ids="batchSelectedIds"
                                             :menu-options="buildSessionMenuOptions(subitem)"
-                                            @navigate="gotopage(subitem.path)"
                                             @toggle-select="toggleBatchSelect(subitem.id)"
                                             @menu-click="handleSessionMenuClick($event, subitem)"
                                             @rename-submit="renameSessionTitle(subitem, $event.title)"
@@ -189,7 +191,7 @@
         </div>
 
         <!-- 批量管理底部操作条：固定在侧栏底部、用户头像上方 -->
-        <div v-if="batchMode && !uiStore.sidebarCollapsed" class="batch-inline-footer">
+        <div v-if="batchMode && !sidebarCollapsed" class="batch-inline-footer">
             <div class="batch-footer-left">
                 <t-checkbox :checked="isAllBatchSelected" :indeterminate="isBatchIndeterminate"
                     :disabled="batchDeleting" @change="toggleBatchSelectAll">
@@ -209,7 +211,7 @@
 
         <!-- 下半部分：用户菜单 -->
         <div class="menu_bottom">
-            <UserMenu />
+            <UserMenu :collapsed="sidebarCollapsed" />
         </div>
 
     </div>
@@ -266,7 +268,6 @@ import {
     findSessionBucketKey,
     shouldShowSessionSourceFilter,
 } from './sessionSidebarSourceFilter';
-import { logout as logoutApi } from '@/api/auth';
 import { useMenuStore } from '@/stores/menu';
 import { useSettingsStore } from '@/stores/settings';
 import { useSessionActivityStore } from '@/stores/sessionActivity';
@@ -283,6 +284,9 @@ import UserMenu from '@/components/UserMenu.vue';
 import TenantSelector from '@/components/TenantSelector.vue';
 import { useI18n } from 'vue-i18n';
 import { useEditorResourcesStore } from '@/stores/editorResources';
+
+const props = defineProps<{ compact?: boolean }>();
+const emit = defineEmits<{ navigate: [] }>();
 
 const chatResources = useChatResourcesStore();
 const editorResources = useEditorResourcesStore();
@@ -327,6 +331,13 @@ const toolboxPreview = computed(() => TOOLBOX_ITEMS.filter((item) => canAccessTo
 })));
 const orgStore = useOrganizationStore();
 const uiStore = useUIStore();
+const sidebarCollapsed = computed(() => !props.compact && uiStore.sidebarCollapsed);
+const toggleSidebar = async (event: MouseEvent) => {
+    uiStore.toggleSidebar();
+    const menu = (event.currentTarget as HTMLElement).closest('.aside_box');
+    await nextTick();
+    menu?.querySelector<HTMLButtonElement>('.sidebar-toggle, .sidebar-toggle-item')?.focus();
+};
 const commandPaletteStore = useCommandPaletteStore();
 const assistantStore = useAssistantStore();
 const assistantName = computed(() => assistantStore.displayName || t('assistant.title'));
@@ -535,7 +546,7 @@ usemenuStore.$onAction(({ name, args, after }) => {
 watch(
     () => {
         const id = pendingForkRevealId.value;
-        return id && !uiStore.sidebarCollapsed && currentSecondpath.value === `chat/${id}`
+        return id && !sidebarCollapsed.value && currentSecondpath.value === `chat/${id}`
             && filteredGroupedSessions.value.some((group) => group.items.some((item) => item.id === id))
             ? id : '';
     },
@@ -1141,7 +1152,6 @@ let artifactIcon = ref('artifact.svg');
 let toolboxIcon = ref('toolbox.svg');
 let automationIcon = ref('automation.svg');
 let organizationIcon = ref('organization.svg');
-let pathPrefix = ref(route.name)
 const getIcon = (path: string) => {
     // 根据当前路由状态更新所有图标
     const kbActiveState = getIconActiveState('knowledge-bases');
@@ -1161,7 +1171,7 @@ const getIcon = (path: string) => {
     artifactIcon.value = artifactsActiveState ? 'artifact-green.svg' : 'artifact.svg';
 
     toolboxIcon.value = route.name === 'toolbox' ? 'toolbox-green.svg' : 'toolbox.svg';
-    automationIcon.value = route.name === 'automationList' ? 'automation-green.svg' : 'automation.svg';
+    automationIcon.value = route.name === 'tasks' ? 'automation-green.svg' : 'automation.svg';
 
     // 组织图标：只在组织页面显示绿色
     organizationIcon.value = organizationsActiveState ? 'organization-green.svg' : 'organization.svg';
@@ -1176,84 +1186,30 @@ const getIcon = (path: string) => {
     logoutIcon.value = 'logout.svg';
 }
 getIcon(typeof route.name === 'string' ? route.name as string : (route.name ? String(route.name) : ''))
-const handleMenuClick = async (path: string) => {
-    if (path === 'knowledge-bases') {
-        if (IS_CONTEXTDB) { router.push('/platform/knowledge-bases'); return }
-        // 知识库菜单项：如果在知识库内部，跳转到当前知识库文件页；否则跳转到知识库列表
-        const kbId = await getCurrentKbId()
-        if (kbId) {
-            router.push(`/platform/knowledge-bases/${kbId}`)
-        } else {
-            router.push('/platform/knowledge-bases')
-        }
-    } else if (path === 'agents') {
-        router.push('/platform/agents')
-    } else if (path === 'organizations') {
-        // 组织菜单项：跳转到组织列表
-        router.push('/platform/organizations')
-    } else if (path === 'settings') {
-        // 设置菜单项：打开设置弹窗并跳转路由
-        uiStore.openSettings()
-        router.push('/platform/settings')
-    } else {
-        gotopage(path)
+const menuLocation = (path: string) => {
+    const kbId = route.params.kbId;
+    if (path === 'knowledge-bases' && !IS_CONTEXTDB && isInKnowledgeBase.value && typeof kbId === 'string') {
+        return { name: 'knowledgeBaseDetail', params: { kbId } };
     }
-}
+    return '/platform/' + path;
+};
 
-// 处理退出登录确认
-const handleLogout = () => {
-    gotopage('logout')
-}
-
-const getCurrentKbId = async (): Promise<string | null> => {
-    const kbId = (route.params as any)?.kbId as string
-    if (isInKnowledgeBase.value && kbId) {
-        return kbId
-    }
-    return null
-}
-
-const gotopage = async (path: string) => {
-    pathPrefix.value = path;
-    // 处理退出登录
-    if (path === 'logout') {
-        try {
-            // 调用后端API注销
-            await logoutApi();
-        } catch (error) {
-            // 即使API调用失败，也继续执行本地清理
-            console.error('注销API调用失败:', error);
-        }
-        // 清理所有状态和本地存储
-        authStore.logout();
-        MessagePlugin.success(t('menu.logoutSuccess'));
-        router.push('/login');
-        return;
-    } else {
-        if (path === 'creatChat') {
-            // 再次点击当前「新对话」时路由不会变化，仍需清空上一条草稿的引用。
-            if (isInCreatChat.value) useSettingsStore().clearChatReferences()
-            // 如果在知识库详情页，跳转到全局对话创建页
-            if (isInKnowledgeBase.value) {
-                router.push('/platform/creatChat')
-            } else {
-                // 如果不在知识库内，进入对话创建页
-                router.push(`/platform/creatChat`)
-            }
-        } else {
-            router.push(`/platform/${path}`);
-        }
-    }
-    getIcon(path)
-}
+const onNavigationClick = (event: MouseEvent, path?: string) => {
+    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    if (path === 'creatChat' && isInCreatChat.value) useSettingsStore().clearChatReferences();
+    emit('navigate');
+};
+const openSearch = () => {
+    emit('navigate');
+    commandPaletteStore.openPalette('');
+};
+const openAssistant = () => {
+    emit('navigate');
+    assistantStore.toggle();
+};
 
 const getImgSrc = (url: string) => {
     return new URL(`/src/assets/img/${url}`, import.meta.url).href;
-}
-
-const mouseenteMenu = (path: string) => {
-}
-const mouseleaveMenu = (path: string) => {
 }
 
 let sidebarResizeStartWidth = 0
@@ -1296,29 +1252,14 @@ const resizeSidebar = (delta: number, keyboard: boolean) => {
     overflow: visible;
     display: flex;
     flex-direction: column;
-    /* 仅外侧两角圆润：内侧两角保持直角并与内容区贴合，避免双侧圆角形成灰底缺口；
-       不加右边线与投影，灰侧栏与白色内容区直接相接 */
+    /* 内侧接缝由外壳留白承接。 */
     border-radius: var(--app-radius-xl) 0 0 var(--app-radius-xl);
-    transition: width 0.25s ease, min-width 0.25s ease;
+    transition: width var(--app-motion-base) ease, min-width var(--app-motion-base) ease;
     position: relative;
 
     // macOS Wails 桌面：红绿灯位于 HiddenInset 标题栏区域，需让出顶部空间
     html.wails-desktop & {
         padding-top: 30px;
-    }
-
-    /* 侧栏底色向右延伸至内容区左圆角之后：圆角弧外透出的是侧栏同色灰，
-       而非页面底色，交界处上下两端不会出现异色缺口 */
-    &::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        right: calc(-1 * var(--app-radius-xl));
-        width: var(--app-radius-xl);
-        height: 100%;
-        background: var(--td-bg-color-sidebar);
-        z-index: -1;
-        pointer-events: none;
     }
 
     &--resizing {
@@ -1365,6 +1306,27 @@ const resizeSidebar = (delta: number, keyboard: boolean) => {
             margin-right: 0;
             padding-right: 0;
         }
+    }
+
+    .header-icon-btn, .sidebar-toggle, button.menu_item {
+        border: 0;
+        background: transparent;
+        font: inherit;
+    }
+
+    .header-icon-btn, .sidebar-toggle {
+        padding: 0;
+    }
+
+    .menu_item, .logo_box {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .header-icon-btn:focus-visible, .sidebar-toggle:focus-visible,
+    .menu_item:focus-visible, .logo_box:focus-visible {
+        outline: 2px solid var(--td-brand-color);
+        outline-offset: -2px;
     }
 
     .logo_row {
@@ -1997,6 +1959,10 @@ const resizeSidebar = (delta: number, keyboard: boolean) => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .aside_box {
+        transition: none;
+    }
+
     .aside_box .submenu_item_p.session-chat-row--revealed {
         animation: none;
     }
