@@ -25,7 +25,7 @@ const error=ref(''),formOpen=ref(false),editing=ref(''),account=ref(''),username
 const visible=computed(()=>ui.showSettingsModal||route.name==='settings')
 const groups=computed(()=>[{key:'platform',label:'平台',items:[{key:'account',icon:'user',label:'当前账号'},{key:'tenant',icon:'user-circle',label:'空间信息'},...(auth.hasRole('admin')?[{key:'members',icon:'usergroup',label:'成员管理'}]:[]),{key:'permissions',icon:'secured',label:'知识库权限'},{key:'runtime',icon:'server',label:'运行状态'}]},
   {key:'personal',label:'个人',items:[{key:'general',icon:'setting',label:'常规设置'},{key:'userprofile',icon:'user',label:'个人资料'}]},
-  {key:'agent',label:'智能体',items:[{key:'models',icon:'chat',label:'模型配置'},{key:'defaults',icon:'setting',label:'空间默认配置'},{key:'memory',icon:'bookmark',label:'文件记忆'},{key:'sandbox',icon:'code',label:'运行环境'},{key:'agents',icon:'control-platform',label:'智能体配置'},{key:'toolbox',icon:'tools',label:'工具箱'}]}])
+  {key:'agent',label:'智能体',items:[{key:'models',icon:'chat',label:'模型配置'},{key:'defaults',icon:'setting',label:'空间默认配置'},{key:'memory',icon:'bookmark',label:'文件记忆'},{key:'sandbox',icon:'code',label:'运行环境'}]}])
 function selectSection(value?:string|null){
   if(!value)return
   const target=value==='mymemory'?'memory':value==='system'?'runtime':value

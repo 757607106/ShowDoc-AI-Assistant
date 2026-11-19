@@ -71,7 +71,7 @@
             :title="$t('tenant.switcher.menuLabel')" />
         </div>
         <div class="menu-divider"></div>
-        <!-- 账号与空间是头像菜单的核心上下文；基础设施类配置统一收进「全部设置」。 -->
+        <!-- 账号与空间是头像菜单的核心上下文；具体配置经快捷入口直达设置弹窗对应分区。 -->
         <div class="menu-item" @click="handleQuickNav('general')">
           <t-icon name="user" class="menu-icon" />
           <span>{{ $t('general.personalSettings') }}</span>
@@ -81,7 +81,7 @@
           <span>{{ $t('settings.workspaceSettings') }}</span>
         </div>
         <!-- “管理”类快捷入口只对真正具备写权限的人展示。只读名册和模型列表
-             仍可从「全部设置」进入，避免 viewer 看到名不副实的管理入口。 -->
+             仍可从侧栏「设置」进入，避免 viewer 看到名不副实的管理入口。 -->
         <div v-if="canManageMembers" class="menu-item" @click="handleQuickNav('members')">
           <t-icon name="usergroup" class="menu-icon" />
           <span>{{ $t('tenantMember.title') }}</span>
@@ -91,10 +91,6 @@
           <span>{{ $t('settings.modelManagement') }}</span>
         </div>
         <div class="menu-divider"></div>
-        <div class="menu-item" @click="handleSettings">
-          <t-icon name="setting" class="menu-icon" />
-          <span>{{ $t('general.allSettings') }}</span>
-        </div>
         <!--
           System administration entry — visible only to users with the
           platform-wide is_system_admin flag. Hidden for everyone else,
@@ -265,13 +261,6 @@ const handleQuickNav = (section: string) => {
   menuVisible.value = false
   uiStore.openSettings()
   router.push({ path: '/platform/settings', query: { section } })
-}
-
-// 打开设置
-const handleSettings = () => {
-  menuVisible.value = false
-  uiStore.openSettings()
-  router.push('/platform/settings')
 }
 
 // Open the platform administration group inside the standard Settings

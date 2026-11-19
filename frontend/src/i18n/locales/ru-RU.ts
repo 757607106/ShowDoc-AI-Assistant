@@ -4254,7 +4254,6 @@ export default {
   },
   general: {
     title: 'Общие настройки',
-    allSettings: 'Все настройки',
     personalSettings: 'Личные настройки',
     description: 'Настройка языка, внешнего вида и других базовых параметров',
     settings: 'Настройки',

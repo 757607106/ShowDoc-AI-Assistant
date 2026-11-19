@@ -5557,7 +5557,6 @@ export default {
     },
     general: {
       title: 'General Settings',
-      allSettings: 'All Settings',
       personalSettings: 'Personal Settings',
       description: 'Configure language, appearance and other basic options',
       settings: 'Settings',

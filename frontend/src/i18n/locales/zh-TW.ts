@@ -4256,7 +4256,6 @@ export default {
   },
   general: {
     title: '常規設定',
-    allSettings: '全部設定',
     personalSettings: '個人設定',
     description: '設定語言、外觀等基礎選項',
     settings: '設定',

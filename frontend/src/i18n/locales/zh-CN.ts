@@ -4256,7 +4256,6 @@ export default {
   },
   general: {
     title: '常规设置',
-    allSettings: '全部设置',
     personalSettings: '个人设置',
     description: '配置语言、外观等基础选项',
     settings: '设置',
