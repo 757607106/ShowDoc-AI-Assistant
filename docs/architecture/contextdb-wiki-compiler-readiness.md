@@ -1,6 +1,6 @@
 # Wiki 编译器接管准入核查
 
-核查日期：2026-11-14（Asia/Shanghai）。独立临时库试验及 [JSON 准入报告](reports/contextdb-wiki-compiler-readiness.json)基于此前 0.0.8 文档，保留为历史证据；本页已依据 0.0.9 修正文档公开范围。此次 0.0.9 复核只读取业务库，没有写入业务知识库或调整编译策略。当前界面接入能力见 [Wiki 支持说明](contextdb-wiki-support.md)。
+核查日期：2026-11-14（Asia/Shanghai）。独立临时库试验及 JSON 准入结果基于此前 0.0.8 文档，机器快照已删除；本页已依据 0.0.9 修正文档公开范围。此次 0.0.9 复核只读取业务库，没有写入业务知识库或调整编译策略。当前界面接入能力见 [Wiki 支持说明](contextdb-wiki-support.md)。
 
 ## 结果
 
@@ -42,7 +42,7 @@
 .venv/bin/python -m scripts.smoke.contextdb_probe --wiki-compiler --write
 ```
 
-默认输出本专项 JSON，不覆盖既有 `contextdb-capabilities.json`。报告只保存能力状态、计数、文档摘要和清理标识，不保存密钥、源文正文或预签名下载地址。
+默认输出本专项 JSON，不覆盖既有能力报告。报告只保存能力状态、计数、文档摘要和清理标识，不保存密钥、源文正文或预签名下载地址。
 
 默认无云端请求的回归验证：
 

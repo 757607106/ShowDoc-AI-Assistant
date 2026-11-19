@@ -48,7 +48,7 @@
 │   └── opensandbox.local.toml 等  # 沙箱本地配置与说明
 └── docs/                          # 工程、架构、操作和需求文档
     ├── architecture/              # 架构决策与能力边界
-    │   └── reports/               # 审计快照 JSON 与日期后缀的验证报告
+    │   └── reports/               # 日期后缀的验证报告（审计机器快照 JSON 已清理，仅存 md 报告）
     ├── engineering/              # 结构与命名规范
     ├── guides/                    # 操作指南与验证记录
     ├── requirements/             # 需求文档

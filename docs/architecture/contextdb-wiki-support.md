@@ -1,6 +1,6 @@
 # ContextDB Wiki 接入能力与验证边界
 
-更新日期：2026-11-14（Asia/Shanghai）。当前接入依据为 **ContextDB 0.0.9**。旧版“未公开 Wiki API”的结论已过时；[0.0.8 审计 JSON](reports/contextdb-wiki-audit.json)保留为历史证据，不代表当前服务能力。
+更新日期：2026-11-14（Asia/Shanghai）。当前接入依据为 **ContextDB 0.0.9**。旧版“未公开 Wiki API”的审计结论保留为历史，机器快照已删除，不代表当前服务能力。
 
 ## 官方契约与本平台实现
 
@@ -93,4 +93,4 @@ ContextDB 保存来源、正式正文、修订和处理状态，并负责 Wiki �
 - [0.0.9 Wiki 编译控制](https://g.alicdn.com/rdsai/contextdb-doc/0.0.9/contextdb-documentation.html#/api-kb-wiki-compile)
 - [0.0.9 Wiki 内容问题处理](https://g.alicdn.com/rdsai/contextdb-doc/0.0.9/contextdb-documentation.html#/api-kb-wiki-resolve)
 
-[旧审计 JSON](reports/contextdb-wiki-audit.json)、[旧能力报告](reports/contextdb-capabilities.json)和[旧编译器准入 JSON](reports/contextdb-wiki-compiler-readiness.json)保留原始时间及响应，不覆写为本轮结果。它们基于 0.0.8 的“未声明”或“未公开”描述不能覆盖以上 0.0.9 契约；旧路径 `/wiki/pages/revisions`、`/wiki/revisions/pending` 被拒绝，也不代表新的 `/wiki/revisions/diff` 等正确路径不可用。
+旧审计、旧能力报告与旧编译器准入 JSON 曾保留原始时间及响应，机器快照已删除。它们基于 0.0.8 的“未声明”或“未公开”描述不能覆盖以上 0.0.9 契约；旧路径 `/wiki/pages/revisions`、`/wiki/revisions/pending` 被拒绝，也不代表新的 `/wiki/revisions/diff` 等正确路径不可用。
