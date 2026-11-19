@@ -203,8 +203,10 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
       <div class="graph-search-row">
         <label class="graph-field"><span>以实体展开</span><t-select v-model="root" :filter="() => true" filterable clearable placeholder="搜索实体名称、类型或别名" aria-label="以实体展开" :popup-props="{ attach: dialogAttach }" :loading="entityLoading" :options="entities.map(item => ({ value: item.entity_id, label: displayName(item.entity_name) }))" @search="searchEntities" @change="load" /></label>
         <label class="graph-field"><span>文件范围</span><t-select v-model="documentId" filterable clearable placeholder="全部文件" aria-label="文件范围" :disabled="!!root" :popup-props="{ attach: dialogAttach }" :loading="documentLoading" :options="documents.map(item => ({ value: item.id, label: documentDisplayName(item) }))" @change="changeDocument"><template #panelBottomContent><t-button v-if="documents.length < documentTotal" variant="text" block :loading="documentLoading" @click.stop="loadDocuments(true)">加载更多文档（{{ documents.length }} / {{ documentTotal }}）</t-button></template></t-select></label>
-        <t-button variant="outline" :aria-expanded="settingsOpen" @click="settingsOpen = !settingsOpen"><t-icon name="setting" />展示设置</t-button>
-        <t-button variant="outline" aria-label="刷新图谱" :loading="busy" @click="load"><t-icon name="refresh" />刷新</t-button>
+        <div class="graph-search-actions">
+          <t-button variant="outline" :aria-expanded="settingsOpen" @click="settingsOpen = !settingsOpen"><template #icon><t-icon name="setting" /></template>展示设置</t-button>
+          <t-button variant="outline" aria-label="刷新图谱" :loading="busy" @click="load"><template #icon><t-icon name="refresh" /></template>刷新</t-button>
+        </div>
       </div>
       <div v-if="settingsOpen" class="graph-settings">
         <label><span>展开层数</span><t-radio-group v-model="hops" aria-label="展开层数"><t-radio-button :value="1">1 跳</t-radio-button><t-radio-button :value="2">2 跳</t-radio-button></t-radio-group></label>
@@ -212,24 +214,27 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
         <label><span>关系上限</span><t-input-number v-model="maxEdges" :min="1" :max="20000" :decimal-places="0" :input-props="{ 'aria-label': '关系上限' }" /></label>
         <t-button @click="applySettings">应用</t-button><span v-if="settingsError" role="alert">{{ settingsError }}</span>
       </div>
-      <div class="graph-summary" role="status"><span>{{ scopeLabel }}</span><t-button v-if="root" variant="text" size="small" @click="root = ''; load()">清除实体展开</t-button><span v-if="graph" class="graph-count">已展示 <strong>{{ nodes.length }}</strong> 个实体 / <strong>{{ edges.length }}</strong> 条关系<span class="graph-total">当前查询范围共 {{ graph.entity_total ?? '—' }} 个实体 / {{ graph.relation_total ?? '—' }} 条关系</span></span></div>
+      <div class="graph-summary" role="status"><span>{{ scopeLabel }}</span><t-button v-if="root" variant="text" size="small" @click="root = ''; load()">清除实体展开</t-button><span v-if="graphNotice" class="graph-notice"><t-icon name="info-circle" />{{ graph?.truncated ? '已达到展示上限，可缩小查询范围或调整展示上限。' : graphNotice }}</span><span v-if="graph" class="graph-count">已展示 <strong>{{ nodes.length }}</strong> 个实体 / <strong>{{ edges.length }}</strong> 条关系<span class="graph-total">当前查询范围共 {{ graph.entity_total ?? '—' }} 个实体 / {{ graph.relation_total ?? '—' }} 条关系</span></span></div>
       <t-alert v-if="error" theme="error" :message="error"><template #operation><t-button variant="text" @click="load">重试</t-button></template></t-alert>
       <t-alert v-if="entityError" theme="warning" :message="`实体搜索失败：${entityError}`"><template #operation><t-button variant="text" @click="searchEntities()">重试</t-button></template></t-alert>
       <t-alert v-if="documentError" theme="warning" :message="`文档列表读取失败：${documentError}`"><template #operation><t-button variant="text" @click="loadDocuments()">重试</t-button></template></t-alert>
-      <p v-if="graphNotice" class="graph-notice"><t-icon name="info-circle" />{{ graph?.truncated ? '已达到展示上限，可缩小查询范围或调整展示上限。' : graphNotice }}</p>
     </div>
     <div :id="modeId" class="graph-workspace" :class="{ 'graph-workspace-view': view === 'graph' }" role="tabpanel" :aria-labelledby="modeId+'-'+view" :aria-busy="view==='graph'&&busy">
       <div v-show="view === 'graph'" class="graph-stage">
-        <div class="graph-canvas-tools">
-          <t-select v-model="locatedId" filterable clearable placeholder="定位当前画布中的实体" aria-label="定位当前画布中的实体" :popup-props="{ attach: dialogAttach }" :options="nodes.map((node: any) => ({ value: node.id, label: node.label }))" @change="(id: any) => locate(String(id || ''))" />
-          <t-button variant="outline" @click="fit"><t-icon name="focus" />适应画布</t-button>
-          <t-button variant="outline" @click="toggleFullscreen"><t-icon :name="fullscreen ? 'fullscreen-exit' : 'fullscreen'" />{{ fullscreen ? '退出全屏' : '全屏' }}</t-button>
+        <div class="graph-viewport">
+          <ContextDBGraphCanvas ref="graphCanvas" class="graph-canvas" :nodes="nodes" :edges="edges" :root-id="root" :selected-id="selectedId" :is-relation="isRelation" @select="inspect" @zoom="graphScale = $event" />
+          <div class="graph-canvas-tools">
+            <t-select v-model="locatedId" filterable clearable placeholder="定位当前画布中的实体" aria-label="定位当前画布中的实体" :popup-props="{ attach: dialogAttach }" :options="nodes.map((node: any) => ({ value: node.id, label: node.label }))" @change="(id: any) => locate(String(id || ''))" />
+            <div class="graph-canvas-actions">
+              <t-button variant="outline" @click="fit"><template #icon><t-icon name="focus" /></template>适应画布</t-button>
+              <t-button variant="outline" @click="toggleFullscreen"><template #icon><t-icon :name="fullscreen ? 'fullscreen-exit' : 'fullscreen'" /></template>{{ fullscreen ? '退出全屏' : '全屏' }}</t-button>
+            </div>
+          </div>
+          <div v-if="busy" class="graph-overlay"><t-loading text="正在读取图谱…" role="status" /></div>
+          <t-empty v-else-if="!nodes.length && !error" class="graph-overlay" description="当前范围暂无实体与关系" />
+          <div class="graph-zoom"><t-button variant="text" shape="square" aria-label="缩小图谱" @click="zoom(1 / 1.25)"><template #icon><t-icon name="zoom-out" /></template></t-button><span>{{ Math.round(graphScale * 100) }}%</span><t-button variant="text" shape="square" aria-label="放大图谱" @click="zoom(1.25)"><template #icon><t-icon name="zoom-in" /></template></t-button></div>
         </div>
-        <ContextDBGraphCanvas ref="graphCanvas" class="graph-canvas" :nodes="nodes" :edges="edges" :root-id="root" :selected-id="selectedId" :is-relation="isRelation" @select="inspect" @zoom="graphScale = $event" />
-        <div v-if="busy" class="graph-overlay"><t-loading text="正在读取图谱…" role="status" /></div>
-        <t-empty v-else-if="!nodes.length && !error" class="graph-overlay" description="当前范围暂无实体与关系" />
-        <div class="graph-zoom"><span>{{ Math.round(graphScale * 100) }}%</span><t-button variant="text" aria-label="缩小图谱" @click="zoom(1 / 1.25)"><t-icon name="zoom-out" /></t-button><t-button variant="text" aria-label="放大图谱" @click="zoom(1.25)"><t-icon name="zoom-in" /></t-button></div>
-        <div class="graph-footer"><div class="graph-types"><span v-for="type in types" :key="type"><i :style="{ background: typeColor(type) }" />{{ type || '未分类' }}</span></div><p>拖动画布移动，滚轮缩放；拖动节点调整位置，点击实体或关系查看详情。也可通过实体定位框选择节点。</p></div>
+        <div class="graph-footer"><div class="graph-types"><span v-for="type in types" :key="type"><i :style="{ background: typeColor(type) }" />{{ type || '未分类' }}</span></div><p>拖动画布移动，滚轮缩放；拖动节点调整位置，点击实体或关系查看详情</p></div>
       </div>
       <ContextDBGraphManagement ref="manager" :attach="dialogAttach" :kb-id="kbId" :active="view === 'entities'" :can-edit="props.canEdit" :documents="documents" @inspect="inspect" @expand="expandEntity" @changed="changed" />
       <aside v-if="detailOpen" class="graph-inspector" :aria-label="isRelation ? '关系详情' : '实体详情'"
@@ -268,32 +273,41 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
 
 <style scoped lang="less">
 .native-graph { display: flex; flex-direction: column; flex: 1; width: 100%; height: 100%; min-height: 0; overflow: auto; color: var(--td-text-color-primary); background: var(--td-bg-color-container); container-type: inline-size; }
-.native-graph:fullscreen { padding: 24px; box-sizing: border-box; }
+.native-graph:fullscreen { padding: 16px; box-sizing: border-box; }
+.native-graph:fullscreen .graph-tabs { display: none; }
+.native-graph:fullscreen .graph-toolbar { margin: 0 0 12px; padding: 12px 16px; }
+.native-graph:fullscreen .graph-field > span { display: none; }
+.native-graph:fullscreen .graph-search-row { align-items: center; }
 .native-graph:fullscreen .graph-workspace-view { flex: 1; min-height: 440px; height: auto; }
 .graph-tabs { display: flex; gap: 24px; padding: 0; border-bottom: 1px solid var(--td-component-stroke); }
 .graph-tabs button { padding: 10px 2px; font: inherit; color: var(--td-text-color-secondary); background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer; }
 .graph-tabs button[aria-selected='true'] { color: var(--td-brand-color); border-bottom-color: var(--td-brand-color); font-weight: 600; }
-.graph-toolbar { padding: 16px; display: flex; flex-direction: column; gap: 8px; margin: 16px 0; border-radius:var(--app-radius-lg); background: var(--td-bg-color-secondarycontainer); }
-.graph-search-row { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px; }
+.graph-toolbar { padding: 16px; display: flex; flex-direction: column; gap: 10px; margin: 16px 0; border-radius:var(--app-radius-lg); background: var(--td-bg-color-secondarycontainer); }
+.graph-search-row { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; }
+.graph-search-actions { display: flex; gap: 8px; flex: none; }
 .graph-field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px; font-size: var(--app-text-sm); color: var(--td-text-color-secondary); }
 .graph-field :deep(.t-select__wrap) { width: 100%; }
-.graph-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 12px; background: var(--td-bg-color-secondarycontainer); border-radius: var(--app-radius-sm); }
+.graph-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 12px; background: var(--td-bg-color-container); border-radius: var(--app-radius-sm); }
 .graph-settings label { display: flex; align-items: center; gap: 10px; font-size: var(--app-text-sm); }
 .graph-settings :deep(.t-input-number) { width: 126px; }
-.graph-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: var(--app-text-sm); color: var(--td-text-color-secondary); }
+.graph-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-height: 22px; font-size: var(--app-text-sm); color: var(--td-text-color-secondary); }
 .graph-count { margin-left: auto; }.graph-count strong { color: var(--td-text-color-primary); }.graph-total { margin-left: 16px; color: var(--td-text-color-placeholder); }
-.graph-notice { margin: 0; display: flex; gap: 6px; align-items: center; color: var(--td-warning-color); font-size: var(--app-text-sm); }
+.graph-notice { display: inline-flex; gap: 4px; align-items: center; color: var(--td-warning-color); }
 .graph-scope { margin: 12px 0; color: var(--td-text-color-secondary); font-size: var(--app-text-sm); line-height: 1.6; overflow-wrap: anywhere; }
 .graph-workspace { display: flex; flex: 1; min-height: 0; overflow: hidden; border: 1px solid var(--td-component-stroke); border-radius: var(--app-radius-md); }
 .graph-workspace-view { flex: none; height: clamp(540px, 68vh, 760px); }
-.graph-stage { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; background: var(--td-bg-color-sidebar); }
-.graph-canvas-tools { flex: none; padding: 12px 16px; display: flex; gap: 8px; align-items: center; background: var(--td-bg-color-container); border-bottom: 1px solid var(--td-component-stroke); }
-.graph-canvas-tools :deep(.t-select__wrap) { width: min(280px, 45%); }
+.graph-stage { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--td-bg-color-sidebar); }
+.graph-viewport { position: relative; flex: 1; min-height: 0; display: flex; }
 .graph-canvas { flex: 1; min-height: 240px; width: 100%; }
+.graph-canvas-tools { position: absolute; z-index: 1; top: 12px; left: 12px; right: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; pointer-events: none; }
+.graph-canvas-tools > * { pointer-events: auto; }
+.graph-canvas-tools > :deep(.t-select__wrap) { width: min(280px, 45%); }
+.graph-canvas-actions { display: flex; gap: 8px; }
 .graph-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; }
-.graph-zoom { position: absolute; bottom: 72px; right: 12px; display: flex; align-items: center; padding-left: 10px; border: 1px solid var(--td-component-stroke); border-radius: var(--app-radius-sm); background: var(--td-bg-color-container); font-size: var(--app-text-sm); color: var(--td-text-color-secondary); }
-.graph-footer { flex: none; padding: 10px 16px; border-top: 1px solid var(--td-component-stroke); background: var(--td-bg-color-container); }
-.graph-footer p { margin: 8px 0 0; font-size: var(--app-text-xs); color: var(--td-text-color-placeholder); }
+.graph-zoom { position: absolute; bottom: 12px; right: 12px; display: flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--td-component-stroke); border-radius: var(--app-radius-sm); background: var(--td-bg-color-container); font-size: var(--app-text-sm); color: var(--td-text-color-secondary); }
+.graph-zoom > span { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+.graph-footer { flex: none; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 24px; padding: 10px 16px; border-top: 1px solid var(--td-component-stroke); background: var(--td-bg-color-container); }
+.graph-footer p { margin: 0; font-size: var(--app-text-xs); color: var(--td-text-color-placeholder); }
 .graph-types { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: var(--app-text-xs); color: var(--td-text-color-secondary); }
 .graph-types span { display: inline-flex; align-items: center; gap: 5px; }.graph-types i { width: 8px; height: 8px; border-radius: 50%; }
 .graph-inspector { width: 32%; flex: 0 0 32%; min-width: 300px; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--td-component-stroke); background: var(--td-bg-color-container); }
@@ -311,7 +325,7 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
 .relation-search { display: flex; gap: 8px; }.relation-list { list-style: none; padding: 0; margin: 8px 0; }.relation-list li { padding: 12px 0; border-bottom: 1px solid var(--td-component-stroke); }.relation-list li > div { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }.relation-list p { margin: 6px 0 0; color: var(--td-text-color-secondary); font-size: var(--app-text-sm); }
 .relation-endpoints { display: grid; grid-template-columns: 64px 1fr; gap: 10px; margin: 0 0 20px; }.relation-endpoints dt { color: var(--td-text-color-secondary); }.relation-endpoints dd { margin: 0; overflow-wrap: anywhere; }
 .graph-source { margin-top: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--td-component-stroke); }
-@media (max-width: 900px) { .graph-total { display: none; }.graph-canvas-tools { flex-wrap: wrap; }.graph-canvas-tools :deep(.t-select__wrap) { flex: 1; min-width: 140px; } }
+@media (max-width: 900px) { .graph-total { display: none; }.graph-canvas-tools > :deep(.t-select__wrap) { flex: 1; min-width: 140px; } }
 @media (max-width: 640px) { .graph-toolbar { padding: 10px; }.graph-field { flex-basis: 100%; }.graph-count { margin-left: 0; }.graph-footer p { display: none; } }
 @container (max-width: 760px) {
   .graph-inspector {

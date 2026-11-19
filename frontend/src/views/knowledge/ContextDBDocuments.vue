@@ -70,13 +70,12 @@ const documentMain = ref<HTMLElement | null>(null)
 const mainWidth = ref(Infinity)
 const desktopColumns = computed<PrimaryTableCol[]>(() => [
   { colKey: 'selection', type: 'multiple', width: 44 },
-  { colKey: 'name', title: '文件名称', width: Math.min(310, Math.max(200, Math.round(mainWidth.value * 0.24))) },
-  { colKey: 'metadata', title: '元数据', minWidth: 160 },
-  { colKey: 'ingest_status', title: '入库状态', width: 112 },
-  ...(props.wikiEnabled ? [{ colKey: 'wiki_status', title: 'Wiki 状态', width: 104 }] : []),
-  ...(props.graphEnabled ? [{ colKey: 'graph_status', title: '图谱状态', width: 104 }] : []),
-  { colKey: 'size_bytes', title: '大小', width: 84 },
-  { colKey: 'updated_at', title: '更新时间', width: 164 },
+  { colKey: 'name', title: '文件名称', width: Math.min(420, Math.max(220, Math.round(mainWidth.value * 0.3))) },
+  { colKey: 'ingest_status', title: '入库状态', minWidth: 112 },
+  ...(props.wikiEnabled ? [{ colKey: 'wiki_status', title: 'Wiki 状态', minWidth: 104 }] : []),
+  ...(props.graphEnabled ? [{ colKey: 'graph_status', title: '图谱状态', minWidth: 104 }] : []),
+  { colKey: 'size_bytes', title: '大小', minWidth: 84 },
+  { colKey: 'updated_at', title: '更新时间', minWidth: 164 },
   { colKey: 'actions', title: '操作', width: 128, align: 'right' },
 ])
 const compact = computed(() => mainWidth.value < desktopColumns.value.reduce((sum, column) => sum + Number(column.width ?? column.minWidth), 0))
@@ -271,14 +270,6 @@ onUnmounted(()=>{request++;previewRequest++;uploadRequest++;chunkRequest++;write
             <t-icon :name="row.node_type==='file'?getFileIcon(title(row)):'folder'" aria-hidden="true" /><span>{{ title(row) }}</span>
           </button>
         </template>
-        <template #metadata="{row}">
-          <button v-if="Object.keys(row.metadata||{}).length" type="button" class="metadata-preview document-text-button" :aria-label="'查看元数据 '+title(row)" @click="editMetadata(row)">
-            <span v-for="[key,value] in Object.entries(row.metadata).slice(0,2)" :key="key" class="metadata-line" :title="key+'：'+value">
-              <span class="metadata-key">{{ key }}</span><span>{{ value }}</span>
-            </span>
-          </button>
-          <span v-else>—</span>
-        </template>
         <template #ingest_status="{row}"><span :class="{'status-success':row.ingest_status==='succeeded','status-failure':row.ingest_status==='failed'}">{{state(row.ingest_status)}}</span></template><template #wiki_status="{row}">{{state(row.wiki_status)}}</template><template #graph_status="{row}"><span :class="{'status-success':row.graph_status==='succeeded'}">{{state(row.graph_status)}}</span></template><template #size_bytes="{row}">{{formatFileSize(row.size_bytes)||'-'}}</template><template #updated_at="{row}">{{time(row.updated_at)}}</template>
         <template #empty><div class="document-empty"><span>此目录暂无文件</span><t-button v-if="canEdit" variant="text" theme="primary" @click="add">上传文件</t-button></div></template>
         <template #compact_status="{row}">
@@ -337,11 +328,6 @@ onUnmounted(()=>{request++;previewRequest++;uploadRequest++;chunkRequest++;write
 .document-file-open { max-width: 100%; }
 .document-file-open span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .document-table-compact .document-file-open span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; overflow-wrap: anywhere; }
-.metadata-preview { display: grid; width: 100%; min-width: 0; gap: 3px; }
-.metadata-line { display: flex; min-width: 0; gap: 6px; line-height: 18px; }
-.metadata-line > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.metadata-key { flex: 0 1 auto; max-width: 42%; color: var(--td-text-color-secondary); }
-.metadata-line > span+span { min-width: 0; }
 .document-row-actions { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
 .document-toolbar .toolbar-actions { padding-inline-end: 12px; }
 @media (max-width: 900px) { .document-toolbar .toolbar-actions { padding-inline-end: 0; } }
