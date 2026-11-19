@@ -6,7 +6,6 @@ import { useAuthStore } from '@/stores/auth'
 import api from '@/api/backend'
 import { getSpaces } from '@/api/knowledgeSpaces'
 import { bindBase, getBasePermissions, knowledgeAccess, knowledgeModeLabel, listBases, uploadDocumentFile, type BasePermissionProfile } from '@/api/contextdb'
-import { CONTEXTDB_REVIEW_FORMAT_NOTICE } from '@/utils/contextdbReviewSupport'
 import { formatFileSize } from '@/utils/files'
 import { directoryPreview } from './importDirectories'
 import ImportDirectoryLinks from './ImportDirectoryLinks.vue'
@@ -216,8 +215,6 @@ watch([spaceScope, entryKey, url, projectId, userToken, keyword, crawlMode, maxP
     <template v-if="!embedded" #actions><t-button variant="text" @click="router.push('/platform/knowledge-bases')">知识库</t-button></template>
     <t-alert v-if="error" theme="error" :message="error" />
     <t-alert v-if="uploadNotice" theme="info" :message="uploadNotice" />
-    <p class="hint">资料采集成功后自动提交到所选知识库；需人工评审时在“知识评审”中处理。原文入库与图谱或 Wiki 编译分别推进。</p>
-    <t-alert theme="info" :message="CONTEXTDB_REVIEW_FORMAT_NOTICE" />
     <t-loading :loading="loading">
       <t-form label-width="120px" :label-align="embedded ? 'top' : 'right'" class="collection-form" @submit.prevent>
         <t-form-item label="知识库" required>
@@ -225,7 +222,7 @@ watch([spaceScope, entryKey, url, projectId, userToken, keyword, crawlMode, maxP
           <p v-if="space && !editable" class="hint">当前知识库无写入权限，请切换其他知识库。</p>
         </t-form-item>
         <t-form-item v-if="space" label="生成内容">
-          <t-space break-line><t-tag theme="primary" variant="light">{{knowledgeModeLabel(space)}}</t-tag><t-tag>{{space.review_enabled?'知识评审已开启':'知识评审已关闭'}}</t-tag></t-space>
+          <t-tag theme="primary" variant="light">{{knowledgeModeLabel(space)}}</t-tag>
         </t-form-item>
         <t-form-item label="资料来源"><t-radio-group v-model="mode" :disabled="launching"><t-radio-button value="crawl">网站采集</t-radio-button><t-radio-button value="file">文件上传</t-radio-button></t-radio-group></t-form-item>
         <template v-if="mode === 'crawl'">
@@ -256,7 +253,7 @@ watch([spaceScope, entryKey, url, projectId, userToken, keyword, crawlMode, maxP
           <t-form-item v-if="directory" label="保存到" required>
             <div class="import-preview">
               <div class="import-location"><t-icon name="folder" /><span>{{space?.name}}</span><t-icon name="chevron-right" /><t-input ref="rootInput" v-model="rootName" :disabled="launching" :maxlength="200" aria-label="导入目录名称" placeholder="导入目录名称" /></div>
-              <p class="hint">以来源名称创建一级目录，保留原始子目录；根页面直接保存在此目录下。已选 {{previewPages.length}} 份文档。</p>
+              <p class="hint">已选 {{previewPages.length}} 份文档</p>
               <t-alert v-if="directory.preview_complete === false" theme="info" message="网站链接尚未全部发现，当前显示已发现的目录；采集时会继续发现页面并保留其目录。" />
               <t-tree :data="previewTree" expand-all class="import-directory-tree" />
             </div>
@@ -265,7 +262,7 @@ watch([spaceScope, entryKey, url, projectId, userToken, keyword, crawlMode, maxP
         <t-form-item v-else label="来源文件">
           <div :inert="launching" class="file-source" :class="{'file-drag-active':dragOver}" @dragover.prevent="dragOver=true" @dragleave="dragOver=false" @drop.prevent="dropFiles">
             <KbUploadSourceDropdown trigger-label="选择文件" @files="selectFiles" @url="selectUrl" />
-            <p class="hint">最多 50 个文件，可拖拽到此处；普通批次保留采集归档，超过 100 MB 的单文件直接保存到 ContextDB。</p>
+            <p class="hint">最多 50 个文件，可拖拽到此处</p>
             <p v-if="files.length" class="hint">已选 {{files.length}} / 50 个文件 · 共 {{formatFileSize(files.reduce((sum,file)=>sum+file.size,0))}}</p>
             <ul v-if="files.length" class="file-list"><li v-for="(file, index) in files" :key="index"><span class="file-name">{{ file.name }}</span><span class="file-size">{{formatFileSize(file.size)}}</span><t-tag v-if="file.size>100*1024*1024" size="small" variant="light">直接入库</t-tag><t-button size="small" variant="text" :disabled="launching" :aria-label="'移除 '+file.name" @click="files.splice(index, 1)">移除</t-button></li></ul>
           </div>

@@ -202,7 +202,6 @@ onUnmounted(() => { stopped = true; requestId++; spaceRequest++; closeDetails();
 
 <template>
   <t-card title="资料任务" :bordered="false" class="material-workspace">
-    <template #description>采集、提交与异常处理</template>
     <template #actions><t-space><t-button variant="outline" @click="refresh"><template #icon><t-icon name="refresh" /></template>刷新</t-button><t-button v-if="auth.hasRole('contributor')" @click="openAdd"><template #icon><t-icon name="add" /></template>添加资料</t-button></t-space></template>
     <t-alert v-if="error" theme="error" :message="error"><template #operation><t-button size="small" variant="text" @click="refresh">重试</t-button></template></t-alert>
     <t-alert v-if="actionError && !detailId" theme="error" :message="actionError" />
@@ -211,7 +210,7 @@ onUnmounted(() => { stopped = true; requestId++; spaceRequest++; closeDetails();
       <label class="scope-filter"><span>所属知识库</span><t-select :value="spaceScope || ''" clearable filterable placeholder="全部知识库" :options="scopeOptions" aria-label="筛选资料所属知识库" @change="changeScope" /></label>
     </div>
     <template v-if="activeView === 'tasks'">
-      <div class="task-toolbar"><t-radio-group v-model="filter" variant="default-filled" aria-label="筛选当前页任务"><t-radio-button v-for="item in filters" :key="item.value" :value="item.value">{{item.label}}</t-radio-button></t-radio-group><span class="hint">当前账号 · 筛选当前页</span></div>
+      <div class="task-toolbar"><t-radio-group v-model="filter" variant="default-filled" aria-label="筛选当前页任务"><t-radio-button v-for="item in filters" :key="item.value" :value="item.value">{{item.label}}</t-radio-button></t-radio-group></div>
       <t-table row-key="task_id" :data="taskRows" :loading="loading && !tasks.length" :row-attributes="rowAttrs" :row-class-name="({row}:any)=>taskFilter(row)==='action'?'task-row-needs-action':''" @row-click="onRowActivate" @keydown.enter="onRowEnter" :columns="[
         {colKey:'source',title:'资料来源',minWidth:190}, {colKey:'scope',title:'所属知识库',minWidth:120},
         {colKey:'status',title:'当前阶段',minWidth:130}, {colKey:'result',title:'处理结果',minWidth:230}, {colKey:'operation',title:'操作',width:150},
@@ -228,7 +227,7 @@ onUnmounted(() => { stopped = true; requestId++; spaceRequest++; closeDetails();
         <template #operation="{row}"><div class="row-operations" @click.stop><t-button size="small" variant="text" @click="openDetails(row.task_id)">{{taskFilter(row)==='action'?'查看并处理':'详情'}}</t-button><template v-if="auth.hasRole('contributor') && row.kind!=='ctxdb_sync'"><t-button v-if="canRetry(row)" size="small" variant="text" :loading="busy===row.task_id" :disabled="!!busy" @click="act(row,'retry')">重试</t-button><t-popconfirm v-if="canCancel(row)" content="确认取消该任务？仅停止后续处理，不撤回已投递文档。" @confirm="act(row,'cancel')"><t-button size="small" variant="text" theme="danger" :disabled="!!busy">取消</t-button></t-popconfirm></template></div></template>
       </t-table>
       <t-empty v-if="!taskRows.length && !loading" :description="tasks.length?'当前页没有符合条件的任务':'暂无资料任务，请先添加资料'"><t-button v-if="!tasks.length && auth.hasRole('contributor')" @click="openAdd">添加资料</t-button></t-empty>
-      <div class="task-pagination"><span class="hint">当前页 {{taskRows.length}} 组 · 共 {{total}} 条执行记录；关联提交在详情展开</span><t-pagination :total="total" :current="page" :page-size="pageSize" :page-size-options="[20,50,100]" :total-content="false" @current-change="changePage" @page-size-change="changePageSize" /></div>
+      <div class="task-pagination"><t-pagination :total="total" :current="page" :page-size="pageSize" :page-size-options="[20,50,100]" @current-change="changePage" @page-size-change="changePageSize" /></div>
     </template>
     <ReleasesView v-else ref="releasesRef" embedded :scope="spaceScope" :spaces="spaces" @show-task="showHistoryTask" />
     <t-drawer :visible="adding" attach="body" size="min(860px, 100vw)" header="添加资料" :footer="false" :close-btn="!addingBusy" :close-on-overlay-click="!addingBusy" :close-on-esc-keydown="!addingBusy" @close="closeAdd">
@@ -250,12 +249,11 @@ onUnmounted(() => { stopped = true; requestId++; spaceRequest++; closeDetails();
               <template #default><p>{{detailSubmission?taskStatusLabel(detailSubmission):detail.phase==='submission_failed'?'自动提交失败':detail.phase==='submitted'?'已排队提交':'未开始'}}</p><small v-if="detailSubmission">已处理 {{detailSubmission.completed_pages || 0}} / {{detailSubmission.total_pages || 0}} 份</small></template>
             </t-step-item>
             <t-step-item title="评审 / 入库 / 生成" status="default">
-              <template #default><p>分别查看正式处理状态</p><t-button v-if="detail.kind==='ctxdb_sync' || detail.submission_id" variant="text" size="small" @click="openKnowledgeBase(detail)">查看正式处理结果</t-button></template>
+              <template #default><t-button v-if="detail.kind==='ctxdb_sync' || detail.submission_id" variant="text" size="small" @click="openKnowledgeBase(detail)">查看正式处理结果</t-button></template>
             </t-step-item>
           </t-steps>
           <t-alert v-if="submissionReadError" theme="warning" :message="'提交任务详情暂不可用：'+submissionReadError" />
           <t-alert v-if="detail.phase==='submission_failed'" theme="warning" message="自动提交尚未成功。补交包含该知识库全部当前资料，不只本次采集内容。" />
-          <t-alert v-if="detailSubmission" theme="info" message="提交处理的是该知识库的资料快照；提交完成不代表评审、入库或内容生成完成。取消只停止后续处理，不撤回已投递文档。" />
           <p class="detail-message">{{currentTask(detail).message}}</p>
           <t-space v-if="auth.hasRole('contributor')" break-line class="detail-actions">
             <t-popconfirm v-if="detail.kind!=='ctxdb_sync' && canCancel(detail)" content="确认取消采集 / 检查？仅停止后续处理，不撤回已投递文档。" @confirm="act(detail,'cancel')"><t-button :disabled="!!busy" variant="outline">取消采集 / 检查</t-button></t-popconfirm>
@@ -278,7 +276,6 @@ onUnmounted(() => { stopped = true; requestId++; spaceRequest++; closeDetails();
             </t-collapse-panel>
             <t-collapse-panel value="downloads" header="资料包与提交快照">
               <t-space break-line><t-button v-if="detail.download_available" variant="outline" @click="downloadTask(detail)">下载本次采集资料包</t-button><t-button v-if="detail.submission_id || detail.release_id" variant="text" @click="changeView('history')">查看全库提交历史</t-button></t-space>
-              <p class="hint">采集资料包保存本次来源产物及失败明细；提交快照包保存该批次的全库资料。</p>
             </t-collapse-panel>
           </t-collapse>
         </template>
@@ -290,14 +287,13 @@ onUnmounted(() => { stopped = true; requestId++; spaceRequest++; closeDetails();
 <style scoped>
 .material-workspace { height: 100%; overflow: auto; }
 .material-workspace :deep(.t-card__title) { font-size: var(--app-text-4xl); line-height: 32px; }
-.material-workspace :deep(.t-card__description) { font-size: var(--app-text-md); }
 .workspace-navigation { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 20px; border-bottom: 1px solid var(--td-component-stroke); }
 .workspace-navigation :deep(.t-tabs__nav-container.t-is-top::after) { display: none; }
 .workspace-navigation > .t-tabs { flex: 1; min-width: 0; }
 .scope-filter { display: flex; align-items: center; gap: 10px; flex: none; color: var(--td-text-color-secondary); font-size: var(--app-text-sm); }
 .scope-filter .t-select__wrap { width: 210px; }
 .task-toolbar,.task-pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 18px 0; flex-wrap: wrap; }
-.task-pagination { margin-bottom: 0; }
+.task-pagination { margin-bottom: 0; justify-content: flex-end; }
 .t-table td small { display: block; line-height: 18px; }
 .source-name { font-weight: 500; overflow-wrap: anywhere; }
 .result-title { font-weight: 500; }

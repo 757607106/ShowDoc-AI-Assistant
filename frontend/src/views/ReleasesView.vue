@@ -91,14 +91,14 @@ defineExpose({ refresh })
   <section class="release-history" :class="{ 'release-history--standalone': !embedded }">
     <h2 v-if="!embedded">提交记录</h2>
     <div class="snapshot-heading">
-      <div><h3>知识库资料快照</h3><p class="hint">每个批次包含该知识库当时全部当前资料；不是本次新增文件清单。</p></div>
+      <h3>知识库资料快照</h3>
       <t-button variant="outline" :loading="loading" @click="refresh"><template #icon><t-icon name="refresh" /></template>刷新历史</t-button>
     </div>
     <t-alert v-if="error" theme="error" :message="error" />
     <t-loading :loading="loading">
       <ul class="snapshot-list">
         <li v-for="release in releases" :key="release.id" class="snapshot-row">
-          <div><div class="snapshot-title">{{spaceName(release.scope,spaces)}} · {{dateTime(release.created_at)}}</div><p class="hint">{{Array.isArray(release.version_ids) ? release.version_ids.length + ' 份资料的全库快照' : '资料数量未记录'}} · {{release.active ? '当前提交批次' : '历史批次'}}</p></div>
+          <div><div class="snapshot-title">{{spaceName(release.scope,spaces)}} · {{dateTime(release.created_at)}}<t-tag v-if="release.active" size="small" theme="primary" variant="light">当前提交批次</t-tag></div><p class="hint">{{Array.isArray(release.version_ids) ? release.version_ids.length + ' 份资料' : '资料数量未记录'}}</p></div>
           <t-button variant="text" @click="openDetails(release)">快照详情</t-button>
         </li>
       </ul>
@@ -108,7 +108,7 @@ defineExpose({ refresh })
 
     <t-collapse v-model="expanded" class="document-status">
       <t-collapse-panel value="documents" header="文档处理状态">
-        <div class="document-status-heading"><p class="hint">评审、入库与生成分别推进；快照已提交不代表文档处理完成。</p><t-button variant="outline" :loading="mappingLoading" @click="loadMappings"><template #icon><t-icon name="refresh" /></template>刷新状态</t-button></div>
+        <div class="document-status-heading"><t-button variant="outline" :loading="mappingLoading" @click="loadMappings"><template #icon><t-icon name="refresh" /></template>刷新状态</t-button></div>
         <t-alert v-if="mappingError" theme="error" :message="mappingError" />
         <t-table row-key="row_key" :data="mappings" :loading="mappingLoading" :columns="[{colKey:'scope',title:'知识库'},{colKey:'document',title:'文档'},{colKey:'target_mode',title:'处理目标'},{colKey:'review',title:'文档评审'},{colKey:'ingest',title:'文档入库'},{colKey:'derived',title:'生成状态'},{colKey:'error',title:'失败原因'}]">
           <template #scope="{row}">{{spaceName(row.scope,spaces)}}</template>
@@ -126,8 +126,7 @@ defineExpose({ refresh })
     <t-drawer :visible="!!detail" attach="body" size="min(760px, 100vw)" header="快照详情" :footer="false" :close-btn="true" @close="closeDetails">
       <template v-if="detail">
         <t-alert v-if="detailError" theme="error" :message="detailError" />
-        <h3>{{spaceName(detail.scope,spaces)}} · {{dateTime(detail.created_at)}}</h3>
-        <p class="snapshot-scope hint">快照包含该知识库当时全部当前资料；快照状态与正式文档处理状态分别记录。</p>
+        <h3 class="snapshot-detail-title">{{spaceName(detail.scope,spaces)}} · {{dateTime(detail.created_at)}}</h3>
         <t-descriptions bordered :column="1">
           <t-descriptions-item label="批次编号"><span class="mono">{{detail.id}}</span></t-descriptions-item>
           <t-descriptions-item label="状态">{{detail.active ? '当前提交批次' : '历史批次'}}</t-descriptions-item>
@@ -157,10 +156,11 @@ h3 { font-size: var(--app-text-lg); font-weight: 600; }
 .snapshot-list { margin: 0; padding: 0; list-style: none; }
 .snapshot-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--td-component-stroke); }
 .snapshot-title { font-weight: 500; overflow-wrap: anywhere; }
+.snapshot-title :deep(.t-tag) { margin-left: 8px; vertical-align: middle; }
 .history-limit { margin: 16px 0 24px; }
 .document-status { border-radius: var(--app-radius-md); }
-.document-status-heading { margin-top: 0; }
-.snapshot-scope { margin: 12px 0 20px; }
+.document-status-heading { margin-top: 0; justify-content: flex-end; }
+.snapshot-detail-title { margin-bottom: 16px; }
 .snapshot-actions { margin-top: 20px; }
 .snapshot-advanced { margin-top: 24px; }
 .snapshot-advanced summary { margin-bottom: 12px; }

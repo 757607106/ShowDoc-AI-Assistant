@@ -2,8 +2,9 @@ import assert from 'node:assert/strict'
 import test, {type TestContext} from 'node:test'
 import {reactive} from 'vue'
 import {fixture,flush} from '../test-utils/vueFixture.ts'
+import * as files from '../utils/files.ts'
 async function setup(t:TestContext,failUpload=false,writable=true,directFailure=false,status:(id:string)=>Promise<any>=async()=>({status:'completed',directory_sync_complete:true,import_directories:[]}),options:{embedded?:boolean;upload?:(files:File[],id:string)=>Promise<any>}={}){
-  const f=fixture(t),calls:any[]=[],previewCalls:any[]=[],events:any[]=[],routes:any[]=[]
+  const f=fixture(t),calls:any[]=[],previewCalls:any[]=[],events:any[]=[],routes:any[]=[],warnings:string[]=[]
   const route=reactive<any>({query:{kb_id:'a'},fullPath:'/collect?kb_id=a'})
   const {vm}=f.component(new URL('./CollectView.vue',import.meta.url),{
     'vue-router':{useRoute:()=>route,useRouter:()=>({push:(value:any)=>routes.push(value)})},
@@ -22,9 +23,10 @@ async function setup(t:TestContext,failUpload=false,writable=true,directFailure=
       uploadDocumentFile:async(id:string,file:File)=>{calls.push({direct:id,file});if(directFailure)throw new Error('direct unavailable');return {data:{id:'large-doc'}}},
       bindBase:async(id:string)=>{calls.push({binding:id});return {space:{scope:'internal-a'}}},
     },
-    '@/utils/contextdbReviewSupport':{CONTEXTDB_REVIEW_FORMAT_NOTICE:''},
+    'tdesign-vue-next':{MessagePlugin:{warning:(message:string)=>warnings.push(message)}},
+    '@/utils/files':files,
   },{embedded:options.embedded,onCreated:(receipt:any)=>events.push({created:receipt}),'onShow-tasks':(target:any)=>events.push({target}),'onBusy-change':(busy:boolean)=>events.push({busy})})
-  await flush();return {vm,calls,previewCalls,route,events,routes}
+  await flush();return {vm,calls,previewCalls,route,events,routes,warnings}
 }
 test('crawler and file uploads use the chosen native library and resolve scope without a user association',async t=>{
   const f=await setup(t);f.vm.url='https://example.test';await flush();await f.vm.loadPages();await f.vm.launch()
@@ -38,8 +40,8 @@ test('failed upload keeps the selected files and never announces submission',asy
   assert.match(f.vm.error,/upload unavailable/);assert.equal(f.vm.taskId,'');assert.equal(f.vm.files.length,1)
 })
 test('invalid addresses, missing libraries and denied official writes cannot enqueue collection',async t=>{
-  const f=await setup(t);f.vm.url='invalid';await f.vm.launch()
-  assert.match(f.vm.error,/网站地址/);assert.equal(f.calls.some(call=>call.entry),false)
+  const f=await setup(t);f.vm.url='invalid';await flush();await f.vm.loadPages()
+  assert.match(f.vm.listError,/网站地址/);assert.equal(f.calls.some(call=>call.entry),false)
   f.vm.spaceScope='missing';await f.vm.launch();assert.equal(f.calls.some(call=>call.entry),false)
   await t.test('denied official write',async t=>{const denied=await setup(t,false,false);denied.vm.url='https://example.test';await denied.vm.launch();assert.equal(denied.calls.length,0)})
 })
@@ -60,8 +62,9 @@ test('a partial upload keeps only unfinished files and never resends accepted ar
 
 test('collection requires a current directory preview and submits the edited root without changing source identifiers',async t=>{
   const f=await setup(t);f.vm.url='https://example.test';await flush();await f.vm.launch()
-  assert.match(f.vm.error,/目录预览/);assert.equal(f.calls.some(call=>call.entry),false);assert.equal(f.vm.crawlReady,false)
-  await f.vm.loadPages();assert.equal(f.vm.crawlReady,true);f.vm.rootName='';assert.equal(f.vm.crawlReady,false);f.vm.rootName='产品手册';await f.vm.launch()
+  assert.match(f.warnings.at(-1)!,/目录预览/);assert.equal(f.calls.some(call=>call.entry),false)
+  await f.vm.loadPages();f.vm.rootName='';await f.vm.launch();assert.match(f.warnings.at(-1)!,/导入目录名称/);assert.equal(f.calls.some(call=>call.entry),false)
+  f.vm.rootName='产品手册';await f.vm.launch()
   assert.equal(f.calls.find(call=>call.entry).payload.import_root_name,'产品手册')
   assert.equal(f.vm.previewTree[0].children[0].label,'介绍')
   f.vm.url='https://another.test';await flush();assert.equal(f.vm.directory,null);assert.equal(f.vm.rootName,'')
@@ -71,7 +74,7 @@ test('collection requires a current directory preview and submits the edited roo
 test('partial selection preserves the full source ancestors in the preview',async t=>{
  const f=await setup(t);f.vm.url='https://example.test';await flush();await f.vm.loadPages()
  f.vm.pages=[{page_id:'one',page_title:'统计',directory_path:['进货管理','报表']},{page_id:'two',page_title:'简介',directory_path:[]}]
- f.vm.selection='selected';assert.equal(f.vm.crawlReady,false);f.vm.selectedIds=['one'];assert.equal(f.vm.crawlReady,true)
+ f.vm.selection='selected';await f.vm.launch();assert.match(f.warnings.at(-1)!,/请选择要采集的文档/);assert.equal(f.calls.some(call=>call.entry),false);f.vm.selectedIds=['one']
  assert.equal(f.vm.previewPages.length,1)
  assert.equal(f.vm.previewTree[0].children[0].label,'进货管理')
  assert.equal(f.vm.previewTree[0].children[0].children[0].label,'报表')
@@ -96,7 +99,7 @@ test('directory preview is bound to its destination library and changing librari
  const f=await setup(t);f.vm.url='https://example.test';await flush();await f.vm.loadPages()
  assert.equal(f.previewCalls[0].entry,'web');assert.equal(f.previewCalls[0].params.knowledge_base_id,'a')
  f.vm.rootName='自定义名称';f.vm.selection='selected';f.vm.selectedIds=['one'];f.vm.spaceScope='b';await flush()
- assert.equal(f.vm.directory,null);assert.equal(f.vm.rootName,'');assert.equal(f.vm.selectedIds.length,0);assert.equal(f.vm.crawlReady,false)
+ assert.equal(f.vm.directory,null);assert.equal(f.vm.rootName,'');assert.equal(f.vm.selectedIds.length,0);f.vm.selection='all';await f.vm.launch();assert.match(f.warnings.at(-1)!,/目录预览/)
  await f.vm.loadPages();assert.equal(f.previewCalls[1].params.knowledge_base_id,'b');assert.equal(f.vm.rootName,'网站资料')
 })
 
@@ -114,7 +117,7 @@ test('changing unrelated unified-page query fields preserves the in-progress for
  const f=await setup(t,false,true,false,undefined,{embedded:true})
  f.vm.url='https://example.test';await flush();await f.vm.loadPages();f.vm.rootName='自定义目录';f.vm.selection='selected';f.vm.selectedIds=['one']
  f.route.query={...f.route.query,view:'history',add:'1'};f.route.fullPath='/platform/tasks?kb_id=a&view=history&add=1';await flush()
- assert.equal(f.vm.url,'https://example.test');assert.equal(f.vm.rootName,'自定义目录');assert.equal(f.vm.previewPages.length,1);assert.equal(f.vm.crawlReady,true)
+ assert.equal(f.vm.url,'https://example.test');assert.equal(f.vm.rootName,'自定义目录');assert.equal(f.vm.previewPages.length,1)
  f.route.query={...f.route.query,mode:'file'};await flush();assert.equal(f.vm.mode,'file')
 })
 
