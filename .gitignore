@@ -21,6 +21,7 @@ output/playwright/
 frontend/node_modules/
 frontend/dist/
 .pytest_cache/
+.ruff_cache/
 
 # Local runtime and verification artifacts
 logs/
