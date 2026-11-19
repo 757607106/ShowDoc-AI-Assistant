@@ -8,8 +8,8 @@
 
 - [ContextDB 官方能力与项目需求对照](architecture/contextdb-capability-fit.md)
 - [Agent 官方源码对齐审计、适配方案与待决缺口](architecture/agent-official-alignment-audit.md)
-- [Agent 前后端精准修复与对齐记录（2026-11-17）](architecture/agent-repair-alignment-20261117.md)
-- [Deep Agents + ContextDB 最终方案及本轮精准修复](architecture/deepagents-contextdb-final-plan-20261117.md#本轮精准修复与来源收尾)
+- [Agent 前后端精准修复与对齐记录（2026-11-17）](architecture/reports/agent-repair-alignment-20261117.md)
+- [Deep Agents + ContextDB 最终方案及本轮精准修复](architecture/reports/deepagents-contextdb-final-plan-20261117.md#本轮精准修复与来源收尾)
 - [Agent 运行组件与实际前后端链路](guides/agent-runtime-backends.md)
 - [本轮精准修复验收台账](../output/verification/agent-precise-fixes-20261117/validation.json)
 - [Wiki 与 WeKnora 界面复用、图谱接口边界](architecture/contextdb-weknora-ui.md)

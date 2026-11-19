@@ -54,7 +54,7 @@
 
 后端回归使用隔离 PostgreSQL schema 与契约替身，真实 Docling 转换测试使用固定 SDK 附带的真实分词数据，避免临时公网下载。默认测试不访问 ContextDB 云端。
 
-云端验收脚本默认只读演示，显式执行 `python -m scripts.contextdb_pipeline_smoke --execute` 才创建隔离资源；不访问生产 Store 或数据库，不按名称模糊清理。仓库保留的 [云端验收报告](../architecture/contextdb-pipeline-smoke.json) 属于此前专项验证，本次官方 UI 对齐没有执行该脚本的云端写入流程，不能把旧报告计作本次写入验收。
+云端验收脚本默认只读演示，显式执行 `python -m scripts.contextdb_pipeline_smoke --execute` 才创建隔离资源；不访问生产 Store 或数据库，不按名称模糊清理。仓库保留的 [云端验收报告](../architecture/reports/contextdb-pipeline-smoke.json) 属于此前专项验证，本次官方 UI 对齐没有执行该脚本的云端写入流程，不能把旧报告计作本次写入验收。
 
 浏览器验收及最后代码调整后的相关验证已完成。下表区分最近一次全量结果与最终相关回归，不将相关回归计作重新执行全量：
 

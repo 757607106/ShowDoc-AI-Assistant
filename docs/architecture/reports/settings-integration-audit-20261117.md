@@ -117,7 +117,7 @@ WeKnora 固定基线是 `cbdcebabf48c5ee2d6868b370326aa8341703f62`（本地清�
 | 模型清空断言探针 | 生产 save_model 合并逻辑、数据库/加密替身：确认省略字段保留旧限制和最后一个 header，显式空 headers 可清除。 |
 | ContextDB 知识库背景检索 | 对“通用事业部”执行定向检索及降阈值复检，均无文档 chunks；没有将图谱或既有审计记录当官方证据。 |
 
-断言探针和结果保存在 [验证目录](../../output/verification/settings-integration-20261117/)。断言“通过”包括确认未实现接口确实拒绝，不表示这些功能可用。
+断言探针和结果保存在 [验证目录](../../../output/verification/settings-integration-20261117/)。断言“通过”包括确认未实现接口确实拒绝，不表示这些功能可用。
 
 ## 官方和本地证据索引
 

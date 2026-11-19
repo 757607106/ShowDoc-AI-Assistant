@@ -59,7 +59,7 @@ Wiki 改用官方 0.0.9 索引、树、修订差异、整理、编译控制与�
 - 前端图谱、业务空间和上游布局/视口相关 **57项通过**；最终类型检查、生产构建和差异空白检查通过。构建保留既有大chunk提示。
 - 浏览器读取真实实体、关系与来源片段，能打开原文；1跳返回6实体/5关系、2跳返回8实体/7关系；文档选择器加载第二页后能选中来源文档，单文档图谱正常返回。最终图谱标签已目视检查，独立验收标签页控制台错误为空。
 - 本地API已重启，健康检查正常；未启动本地Worker。图谱处理直接在ContextDB执行。
-- 截至北京时间 **00:23:07**，123个提取事件中 **122成功、1运行中**；全库归并事件仍为 `RUNNING`，全库仍返回原有9实体/8关系。文档图谱状态仍是123处理中、1成功，**未验证全量归并完成**。详见[云端状态与验收摘要](../architecture/contextdb-graph-integration.json)；完整受理记录保存在 `downloads/evaluations/contextdb-graph-build-20261114.json`。
+- 截至北京时间 **00:23:07**，123个提取事件中 **122成功、1运行中**；全库归并事件仍为 `RUNNING`，全库仍返回原有9实体/8关系。文档图谱状态仍是123处理中、1成功，**未验证全量归并完成**。详见[云端状态与验收摘要](../architecture/reports/contextdb-graph-integration.json)；完整受理记录保存在 `downloads/evaluations/contextdb-graph-build-20261114.json`。
 
 截图：`output/playwright/contextdb-graph-20261114.jpg`。Wiki与WeKnora的固定版本源码对比见[界面与接口边界](../architecture/contextdb-weknora-ui.md)。本轮未增加人工实体/关系增删改；后端跳过项仍为需显式启用的浏览器集成测试，浏览器联调另行完成。
 
@@ -107,7 +107,7 @@ Wiki 改用官方 0.0.9 索引、树、修订差异、整理、编译控制与�
 - 浏览器验证统一入口、已有库对话框、旧列表重定向、格式提示、Wiki 和评审状态入口。deepagents 实际调用一次官方 `knowledge.search`，回答18:30并显示一篇文档引用；重开会话恢复范围，清空后请求显式发送 `[]`，该轮没有知识工具调用。最终页面和 API 检查没有错误。
 - 联调发现重复数据库初始化 DDL 的并发死锁，改为每进程/数据库目标成功初始化一次，并通过 PostgreSQL 事务锁协调独立进程。修复后8个并发真实知识库请求均返回200。
 
-机器记录及清理结果见 [本轮独立资源验收](../architecture/contextdb-entry-integration.json)。测试文档、Wiki 库、临时会话、checkpoint、7条范围运行记录及采集产物已清理，原有 `knowledge-default`、`knowledge-default-graph`、`_governance` 保留。截图位于 `output/playwright/knowledge-*.png`，已目视检查。
+机器记录及清理结果见 [本轮独立资源验收](../architecture/reports/contextdb-entry-integration.json)。测试文档、Wiki 库、临时会话、checkpoint、7条范围运行记录及采集产物已清理，原有 `knowledge-default`、`knowledge-default-graph`、`_governance` 保留。截图位于 `output/playwright/knowledge-*.png`，已目视检查。
 
 首次检索验收脚本误读 `content` 字段而超时，按官方实际返回的 `content_with_weight` 修正后复核成功；没有修改服务端预期来掩盖失败。开发 Vite 曾返回旧模块，重启并确认响应包含最新路由及就绪判断后完成最终浏览器验收。
 
@@ -135,7 +135,7 @@ CYB 的15条视频教程只有 `videoUrl`，没有文字正文。平台源采集
 
 已通过界面重试最近任务，新任务 `fb0bf6fd` 使用保存快照恢复123条来源，失败0，执行1.782秒，旧任务和原始快照保留。未重新登录源站，未自动提交云端治理。相同采集参数及选择范围的新完整任务可以接替旧失败尝试；不同范围的未完成任务仍阻止提交。当前default空间124条来源通过提交前只读检查（包括原有1条文件来源）。
 
-验证：完整后端166项通过、1项跳过；随后补充预览一致性回归，相关13项通过（含1项新增）；前端5项、类型检查、生产构建与差异检查通过。初次全量检查暴露来源任务排序问题，已修复；另一次旧离线导出检查遇到外部tokenizer缓存/网络错误，复核及最终完整检查通过，未削弱测试。完整检查使用 `HF_HUB_OFFLINE=1`。截图 `output/playwright/crawler-recovered-tasks.png`、`output/playwright/crawler-recovery-detail.png` 已目视核对。详细数值见[恢复与性能证据](../architecture/crawler-recovery-validation.json)。
+验证：完整后端166项通过、1项跳过；随后补充预览一致性回归，相关13项通过（含1项新增）；前端5项、类型检查、生产构建与差异检查通过。初次全量检查暴露来源任务排序问题，已修复；另一次旧离线导出检查遇到外部tokenizer缓存/网络错误，复核及最终完整检查通过，未削弱测试。完整检查使用 `HF_HUB_OFFLINE=1`。截图 `output/playwright/crawler-recovered-tasks.png`、`output/playwright/crawler-recovery-detail.png` 已目视核对。详细数值见[恢复与性能证据](../architecture/reports/crawler-recovery-validation.json)。
 
 未执行所有业务站点的完整联网速度对比；未采集或解析外链视频的实际音视频内容。ContextDB官方知识处理链路保持不变。
 
@@ -155,7 +155,7 @@ CYB 的15条视频教程只有 `videoUrl`，没有文字正文。平台源采集
 
 历史说明：本节保留当时 0.0.8 的核查事实；0.0.9 已公开修订差异、整理、编译控制和问题处置接口，当前能力及本轮验证以 [新版 Wiki 支持说明](../architecture/contextdb-wiki-support.md)为准。
 
-只读重新核对0.0.8官方文档261篇文章、公开管理API目录、ctxdb 1.1.0及实际MCP工具列表。结论与请求追踪证据见[专项报告](../architecture/contextdb-wiki-support.md)和[响应摘要](../architecture/contextdb-wiki-audit.json)。没有云端写入或策略调整。
+只读重新核对0.0.8官方文档261篇文章、公开管理API目录、ctxdb 1.1.0及实际MCP工具列表。结论与请求追踪证据见[专项报告](../architecture/contextdb-wiki-support.md)和[响应摘要](../architecture/reports/contextdb-wiki-audit.json)。没有云端写入或策略调整。
 
 发现并修复修订列表遗漏 `page_id` 导致的 HTTP400：前端改为官方搜索选页后读取章节修订元数据，修订与问题分别分页和报错；页面/知识库切换拒绝过期响应。后台提前校验必需页标识；未公开的审批、回滚和发布路径仍拒绝转发。评审设置页补充自动接受边界说明。
 
@@ -169,7 +169,7 @@ CYB 的15条视频教程只有 `videoUrl`，没有文字正文。平台源采集
 - 前端：`npm run type-check`、`npm run build-only` 通过；流事件、断线恢复、Wiki 差异、图谱布局、会话切换、引用原文、官方切片分页及 Agent 就绪校验相关测试共167项通过。构建保留上游大 chunk 提示。
 - 真实浏览器：知识库、采集、任务、采集资料、发布同步、治理、Agent、设置8个路由完成只读巡检，未产生页面异常或 API 错误响应。Wiki 全文/版本显示、编辑与取消、账号/成员及官方有效权限页面完成操作检查。
 - 真实对话：浏览器新建会话、发送问题，deepagents 调用1次官方 `knowledge.search`，显示工具完成和2篇官方文档出处；引用面板可打开原文并定位对应片段。历史会话可以重开并继续对话。浏览器截图保存在 `output/playwright/contextdb-agent.png`。
-- 独立云端资源：Wiki 全文、版本写入及旧版本冲突通过；同一资料双库入库成功，Wiki 4页、图谱9实体/9关系。测试资源已删除，详见 [契约报告](../architecture/contextdb-capabilities.json) 与 [双库报告](../architecture/contextdb-pipeline-smoke.json)。
+- 独立云端资源：Wiki 全文、版本写入及旧版本冲突通过；同一资料双库入库成功，Wiki 4页、图谱9实体/9关系。测试资源已删除，详见 [契约报告](../architecture/reports/contextdb-capabilities.json) 与 [双库报告](../architecture/reports/contextdb-pipeline-smoke.json)。
 - 迁移：旧 `_governance` 只读保留；27条记录已备份，平台任务/映射/会话及官方 checkpoint 已导入并读回核对。迁移报告与私有快照位于 `downloads/migrations/`。
 - Docker PostgreSQL、平台数据库连接与 Worker 心跳检查通过；服务器仅监听本机回环地址。开发登录签名密钥已替换示例值，真实凭据未发现写入项目源码或示例配置。
 

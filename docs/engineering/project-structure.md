@@ -2,51 +2,55 @@
 
 ## 目标
 
-项目采用“根目录只放启动入口，业务代码按职责分包，文档按用途归档”的结构。整理只改变文件归属和引用路径，不改变现有功能与启动命令。
+项目采用“根目录只放启动入口，业务代码按职责分包，部署资产统一归 `deploy/`，测试按域分子包，文档按用途归档”的结构。整理只改变文件归属和引用路径，不改变现有功能与启动命令。
 
 ## 当前结构
 
 ```text
 .
-├── app.py                         # Flask Web 入口，启动命令保持不变
+├── app.py                         # Flask 入口：应用工厂 + 静态托管，路由全部由 webapi/ 提供
+├── asgi.py                        # ASGI 入口
 ├── main.py                        # 统一 CLI 入口
 ├── cyb_rag_md.py                  # 云创业版历史启动入口，功能委托给统一 CLI
 ├── registry.py                    # 平台注册与爬虫工厂
 ├── requirements.txt               # 运行时依赖
 ├── .env.example                   # 环境变量模板
+├── agent/                         # DeepAgents 运行时：图、会话、模型传输、MCP、技能打包
+├── webapi/                        # 全部 HTTP 路由（Blueprint 按域拆分）
 ├── common/                        # 跨平台内容转换、RAG 分块、质量检查
-│   ├── converter.py
-│   └── quality.py
 ├── crawlers/                      # 平台爬虫和通用网页发现能力
-│   ├── base.py
-│   ├── showdoc.py
-│   ├── cyb.py
-│   ├── tiantong.py
-│   ├── file.py
-│   ├── web.py
-│   ├── web_adapters.py
-│   └── web_discovery.py
 ├── governance/                    # ContextDB 治理存储、任务 worker、发布与知识库同步
-│   ├── store.py
-│   ├── worker.py
-│   └── contextdb_sync.py
-├── integrations/                  # 外部平台认证、项目管理等集成
-│   └── showdoc/
-│       ├── auth.py
-│       └── project.py
-├── frontend/                       # Vue 3 + TDesign 前端源码，构建产物 dist 由 Flask 托管
-│   ├── src/
-│   └── dist/                       # npm run build 生成，git 忽略
-├── tests/                         # unittest / pytest 均可执行的自动化测试
+├── integrations/                  # 外部平台认证、项目管理等集成（showdoc / contextdb）
+├── frontend/                      # Vue 3 + TDesign 前端源码，构建产物 dist 由 Flask 托管
+│   └── src/                       # npm run build 生成 dist/，git 忽略
+├── scripts/
+│   ├── ops/                       # 运维与迁移脚本（migrate / isolate / repair / configure）
+│   ├── smoke/                     # 冒烟与探针（会被测试 import 的脚本）
+│   └── verify_*.py 等             # 一次性手动验证套件（acceptance_real_* / dev_api.sh）
+├── tests/                         # 自动化测试，按域分子包
+│   ├── conftest.py                # 共享 fixture，仅保留根级一个
+│   ├── fakes/                     # 测试替身（aegra_fake / contextdb_fake / harness_fakes）
+│   ├── agent/                     # agent 域
+│   ├── platform/                  # webapi / 平台集成域
+│   ├── contextdb/                 # ContextDB 与知识库域
+│   ├── crawlers/                  # 爬虫域
+│   ├── governance/                # 治理存储域
+│   └── common/                    # 公共工具域
+├── deploy/                        # 唯一部署根
+│   ├── compose/                   # postgres / opensandbox / agent-runtime 三个 compose 文件
+│   ├── async-agent/               # Aegra 异步 Agent 镜像构建上下文（Dockerfile 全套）
+│   ├── attachment-parser/         # 附件解析镜像
+│   └── opensandbox.local.toml 等  # 沙箱本地配置与说明
 └── docs/                          # 工程、架构、操作和需求文档
-    ├── architecture/
-    ├── engineering/
-    ├── guides/
-    ├── requirements/
-    └── archive/
+    ├── architecture/              # 架构决策与能力边界
+    │   └── reports/               # 审计快照 JSON 与日期后缀的验证报告
+    ├── engineering/              # 结构与命名规范
+    ├── guides/                    # 操作指南与验证记录
+    ├── requirements/             # 需求文档
+    └── archive/                  # 已退役文档
 ```
 
-运行时生成的 `downloads/`、缓存和 Python 字节码不属于源代码结构，统一由 `.gitignore` 排除。
+运行时产物不属于源代码结构：`downloads/`（运行时数据根，由 `GOVERNANCE_DATA_DIR` 重定向）、`output/`（验证报告根）、`logs/`、`.runtime/`（运行时凭据与探活状态）统一由 `.gitignore` 排除，不得纳入源码清理或迁移范围。
 
 ## 命名规则
 
@@ -57,7 +61,7 @@
 | 类 | `PascalCase` | `WebCrawler`、`ShowDocAuthenticator` |
 | 函数和变量 | 小写 `snake_case` | `infer_pagination_plans` |
 | 常量 | `UPPER_SNAKE_CASE` | `DEFAULT_BASE_URL` |
-| 测试文件 | `test_<module>.py` | `test_web_discovery.py` |
+| 测试文件 | `test_<module>.py`，按域放对应子包 | `tests/platform/test_web_crawler.py` |
 | 文档目录 | 小写英文目录名，按用途分类 | `docs/architecture/` |
 | Markdown 文档 | 小写英文 `kebab-case` | `multi-platform-crawler-refactor.md` |
 | 前端文件 | 小写英文，Vue 组件 `PascalCase.vue`，按视图/组件分目录 | `KnowledgeView.vue`、`backend.ts` |
@@ -81,5 +85,9 @@ python cyb_rag_md.py
 1. 新平台爬虫放到 `crawlers/`，并通过 `registry.py` 注册。
 2. 外部平台认证、SDK、项目管理等连接器放到 `integrations/<platform>/`。
 3. 可被多个平台复用的内容处理逻辑放到 `common/`，不得复制到平台爬虫。
-4. 新测试放到 `tests/`，文件名必须以 `test_` 开头。
-5. 新需求或方案文档先判断用途，再放入 `docs/requirements` 或 `docs/architecture`，根目录不新增随意命名的文档。
+4. HTTP 路由一律进 `webapi/` 对应模块，根目录 `app.py` 不再新增内联路由。
+5. 部署相关资产（compose 文件、Dockerfile、镜像构建上下文、部署配置）一律进 `deploy/`，根目录不再新增 compose 文件。
+6. 新测试按域放 `tests/<domain>/`，测试替身放 `tests/fakes/`，文件名以 `test_` 开头；`conftest.py` 仅保留根级一个。
+7. 运维/迁移脚本放 `scripts/ops/`；会被测试 import 的冒烟/探针脚本放 `scripts/smoke/`；一次性手动验证脚本放 `scripts/` 根。
+8. 审计快照 JSON 与日期后缀的验证报告放 `docs/architecture/reports/`；正式方案文档放 `docs/architecture/` 或 `docs/requirements/`。
+9. 根目录不新增随意命名的文档或临时文件。

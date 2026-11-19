@@ -8,7 +8,7 @@
 
 此前核查下载的是 [ContextDB 0.0.8 官方文档](https://g.alicdn.com/rdsai/contextdb-doc/0.0.8/contextdb-documentation.html#/api-overview)，HTML SHA256 为 `beb049f44247f13b5980987f51c73259dc64bdf981a2a32c0e1d86dcdff6d34f`；其中没有 Wiki API 专章属于旧版材料事实。当前 Wiki 契约以 [0.0.9 阅读与导航](https://g.alicdn.com/rdsai/contextdb-doc/0.0.9/contextdb-documentation.html#/api-kb-wiki-read)及 [Wiki 专项说明](contextdb-wiki-support.md)为准，不能沿用“未公开 Wiki API”的旧结论。其他领域的旧版核查与实测范围不因此扩大。
 
-分析阶段使用官方文档与代码静态对照；随后本轮实施已恢复真实云端联调，用独立临时资源验证平台文件上传、单 Wiki 投递、官方人工修订、修订正文检索、Wiki 编译及版本冲突，结果与清理记录见 [本轮验证记录](../guides/governance-validation.md)。此前报告保留为历史证据，不能替代本轮结果： [API 契约报告](contextdb-capabilities.json)、[双库链路报告](contextdb-pipeline-smoke.json)及 [Wiki 边界核查](contextdb-wiki-support.md)。
+分析阶段使用官方文档与代码静态对照；随后本轮实施已恢复真实云端联调，用独立临时资源验证平台文件上传、单 Wiki 投递、官方人工修订、修订正文检索、Wiki 编译及版本冲突，结果与清理记录见 [本轮验证记录](../guides/governance-validation.md)。此前报告保留为历史证据，不能替代本轮结果： [API 契约报告](reports/contextdb-capabilities.json)、[双库链路报告](reports/contextdb-pipeline-smoke.json)及 [Wiki 边界核查](contextdb-wiki-support.md)。
 
 本轮 0.0.9 Wiki 及云端目标删除/恢复相关后端回归 **161 项通过**。独立临时库的官方 API 写入和真实浏览器阅读/编辑/差异/编译控制已分别验收并清理，现有图谱库保留；用户删除的原默认 Wiki 后续已恢复新目标，旧库 ID 及投递回执作为历史保留。当前读取不自动建库或逐篇访问已删除库，真实内容问题写入仍无冲突案例，详见 [Wiki 支持说明](contextdb-wiki-support.md)。
 

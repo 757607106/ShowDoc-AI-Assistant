@@ -1,6 +1,6 @@
 # Wiki 编译器接管准入核查
 
-核查日期：2026-11-14（Asia/Shanghai）。独立临时库试验及 [JSON 准入报告](contextdb-wiki-compiler-readiness.json)基于此前 0.0.8 文档，保留为历史证据；本页已依据 0.0.9 修正文档公开范围。此次 0.0.9 复核只读取业务库，没有写入业务知识库或调整编译策略。当前界面接入能力见 [Wiki 支持说明](contextdb-wiki-support.md)。
+核查日期：2026-11-14（Asia/Shanghai）。独立临时库试验及 [JSON 准入报告](reports/contextdb-wiki-compiler-readiness.json)基于此前 0.0.8 文档，保留为历史证据；本页已依据 0.0.9 修正文档公开范围。此次 0.0.9 复核只读取业务库，没有写入业务知识库或调整编译策略。当前界面接入能力见 [Wiki 支持说明](contextdb-wiki-support.md)。
 
 ## 结果
 

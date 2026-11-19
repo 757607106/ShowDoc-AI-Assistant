@@ -104,7 +104,7 @@
 - 官方 standalone Agent Server 文档列出 LANGSMITH_API_KEY、LANGGRAPH_CLOUD_LICENSE_KEY 和许可验证/用量报告条件；不可当作 SDK 的免费 MIT 功能直接加入默认部署。
 - 固定 0.7.35 仓库有异步服务示例，但 README 明确仅作演示。源码使用内存状态，取消接口也不足以证明真实调用已中止；不能复制示例就宣称完成生产后台执行。
 
-**最终实施选择：保留已完成的 A，并按新增授权部署 B。** Aegra 0.11.0 原版并不能直接满足全部 SDK 契约：实际发现 HITL run 状态、Thread GET 缺少 values/interrupts、multitask 策略执行差异，部署层使用固定源码 SHA 门禁的兼容修补；没有把单纯健康检查当作完整验收。[部署、兼容修补与复现命令](../guides/async-agent-runtime.md)记录具体版本、授权和实测边界。以下门禁仍是开放入口的条件。
+**最终实施选择：保留已完成的 A，并按新增授权部署 B。** Aegra 0.11.0 原版并不能直接满足全部 SDK 契约：实际发现 HITL run 状态、Thread GET 缺少 values/interrupts、multitask 策略执行差异，部署层使用固定源码 SHA 门禁的兼容修补；没有把单纯健康检查当作完整验收。[部署、兼容修补与复现命令](../../guides/async-agent-runtime.md)记录具体版本、授权和实测边界。以下门禁仍是开放入口的条件。
 
 | B 的开启条件 | 必须提供的实证 |
 | --- | --- |
@@ -179,13 +179,13 @@
 | Beta 高级项 | middleware/state/context/cache/name/debug 等走可信 Python 扩展；无普通用户上传 Python 入口 | Harness/Provider/Rubric 不宣称默认启用。尤其 ProviderProfile 的模型构造钩子不被当前 ChatLiteLLM 实例路径消费，此项为未启用选配，不能用注册说明算验收 |
 | 异步 B 范围 | 自托管 Docker Aegra + Valkey；SDK 原生 start/check/update/cancel/list，按当前用户与固定授权快照构建子图 | 真实委派、waiting/审批/恢复、false/null、Shell 与排队取消、SIGKILL 同 thread/run 恢复、36 项 HTTP 隔离已通过。同线程 FIFO、异线程并行、interrupt 真停及 reject=409 均通过，入口已启用并经浏览器确认；单机部署不宣称 HA、零丢失或外部副作用 exactly-once |
 
-最近验收分组及实际命令/结果记录在[实施验收台账](../../output/verification/deepagents-native-implementation-20261117/validation.json)。最终前端全量 2920 passed、1 skipped；后端核心 184 passed、1 skipped；最终运行组（包含真实 OpenSandbox 和附件解析）49 passed。测试组存在重叠，不相加作为总数。测试中的 ContextDB、模型/OAuth 使用本地契约服务或隔离替身；真实 OpenSandbox 测试连接本机 Docker 服务。它们不等于生产外部供应商、云端 ContextDB 或负载验收。浏览器先只读核实统一设置、文件记忆、运行环境、Skills 与原生配置面板；随后在临时测试会话实际提交子代理审批并读到完成结果，确认后台异步可选，临时配置撤销、临时模型和会话已清理，未保存用户 Agent 或修改其模型、记忆设置。
+最近验收分组及实际命令/结果记录在[实施验收台账](../../../output/verification/deepagents-native-implementation-20261117/validation.json)。最终前端全量 2920 passed、1 skipped；后端核心 184 passed、1 skipped；最终运行组（包含真实 OpenSandbox 和附件解析）49 passed。测试组存在重叠，不相加作为总数。测试中的 ContextDB、模型/OAuth 使用本地契约服务或隔离替身；真实 OpenSandbox 测试连接本机 Docker 服务。它们不等于生产外部供应商、云端 ContextDB 或负载验收。浏览器先只读核实统一设置、文件记忆、运行环境、Skills 与原生配置面板；随后在临时测试会话实际提交子代理审批并读到完成结果，确认后台异步可选，临时配置撤销、临时模型和会话已清理，未保存用户 Agent 或修改其模型、记忆设置。
 
-B 的本次交付证据还包括：[36 项真实 HTTP 隔离](../../output/verification/deepagents-native-implementation-20261117/async-scope.json)、[审批与更新](../../output/verification/async-approval-acceptance.json)、[同线程策略及异线程并行](../../output/verification/deepagents-native-implementation-20261117/async-multitask.json)、[真实取消与服务 SIGKILL 恢复](../../output/verification/deepagents-native-implementation-20261117/async-recovery.json)。主应用已启用 `agents.async`；入口在“智能体 → 原生智能体配置 → 专业子代理 → 运行方式 → 后台异步”，无需用户另行部署。SDK 原生 `check_async_task` 已实际取回远端完成答案，不仅验证网页展示。
+B 的本次交付证据还包括：[36 项真实 HTTP 隔离](../../../output/verification/deepagents-native-implementation-20261117/async-scope.json)、[审批与更新](../../../output/verification/async-approval-acceptance.json)、[同线程策略及异线程并行](../../../output/verification/deepagents-native-implementation-20261117/async-multitask.json)、[真实取消与服务 SIGKILL 恢复](../../../output/verification/deepagents-native-implementation-20261117/async-recovery.json)。主应用已启用 `agents.async`；入口在“智能体 → 原生智能体配置 → 专业子代理 → 运行方式 → 后台异步”，无需用户另行部署。SDK 原生 `check_async_task` 已实际取回远端完成答案，不仅验证网页展示。
 
 ## 本轮精准修复与来源收尾
 
-用户要求按建议精准修复后，再次沿实际调用链复核。本节记录该轮修复范围；上节已执行的验收数字属于此前交付。本轮最终前端全量 2776 passed、1 skipped；后端核心及媒体回归 247 passed、5 skipped，另完成实际 Docker 异步运行、并发与 36 项 HTTP 授权检查。类型检查、构建和来源门禁通过，主应用 API 已重启加载修复，异步服务为 healthy。命令、实际结果和剩余限制统一写入[精准修复验收台账](../../output/verification/agent-precise-fixes-20261117/validation.json)。
+用户要求按建议精准修复后，再次沿实际调用链复核。本节记录该轮修复范围；上节已执行的验收数字属于此前交付。本轮最终前端全量 2776 passed、1 skipped；后端核心及媒体回归 247 passed、5 skipped，另完成实际 Docker 异步运行、并发与 36 项 HTTP 授权检查。类型检查、构建和来源门禁通过，主应用 API 已重启加载修复，异步服务为 healthy。命令、实际结果和剩余限制统一写入[精准修复验收台账](../../../output/verification/agent-precise-fixes-20261117/validation.json)。
 
 | 范围 | 本轮处理及应验证的边界 |
 | --- | --- |

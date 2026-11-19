@@ -64,7 +64,7 @@ flowchart LR
 
 隔离工具默认只读，目标非空且内容不同则拒绝；COPY 失败回滚数据事务，角色/数据库准备步骤独立记录，不能声称整个准备过程可单事务撤销。源旧表物理清理仍须在备份及切换验收后单独审查，不包含在自动迁移中。
 
-操作说明：[PostgreSQL 隔离指南](../guides/agent-postgres-isolation.md)。原始脱敏证据位于 `output/architecture-remediation-20261116/postgres-isolation-result.json`、`control-postgres-result.json`、`postgres-reconnect.json`。
+操作说明：[PostgreSQL 隔离指南](../../guides/agent-postgres-isolation.md)。原始脱敏证据位于 `output/architecture-remediation-20261116/postgres-isolation-result.json`、`control-postgres-result.json`、`postgres-reconnect.json`。
 
 ## 4. 前端源码证据与保留清单
 
@@ -80,7 +80,7 @@ flowchart LR
 
 | 项目 | 当前准确状态 | 后续落地与验收 |
 | --- | --- | --- |
-| 生产隔离 | 本机 runc 为受限开发环境；没有 Kata、生产 Gateway、目标 CNI 或多租户安全证据。 | 按[生产方案](../../deploy/opensandbox.production.md)部署官方 Kubernetes/Kata/Gateway；接入前改为 Gateway 数据面与 `secure_access=True`，锁定远程镜像 digest，逐项完成清单。用户已同意本轮先交付方案。 |
+| 生产隔离 | 本机 runc 为受限开发环境；没有 Kata、生产 Gateway、目标 CNI 或多租户安全证据。 | 按[生产方案](../../../deploy/opensandbox.production.md)部署官方 Kubernetes/Kata/Gateway；接入前改为 Gateway 数据面与 `secure_access=True`，锁定远程镜像 digest，逐项完成清单。用户已同意本轮先交付方案。 |
 | 浏览器/桌面与运行中 steer、后台续跑 | 明确不支持，未以普通异步调用或 checkpoint 冒充。 | 只有免费官方组件能提供完整协议时再接入；否则保持明确拒绝，不增加自制调度器。 |
 | 结构化记忆 | 原生 Store 文件记忆可用；WeKnora 主题/提炼/审批/向量召回不等同于文件记忆，相关接口明确不支持。 | 若未来需要，单独确认业务语义及官方实现；禁止混入 ContextDB 长期记忆或另一套本地知识索引。 |
 | Skills 安装和附带脚本 | 指令 bundle 可注入；虚拟 Skills 不等于真实 Shell 文件，自动安装/脚本执行未启用。 | 不能把 instructions_only 的 ready 状态理解为环境安装完成。若启用须使用官方沙箱路径与权限，另做验收。 |

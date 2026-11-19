@@ -1,8 +1,8 @@
 # 企业知识治理平台
 
-最新架构边界、整改结果与验收见[2026-11-16 修正总报告](docs/architecture/architecture-remediation-final-20261116.md)。
+最新架构边界、整改结果与验收见[2026-11-16 修正总报告](docs/architecture/reports/architecture-remediation-final-20261116.md)。
 
-Agent 前后端配置、模型窗口、问卷恢复与未接能力入口的精准修复见[2026-11-17 对齐记录](docs/architecture/agent-repair-alignment-20261117.md)；上游原始源码哈希和已审查本地适配分别记录，不宣称所有交互逐字一致。
+Agent 前后端配置、模型窗口、问卷恢复与未接能力入口的精准修复见[2026-11-17 对齐记录](docs/architecture/reports/agent-repair-alignment-20261117.md)；上游原始源码哈希和已审查本地适配分别记录，不宣称所有交互逐字一致。
 
 2026-11-17 已按本次授权在本机 Docker 部署第三方开源 **Aegra 0.11.0 + Valkey**，为 Deep Agents 原生异步子代理提供 Agent Protocol 服务。审批恢复、任务更新、真实 Shell/排队任务取消和崩溃恢复已实测；并发策略与最终镜像复验均已通过，主应用已设置 `ASYNC_AGENT_RUNTIME_ENABLED=1`，浏览器已验证可选择“后台异步”，用户无需另行部署。版本、兼容补丁、证据与维护步骤见[异步运行服务说明](docs/guides/async-agent-runtime.md)。组件免费自托管，未新增 LangSmith 或其他收费服务；原模型及 ContextDB 调用费用沿用已有账号。
 
