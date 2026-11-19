@@ -10,6 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import app as app_module
+import webapi.material as material_module
 from governance.store import Store, StoreError
 from governance.worker import write_json
 from tests.fakes.contextdb_fake import FakeContextDBClient
@@ -35,7 +36,7 @@ def make_crawl_documents(job, store):
 
 
 def test_task_start_status_and_cancel(client):
-    store = app_module.get_store()
+    store = material_module.get_store()
     task_id = store.create_job('file', {'file_paths': ['a.md']})['task_id']
     resp = client.get(f'/task_status/{task_id}')
     payload = resp.get_json()
@@ -49,14 +50,14 @@ def test_task_start_status_and_cancel(client):
 
 
 def test_task_retry_requires_terminal_state(client):
-    store = app_module.get_store()
+    store = material_module.get_store()
     task_id = store.create_job('file', {'file_paths': ['a.md']})['task_id']
     resp = client.post(f'/tasks/{task_id}/retry')
     assert resp.status_code == 400
 
 
 def test_sync_retry_must_select_failed_target_in_space(client):
-    store = app_module.get_store()
+    store = material_module.get_store()
     job = store.create_job('contextdb', {'release_id':'r','target_modes':['wiki','graph']}, kind='ctxdb_sync')
     store.update_job(job['task_id'], status='failed')
     response = client.post(f"/tasks/{job['task_id']}/retry")
@@ -65,7 +66,7 @@ def test_sync_retry_must_select_failed_target_in_space(client):
 
 
 def test_documents_listing_and_detail(client):
-    store = app_module.get_store()
+    store = material_module.get_store()
     job = store.create_job('file', {'file_paths': ['a.md']})
     make_crawl_documents(job, store)
     resp = client.get('/api/documents')
@@ -79,7 +80,7 @@ def test_documents_listing_and_detail(client):
 
 
 def test_task_details_split_queue_time_and_show_only_failure_fields(client):
-    store = app_module.get_store()
+    store = material_module.get_store()
     job = store.create_job('cyb', {})
     output = Path(job['output_dir']); output.mkdir(parents=True)
     (output/'failed_documents.jsonl').write_text(json.dumps({
@@ -100,7 +101,7 @@ def test_task_details_split_queue_time_and_show_only_failure_fields(client):
 
 
 def test_publish_flow_enqueues_contextdb_sync(client):
-    store = app_module.get_store()
+    store = material_module.get_store()
     job = store.create_job('file', {'file_paths': ['a.md']})
     make_crawl_documents(job, store)
     store.update_job(job['task_id'], status='completed', phase='completed', zip_file='x.zip')
@@ -116,7 +117,7 @@ def test_publish_flow_enqueues_contextdb_sync(client):
 
 
 def test_submit_alias_is_idempotent_and_exposes_submission_separately(client):
-    store = app_module.get_store()
+    store = material_module.get_store()
     job = store.create_job('file', {'file_paths': ['a.md']}, scope='default')
     make_crawl_documents(job, store)
     store.update_job(job['task_id'], status='completed', phase='completed')
@@ -133,8 +134,8 @@ def test_submit_alias_is_idempotent_and_exposes_submission_separately(client):
 
 def test_crawl_and_file_upload_use_the_same_selected_space(client, monkeypatch):
     import governance.spaces as spaces
-    monkeypatch.setattr(app_module.get_entry('web').crawler_class, 'validate_url', lambda url: None)
-    spaces.save_space(app_module.get_store(), {'scope': 'product-a', 'name': '产品 A', 'mode': 'wiki'})
+    monkeypatch.setattr(material_module.get_entry('web').crawler_class, 'validate_url', lambda url: None)
+    spaces.save_space(material_module.get_store(), {'scope': 'product-a', 'name': '产品 A', 'mode': 'wiki'})
     checked = []
     original_get_space = spaces.get_space
     def get_space(store, scope):
@@ -144,7 +145,7 @@ def test_crawl_and_file_upload_use_the_same_selected_space(client, monkeypatch):
     crawl = client.post('/entries/web/start', json={'url':'https://example.test/docs','space_scope':'product-a'})
     upload = client.post('/api/uploads', data={'files':(io.BytesIO(b'name,value\nx,1'), 'source.csv'),'space_scope':'product-a'})
     assert crawl.status_code == upload.status_code == 200
-    store = app_module.get_store()
+    store = material_module.get_store()
     assert store.get_job(crawl.get_json()['task_id'])['scope'] == 'product-a'
     file_job = store.get_job(upload.get_json()['task_id'])
     assert file_job['scope'] == 'product-a' and file_job['entry'] == 'file'
@@ -160,13 +161,13 @@ def test_crawl_and_file_upload_use_the_same_selected_space(client, monkeypatch):
 
 def test_upload_name_mapping_keeps_natural_prefixes_and_duplicate_names_without_overwriting(client, monkeypatch):
     import governance.spaces as spaces
-    spaces.save_space(app_module.get_store(), {'scope': 'product', 'name': '产品', 'mode': 'wiki'})
+    spaces.save_space(material_module.get_store(), {'scope': 'product', 'name': '产品', 'mode': 'wiki'})
     response = client.post('/api/uploads', data={'space_scope': 'product', 'files': [
         (io.BytesIO(b'first'), '001-guide.md'), (io.BytesIO(b'second'), 'same.md'),
         (io.BytesIO(b'third'), 'same.md'), (io.BytesIO(b'fourth'), 'folder/Use:Guide.MD'),
     ]})
     assert response.status_code == 200
-    job = app_module.get_store().get_job(response.json['task_id'])
+    job = material_module.get_store().get_job(response.json['task_id'])
     paths = [Path(value) for value in job['params']['file_paths']]
     assert job['params']['file_names'] == ['001-guide.md', 'same.md', 'same.md', 'Use_Guide.md']
     assert [path.name for path in paths] == ['001-001-guide.md', '002-same.md', '003-same.md', '004-Use_Guide.md']
@@ -174,7 +175,7 @@ def test_upload_name_mapping_keeps_natural_prefixes_and_duplicate_names_without_
 
 
 def test_publish_blocked_until_job_completed(client):
-    store = app_module.get_store()
+    store = material_module.get_store()
     job = store.create_job('file', {'file_paths': ['a.md']})
     make_crawl_documents(job, store)
     resp = client.post(f"/tasks/{job['task_id']}/publish")
@@ -196,7 +197,7 @@ def test_video_preview_uses_the_same_reference_content_as_collection(client, tmp
     crawler._items = {'tutorial-1':{'videoUrl':'https://www.bilibili.com/video/example/','content':''}}
     monkeypatch.setattr(crawler,'authenticate',lambda:None)
     monkeypatch.setattr(crawler,'list_documents',lambda:[DocumentStub('tutorial-1','视频教程','教程')])
-    monkeypatch.setattr(app_module,'create_crawler',lambda *args,**kwargs:crawler)
+    monkeypatch.setattr(material_module,'create_crawler',lambda *args,**kwargs:crawler)
     response = client.get('/entries/cyb/preview?doc_id=tutorial-1')
     assert response.status_code == 200
     assert '尚未采集或解析视频内容' in response.json['content']
@@ -212,7 +213,7 @@ def test_write_json_atomic(tmp_path):
 
 
 def test_task_links_use_release_ids_and_expose_only_the_latest_public_submission(client):
-    store = app_module.get_store()
+    store = material_module.get_store()
     capture = store.create_job('file', {'file_paths': ['/private/PRIVATE-PATH/source.md'],
         'file_names': ['安装说明.pdf', '更新记录.md'], 'user_token': 'PRIVATE-TOKEN'})
     release_id = store.create_release(capture['task_id'], 'default', 1, [], 'archive.zip')
@@ -240,7 +241,7 @@ def test_task_links_use_release_ids_and_expose_only_the_latest_public_submission
 
 
 def test_task_pagination_filters_before_limiting_and_keeps_owners_separate(client):
-    fake = app_module.get_store().client
+    fake = material_module.get_store().client
     store = Store(client=fake, owner_id=os.environ['TEST_PLATFORM_USER'])
     app_module.app.extensions['governance_store'] = store
     target = store.create_job('file', {}, scope='older-target')
@@ -265,7 +266,7 @@ def test_task_pagination_filters_before_limiting_and_keeps_owners_separate(clien
 
 
 def test_material_task_groups_fold_and_filter_before_paging(client):
-    fake = app_module.get_store().client
+    fake = material_module.get_store().client
     store = Store(client=fake, owner_id=os.environ['TEST_PLATFORM_USER'])
     app_module.app.extensions['governance_store'] = store
 
@@ -315,7 +316,7 @@ def test_material_task_groups_fold_and_filter_before_paging(client):
 
 
 def test_material_task_group_leaves_a_mismatched_scope_submission_standalone(client):
-    store = app_module.get_store()
+    store = material_module.get_store()
     parent = store.create_job('file', {}, scope='parent')
     store.update_job(parent['task_id'], status='completed', phase='completed')
     release = store.create_release(parent['task_id'], 'parent', 1, [], 'archive.zip')
@@ -331,7 +332,7 @@ def test_material_task_group_leaves_a_mismatched_scope_submission_standalone(cli
 
 
 def test_release_scope_filter_precedes_the_recent_fifty_limit(client):
-    store = app_module.get_store()
+    store = material_module.get_store()
     for index in range(53):
         scope = 'older-target' if index == 0 else 'recent'
         store._create('release', f'release-{index}', {'version_ids': [], 'job_id': 'capture', 'scope': scope},
@@ -344,7 +345,7 @@ def test_release_scope_filter_precedes_the_recent_fifty_limit(client):
 def test_document_status_scope_filter_uses_the_same_scope_before_pagination(client):
     from governance.database import connection
     from governance.spaces import save_space
-    fake = app_module.get_store().client
+    fake = material_module.get_store().client
     owner = os.environ['TEST_PLATFORM_USER']
     store = Store(client=fake, owner_id=owner)
     app_module.app.extensions['governance_store'] = store

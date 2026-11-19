@@ -31,7 +31,7 @@ def _json_body():
 
 
 def _space_store():
-    from app import get_store
+    from webapi.material import get_store
     return get_store()
 
 
@@ -317,7 +317,7 @@ def kb_sync_status():
     job_id = (request.args.get('job_id') or '').strip()
     if not job_id:
         raise StoreError('缺少 job_id 参数', 400)
-    from app import get_store
+    from webapi.material import get_store
     store = get_store()
     job = store.get_job(job_id)
     return jsonify(success=True, job={

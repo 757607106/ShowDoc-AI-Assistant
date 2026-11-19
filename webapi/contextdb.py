@@ -107,7 +107,7 @@ def forward(version, resource):
             raise StoreError('资产接口只支持读取', 405)
         return asset_response(client, request.args.get('asset_id'))
     if resource == 'knowledge/knowledge_bases' and request.method not in ('GET', 'HEAD'):
-        from app import get_store
+        from webapi.material import get_store
         from governance.knowledge_bases import create_base, update_base, delete_base
         store = get_store()
         body = request.get_json(silent=True) or {}
@@ -127,14 +127,14 @@ def forward(version, resource):
         return jsonify(success=True, data=result)
     from webapi.contextdb_files import RESOURCES, forward_file
     if resource in RESOURCES:
-        from app import get_store
+        from webapi.material import get_store
         result = forward_file(client, get_store(), resource)
     elif ((resource == 'knowledge/nodes' and request.method in ('PATCH', 'DELETE')) or
           (resource == 'knowledge/nodes/batch' and request.method in ('POST', 'DELETE'))):
-        from app import get_store
+        from webapi.material import get_store
         result = forward_nodes(client, get_store(), resource)
     elif resource == 'knowledge/reviews/batch' and request.method in ('POST', 'DELETE'):
-        from app import get_store
+        from webapi.material import get_store
         from governance.knowledge_bases import batch_reviews
         from integrations.contextdb.client import BATCH_REVIEW_ACTIONS
         body = request.get_json(silent=True)
@@ -154,7 +154,7 @@ def forward(version, resource):
             body.pop('query')
         with ExitStack() as writes:
             if request.method not in ('GET', 'HEAD') and resource.startswith('knowledge/') and resource != 'knowledge/query':
-                from app import get_store
+                from webapi.material import get_store
                 from governance.knowledge_bases import base_write_lock, require_writable_base, review_base_ids
                 fields = {**request.args.to_dict(), **(body if isinstance(body, dict) else {})}
                 for key in ('knowledge_base_id', 'kb_id', 'document_id', 'review_id'):

@@ -10,6 +10,7 @@ from governance.store import Store
 from integrations.contextdb import ContextDBClient, ContextDBError, ContextDBConflictError, ContextDBAuthError
 from webapi.auth import create_user, cipher
 import app as app_module
+import webapi.material as material_module
 
 
 
@@ -21,6 +22,7 @@ def mock_writable_library(monkeypatch, client, kb_id, mode='wiki'):
         'graph_enabled': mode == 'graph'}
     client.get_document.side_effect = lambda _kb, doc, **kwargs: {
         'id': doc, 'knowledge_base_id': kb_id, 'name': 'source.md'}
+    monkeypatch.setattr(material_module, 'client_for_user', lambda: client)
     monkeypatch.setattr(app_module, 'client_for_user', lambda: client)
 
 
@@ -227,7 +229,7 @@ def test_credentials_are_encrypted_and_member_binding_unique(authenticated_clien
 
 def test_source_server_credentials_are_not_shared_with_other_roles(authenticated_client,monkeypatch):
     login=Mock(side_effect=AssertionError('Must not use server source credentials'))
-    monkeypatch.setattr(app_module.showdoc_auth,'auto_login_if_needed',login)
+    monkeypatch.setattr(material_module.showdoc_auth,'auto_login_if_needed',login)
     for role in ('viewer','editor'):
         _,other=login_as(role+'@example.com',role)
         assert other.post('/showdoc/login').status_code==403
@@ -255,7 +257,7 @@ def test_native_wiki_reads_full_page_and_preserves_conflict_version(authenticate
     content='\n'.join(f'## 章节 {n}\n完整正文' for n in range(100))
     client._request.return_value={'content':content,'version':42,'page_id':'page'}
     monkeypatch.setattr(proxy,'client_for_user',lambda:client)
-    monkeypatch.setattr(app_module,'client_for_user',lambda:client)
+    monkeypatch.setattr(material_module,'client_for_user',lambda:client)
     response=authenticated_client.get('/api/contextdb/v1/knowledge/wiki/pages/detail?knowledge_base_id=kb&page_id=page')
     assert response.json['data']['content']==content and response.json['data']['version']==42
     client._request.reset_mock()

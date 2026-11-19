@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 import app as app_module
+import webapi.material as material_module
 from governance.database import connection
 from governance.knowledge_bases import create_base
 from governance.store import Store
@@ -22,7 +23,7 @@ def library(monkeypatch, authenticated_client):
     fake._headers = lambda: {'X-API-Key': 'test'}
     fake._payload = ContextDBClient()._payload
     store = Store(client=fake, owner_id=os.environ['TEST_PLATFORM_USER'])
-    monkeypatch.setattr(app_module, 'get_store', lambda: store)
+    monkeypatch.setattr(material_module, 'get_store', lambda: store)
     monkeypatch.setattr('webapi.contextdb.client_for_user', lambda: fake)
     base = create_base(store, {'name': '文件库', 'mode': 'source', 'review_enabled': False})
     return store, fake, authenticated_client, base['id']

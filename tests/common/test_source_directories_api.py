@@ -6,6 +6,7 @@ import pytest
 from requests import Timeout
 
 import app as app_module
+import webapi.material as material_module
 from crawlers.base import CrawledDocument
 from crawlers.showdoc import ShowDocCrawler
 from crawlers.web import WebCrawler
@@ -31,7 +32,7 @@ def test_showdoc_preview_has_project_root_and_relative_tree(client, tmp_path, mo
             'pages': [{'page_id': 'root', 'page_title': '说明'}],
             'catalogs': [{'cat_name': '进货管理', 'catalogs': [{'cat_name': '报表',
                          'pages': [{'page_id': 'nested', 'page_title': '统计'}]}]}]}}})
-    monkeypatch.setattr(app_module, 'create_crawler', lambda *args, **kwargs: crawler)
+    monkeypatch.setattr(material_module, 'create_crawler', lambda *args, **kwargs: crawler)
     result = client.get('/entries/showdoc/documents?item_id=399').get_json()
     assert result['directory'] == {'root_name': '云辉煌知识库', 'source_key': 'showdoc:399', 'preview_complete': True}
     assert [page['directory_path'] for page in result['pages']] == [[], ['进货管理', '报表']]
@@ -41,7 +42,7 @@ def test_unknown_web_site_preview_is_explicitly_incomplete(client, tmp_path, mon
     monkeypatch.setattr(WebCrawler, 'validate_url', staticmethod(lambda value: value))
     crawler = WebCrawler(str(tmp_path), 'https://docs.example.test/start', crawl_mode='site')
     crawler._crawl_site = Mock(side_effect=AssertionError('Preview must not run a full site crawl'))
-    monkeypatch.setattr(app_module, 'create_crawler', lambda *args, **kwargs: crawler)
+    monkeypatch.setattr(material_module, 'create_crawler', lambda *args, **kwargs: crawler)
     result = client.get('/entries/web/documents?url=https://docs.example.test/start&crawl_mode=site').get_json()
     assert result['directory'] == {'root_name': 'docs.example.test', 'source_key': 'web:docs.example.test', 'preview_complete': False}
     assert result['pages'][0]['directory_path'] == []
@@ -54,7 +55,7 @@ def test_showdoc_document_preview_reads_only_a_page_in_the_requested_project(cli
         {'error_code': 0, 'data': {'menu': {'pages': [{'page_id': '15', 'page_title': '进货订单'}]}}},
         {'error_code': 0, 'data': {'page_id': '15', 'page_title': '进货订单', 'page_content': '## 操作步骤'}},
     ])
-    monkeypatch.setattr(app_module, 'create_crawler', lambda *args, **kwargs: crawler)
+    monkeypatch.setattr(material_module, 'create_crawler', lambda *args, **kwargs: crawler)
     result = client.post('/entries/showdoc/preview', json={'item_id': '399', 'doc_id': '15'})
     assert result.status_code == 200
     assert result.headers['Cache-Control'] == 'no-store'
@@ -77,7 +78,7 @@ def test_web_document_preview_uses_the_fetched_page_base_for_relative_images(cli
         id=stub.id, title='说明', category='网页', content=source, updated_at='',
         source_format='html', metadata={'url': 'https://docs.example.test/guide/start.html?access=private#main'},
     ))
-    monkeypatch.setattr(app_module, 'create_crawler', lambda *args, **kwargs: crawler)
+    monkeypatch.setattr(material_module, 'create_crawler', lambda *args, **kwargs: crawler)
 
     response = client.post('/entries/web/preview', json={'url': requested, 'doc_id': stub.id})
 
@@ -94,7 +95,7 @@ def test_showdoc_document_preview_distinguishes_empty_failed_and_timed_out_reads
         {'missing': {'error_code': 0, 'data': {}}, 'denied': {'error_code': 1, 'error_message': 'upstream-private'},
          'timeout': Timeout('upstream-private')}[failure],
     ])
-    monkeypatch.setattr(app_module, 'create_crawler', lambda *args, **kwargs: crawler)
+    monkeypatch.setattr(material_module, 'create_crawler', lambda *args, **kwargs: crawler)
     result = client.post('/entries/showdoc/preview', json={'item_id': '399', 'doc_id': '15'})
     assert result.status_code == status
     assert result.json['success'] is False
@@ -102,7 +103,7 @@ def test_showdoc_document_preview_distinguishes_empty_failed_and_timed_out_reads
 
 
 def test_custom_root_is_job_metadata_and_does_not_change_source_params(client, monkeypatch):
-    store = app_module.get_store()
+    store = material_module.get_store()
     create = Mock(return_value={'task_id': 'new-task'})
     monkeypatch.setattr(store, 'create_job', create)
     result = client.post('/entries/showdoc/start', json={'item_id': '399', 'import_root_name': ' 产品资料 '})
@@ -116,14 +117,14 @@ def test_custom_root_is_job_metadata_and_does_not_change_source_params(client, m
 @pytest.mark.parametrize('name', ['', 'a/b', '..', 'a\x00b', None])
 def test_invalid_root_is_rejected_before_a_job_is_created(client, monkeypatch, name):
     create = Mock(side_effect=AssertionError('Invalid directory must not queue work'))
-    monkeypatch.setattr(app_module.get_store(), 'create_job', create)
+    monkeypatch.setattr(material_module.get_store(), 'create_job', create)
     result = client.post('/entries/showdoc/start', json={'item_id': '399', 'import_root_name': name})
     assert result.status_code == 400
     create.assert_not_called()
 
 
 def test_preview_reuses_current_node_label_for_the_same_source_only(client, tmp_path, monkeypatch):
-    store = app_module.get_store()
+    store = material_module.get_store()
     kb = next(iter(store.client.knowledge_bases.values()))
     manager = ImportDirectories(store, kb['id'])
     node_id, _ = manager.target({'source_key': 'showdoc:399', 'metadata': {
@@ -143,7 +144,7 @@ def test_preview_reuses_current_node_label_for_the_same_source_only(client, tmp_
             'item_name': '云辉煌知识库', 'menu': {'pages': [{'page_id': 'one', 'page_title': '说明'}]}}})
         return result
 
-    monkeypatch.setattr(app_module, 'create_crawler', crawler)
+    monkeypatch.setattr(material_module, 'create_crawler', crawler)
     names = []
     for item_id in ('399', '412', '500', 'unmapped'):
         response = client.get('/entries/showdoc/documents', query_string={
@@ -154,10 +155,10 @@ def test_preview_reuses_current_node_label_for_the_same_source_only(client, tmp_
 
 
 def test_preview_checks_library_access_before_reading_the_source(client, monkeypatch):
-    monkeypatch.setattr(app_module.get_store().client, 'get_knowledge_base',
+    monkeypatch.setattr(material_module.get_store().client, 'get_knowledge_base',
                         Mock(side_effect=ContextDBError('Forbidden', status_code=403)))
     crawler = Mock(side_effect=AssertionError('Do not fetch a source for an unreadable destination'))
-    monkeypatch.setattr(app_module, 'create_crawler', crawler)
+    monkeypatch.setattr(material_module, 'create_crawler', crawler)
     response = client.get('/entries/showdoc/documents', query_string={
         'item_id': '399', 'knowledge_base_id': 'private-library'})
     assert response.status_code == 403

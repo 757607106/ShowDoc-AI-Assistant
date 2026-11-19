@@ -103,7 +103,7 @@ def test_platform_preview_uses_current_content_contract(tmp_path, key, authentic
     c = BaseCrawler(str(tmp_path))
     c.list_documents = lambda: [DocumentStub('1', '测试', '目录')]
     c.fetch_document = lambda _: doc()
-    with patch('app.create_crawler', return_value=c):
+    with patch('webapi.material.create_crawler', return_value=c):
         response = authenticated_client.get(f'/entries/{key}/preview?doc_id=1')
     assert response.status_code == 200
     assert '有效业务正文' in response.json['content']

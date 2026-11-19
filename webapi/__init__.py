@@ -17,6 +17,7 @@ from webapi.terminal import terminal_bp
 from webapi.mcp_runtime import mcp_runtime_bp
 from webapi.model_runtime import model_runtime_bp
 from webapi.skill_runtime import skill_runtime_bp
+from webapi.material import material_bp
 
 
 def register_blueprints(app):
@@ -35,3 +36,4 @@ def register_blueprints(app):
     app.register_blueprint(mcp_runtime_bp)
     app.register_blueprint(model_runtime_bp)
     app.register_blueprint(skill_runtime_bp)
+    app.register_blueprint(material_bp)

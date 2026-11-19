@@ -7,6 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import app as app_module
+import webapi.material as material_module
 from governance.store import Store
 from tests.fakes.contextdb_fake import FakeContextDBClient
 
@@ -370,6 +371,7 @@ def test_wiki_pages_listing_and_full_page_read(client, monkeypatch):
 def test_wiki_page_create_conflict_and_cas_update(client, monkeypatch):
     fake, http = client
     monkeypatch.setattr('webapi.contextdb.client_for_user', lambda: fake)
+    monkeypatch.setattr(material_module, 'client_for_user', lambda: fake)
     monkeypatch.setattr(app_module, 'client_for_user', lambda: fake)
     kb = fake.ensure_knowledge_base('k9', wiki_enabled=True)
     path = '/api/contextdb/v1/knowledge/wiki/pages'
@@ -390,7 +392,7 @@ def test_wiki_page_create_conflict_and_cas_update(client, monkeypatch):
 
 def test_sync_status_reads_governance_job(client):
     fake, http = client
-    store = app_module.get_store()
+    store = material_module.get_store()
     job = store.create_job('contextdb', {'release_id': 'r1'}, kind='ctxdb_sync', scope='default')
     resp = http.get(f'/api/kb/sync-status?job_id={job["task_id"]}')
     payload = resp.get_json()

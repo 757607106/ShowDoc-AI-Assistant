@@ -113,7 +113,7 @@ def test_native_and_business_read_apis_add_labels_without_renaming(names_data, m
     fake.documents['cloud-doc'] = raw
     fake._request = Mock(return_value={'documents': [raw], 'total': 1})
     monkeypatch.setattr('webapi.contextdb.client_for_user', lambda: fake)
-    monkeypatch.setattr('app.get_store', lambda: Store(client=fake, owner_id=owner))
+    monkeypatch.setattr('webapi.material.get_store', lambda: Store(client=fake, owner_id=owner))
     response = http.get('/api/contextdb/v1/knowledge/documents?knowledge_base_id=wiki-id')
     document = response.json['data']['documents'][0]
     assert document['name'] == raw['name'] and document['display_name'] == '采购明细.html'
