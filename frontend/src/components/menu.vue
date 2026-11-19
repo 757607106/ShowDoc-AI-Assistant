@@ -398,7 +398,7 @@ const batchSelectedIds = ref<string[]>([])
 const batchDeleting = ref(false)
 
 const allSessionIds = computed(() => {
-    const chatMenu = (menuArr.value as unknown as MenuItem[]).find((item: MenuItem) => item.path === 'creatChat');
+    const chatMenu = (menuArr.value as unknown as MenuItem[]).find((item: MenuItem) => item.path === 'createChat');
     if (!chatMenu?.children) return [];
     return (chatMenu.children as any[]).map((s: any) => s.id);
 })
@@ -421,7 +421,7 @@ const canAccessAllTenants = computed(() => authStore.canAccessAllTenants);
 // 是否处于知识库详情页（不包括全局聊天）
 const isInKnowledgeBase = computed<boolean>(() => {
     return route.name === 'knowledgeBaseDetail' ||
-        route.name === 'kbCreatChat' ||
+        route.name === 'kbCreateChat' ||
         route.name === 'knowledgeBaseSettings';
 });
 
@@ -431,8 +431,8 @@ const isInKnowledgeBaseList = computed<boolean>(() => {
 });
 
 // 是否在创建聊天页面
-const isInCreatChat = computed<boolean>(() => {
-    return route.name === 'globalCreatChat' || route.name === 'kbCreatChat';
+const isInCreateChat = computed<boolean>(() => {
+    return route.name === 'globalCreateChat' || route.name === 'kbCreateChat';
 });
 
 // 是否在对话详情页
@@ -464,8 +464,8 @@ const isMenuItemActive = (itemPath: string): boolean => {
             return currentRoute === 'automationList';
         case 'organizations':
             return currentRoute === 'organizationList';
-        case 'creatChat':
-            return currentRoute === 'kbCreatChat' || currentRoute === 'globalCreatChat';
+        case 'createChat':
+            return currentRoute === 'kbCreateChat' || currentRoute === 'globalCreateChat';
         case 'settings':
             return currentRoute === 'settings';
         default:
@@ -483,14 +483,14 @@ const getIconActiveState = (itemPath: string) => {
             currentRoute === 'knowledgeBaseDetail' ||
             currentRoute === 'knowledgeBaseSettings'
         ),
-        isCreatChatActive: itemPath === 'creatChat' && (currentRoute === 'kbCreatChat' || currentRoute === 'globalCreatChat'),
+        isCreateChatActive: itemPath === 'createChat' && (currentRoute === 'kbCreateChat' || currentRoute === 'globalCreateChat'),
         isSettingsActive: itemPath === 'settings' && currentRoute === 'settings',
         isChatActive: itemPath === 'chat' && currentRoute === 'chat'
     };
 };
 
 // 分离上下两部分菜单（使用 visibleMenuArr 以便 lite 模式过滤 logout）
-const TOP_MENU_PATHS = new Set(['collect', 'tasks', 'releases', 'governance', 'creatChat', 'knowledge-bases', 'artifacts', 'agents', 'automations', 'toolbox', 'organizations']);
+const TOP_MENU_PATHS = new Set(['collect', 'tasks', 'releases', 'governance', 'createChat', 'knowledge-bases', 'artifacts', 'agents', 'automations', 'toolbox', 'organizations']);
 
 const topMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) => TOP_MENU_PATHS.has(item.path));
@@ -676,7 +676,7 @@ const handleInlineBatchDelete = () => {
                     }
                     const currentChatId = route.params.chatid as string;
                     if (currentChatId && (isDeleteAll || selectedIds.includes(currentChatId)))
-                        router.push('/platform/creatChat');
+                        router.push('/platform/createChat');
                     batchSelectedIds.value = [];
                     batchMode.value = false;
                     MessagePlugin.success(t('batchManage.deleteSuccess'));
@@ -835,7 +835,7 @@ const ensureSessionInSidebar = (sessionId: string) => {
     const web = sessionBuckets.value.web;
     if (!web) return;
 
-    const chatMenu = (menuArr.value as unknown as MenuItem[]).find((item) => item.path === 'creatChat');
+    const chatMenu = (menuArr.value as unknown as MenuItem[]).find((item) => item.path === 'createChat');
     const fromStore = (chatMenu?.children as Record<string, unknown>[] | undefined)
         ?.find((item) => item.id === sessionId);
     if (!fromStore) return;
@@ -932,7 +932,7 @@ const syncActiveBucketFromChat = async (sessionId: string | undefined) => {
 
     let bucketKey = findSessionBucketKey(sessionBuckets.value, sessionId);
     if (!bucketKey) {
-        const chatMenu = (menuArr.value as unknown as MenuItem[]).find((item) => item.path === 'creatChat');
+        const chatMenu = (menuArr.value as unknown as MenuItem[]).find((item) => item.path === 'createChat');
         const fromStore = (chatMenu?.children as Record<string, unknown>[] | undefined)
             ?.find((item) => item.id === sessionId);
         if (fromStore) {
@@ -1071,7 +1071,7 @@ const handleSessionMutation = (event: Event) => {
         sessionBuckets.value = removeSessionFromBuckets(sessionBuckets.value, detail.sessionId);
         syncMenuStoreFromBuckets();
         if (detail.sessionId === route.params.chatid) {
-            router.push('/platform/creatChat');
+            router.push('/platform/createChat');
         }
     }
 };
@@ -1127,7 +1127,7 @@ watch([() => route.name, () => route.params], (newvalue, oldvalue) => {
         currentSecondpath.value = "";
     }
 
-    // 创建新会话时 creatChat 会先 updataMenuChildren，再跳转 chat/:id。
+    // 创建新会话时 createChat 会先 updataMenuChildren，再跳转 chat/:id。
     // 侧栏实际渲染 sessionBuckets，需按 buckets 判断是否缺失，不能把 menuStore 当真相来源。
     const newChatId = (newvalue[1] as any)?.chatid as string | undefined;
     if (nameStr === 'chat' && newChatId) {
@@ -1155,7 +1155,7 @@ let organizationIcon = ref('organization.svg');
 const getIcon = (path: string) => {
     // 根据当前路由状态更新所有图标
     const kbActiveState = getIconActiveState('knowledge-bases');
-    const creatChatActiveState = getIconActiveState('creatChat');
+    const createChatActiveState = getIconActiveState('createChat');
     const settingsActiveState = getIconActiveState('settings');
     const agentsActiveState = route.name === 'agentList';
     const artifactsActiveState = route.name === 'artifactLibrary';
@@ -1177,7 +1177,7 @@ const getIcon = (path: string) => {
     organizationIcon.value = organizationsActiveState ? 'organization-green.svg' : 'organization.svg';
 
     // 对话图标：只在对话创建页面显示绿色，其他情况显示默认
-    prefixIcon.value = creatChatActiveState.isCreatChatActive ? 'prefixIcon-green.svg' : 'prefixIcon.svg';
+    prefixIcon.value = createChatActiveState.isCreateChatActive ? 'prefixIcon-green.svg' : 'prefixIcon.svg';
 
     // 设置图标：只在设置页面显示绿色
     settingIcon.value = settingsActiveState.isSettingsActive ? 'setting-green.svg' : 'setting.svg';
@@ -1196,7 +1196,7 @@ const menuLocation = (path: string) => {
 
 const onNavigationClick = (event: MouseEvent, path?: string) => {
     if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-    if (path === 'creatChat' && isInCreatChat.value) useSettingsStore().clearChatReferences();
+    if (path === 'createChat' && isInCreateChat.value) useSettingsStore().clearChatReferences();
     emit('navigate');
 };
 const openSearch = () => {

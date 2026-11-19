@@ -23,7 +23,7 @@ type Host = {
 }
 
 async function fixture(options: { kbId?: string; unsupported?: boolean; missingKb?: boolean } = {}) {
-  const route = reactive({ fullPath: '/platform/creatChat', params: { kbId: options.kbId || '' } })
+  const route = reactive({ fullPath: '/platform/createChat', params: { kbId: options.kbId || '' } })
   const pushed: unknown[] = [], requests: string[] = [], recent: string[] = [], events: any[] = [], chats: unknown[][] = []
   const store = reactive({
     open: true, initialQuery: '', recentQueries: [] as string[],

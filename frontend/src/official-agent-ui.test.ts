@@ -9,8 +9,8 @@ const root = new URL('../', import.meta.url)
 const baseline = JSON.parse(readFileSync(new URL('UPSTREAM-AGENT-UI.json', root), 'utf8'))
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
 const readSource = (path: string) => readFileSync(new URL(path, root), 'utf8')
-const reference = 'docs/architecture/agent-repair-alignment-20261117.md'
-const finalReference = 'docs/architecture/deepagents-contextdb-final-plan-20261117.md'
+const reference = 'docs/architecture/reports/agent-repair-alignment-20261117.md'
+const finalReference = 'docs/architecture/reports/deepagents-contextdb-final-plan-20261117.md'
 const references = new Set([reference, finalReference])
 type FileHashes = { template: string; styles: string; source?: string; bindings?: Record<string, string> }
 type Adaptation = Partial<Record<'template' | 'styles' | 'source', string>> & {
@@ -24,6 +24,7 @@ const localSourceOrigins: Record<string, string> = {
   'src/composables/usePromptDock.ts': 'c8d7772eb93e7320000401aa70b4583653ecb33cdd6d9acf0e9020db5cf9e38f',
   'src/utils/suspendedRun.ts': 'e572f1d2af3de062b945a81ac55657f155961cedb74f3ca6a20ca267837026a4',
   'src/utils/collaborationDisplay.ts': '1c8c1aa3af53e8ce8fb737bc327b4353defb1e727d35f6f0b53c801b0a354190',
+  'src/views/createChat/createChat.vue': '182ab29121799f844f5e25267caa88a2b9ebd472cd2f878d3153106a59d361d9',
 }
 const localSourcePaths = [...Object.keys(localSourceOrigins), 'src/views/chat/components/NativeInterruptCard.vue']
 const exists = (path: string) => existsSync(new URL(path, root))
@@ -97,7 +98,7 @@ function verifyAgentUi(read = readSource, adaptations: Adaptations = baseline.ad
     if (adaptation.styles) {
       assert.ok(['src/components/Input-field.vue', 'src/components/ModelEditorDialog.vue', 'src/views/agent/AgentEditorModal.vue', 'src/views/chat/components/tool-results/DocMarkdown.vue',
         'src/components/AgentSelector.vue', 'src/components/AttachmentUpload.vue', 'src/components/SettingsModalShell.vue',
-        'src/views/chat/index.vue', 'src/views/creatChat/creatChat.vue', 'src/components/assistant/AssistantPanel.vue',
+        'src/views/chat/index.vue', 'src/components/assistant/AssistantPanel.vue',
         'src/views/settings/Settings.vue', 'src/views/settings/MemorySettings.vue',
         'src/views/settings/SkillSettings.vue', 'src/views/toolbox/Toolbox.vue',
         'src/views/chat/components/BackgroundWorkChip.vue',

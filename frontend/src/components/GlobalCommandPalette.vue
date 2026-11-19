@@ -482,7 +482,7 @@ const openKb = (kbId: string) => {
 const openAgent = (agentId: string) => {
   commandPaletteStore.pushRecent(query.value)
   commandPaletteStore.closePalette()
-  router.push({ path: '/platform/creatChat', query: { agent_id: agentId } })
+  router.push({ path: '/platform/createChat', query: { agent_id: agentId } })
 }
 
 const openSession = (sessionId: string) => {

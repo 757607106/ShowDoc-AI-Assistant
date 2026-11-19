@@ -17,7 +17,7 @@ test('knowledge navigation has one list while scope, document and citation links
   assert.equal(route('knowledgeSpaceDetail').path,'knowledge-spaces/:scope')
   assert.equal(route('knowledgeBaseDetail').path,'knowledge-bases/:kbId')
   assert.match(route('knowledgeBaseDetail').component.toString(),/ContextDBKnowledge\.vue/)
-  assert.equal(route('kbCreatChat').path,'knowledge-bases/:kbId/creatChat')
+  assert.equal(route('kbCreateChat').path,'knowledge-bases/:kbId/createChat')
   assert.equal(route('captures').redirect,'/platform/knowledge-bases')
 
   const menuStore=readFileSync(new URL('../stores/menu.ts',import.meta.url),'utf8')
@@ -45,17 +45,17 @@ test('KB chat deep links replace stale references, switches select the new KB, a
   }
   new Function('router','useSettingsStore',code)({beforeResolve:(callback:typeof guard)=>{guard=callback}},()=>settings)
   const enter=(name:string,kbId:any,fullPath:string,previous='')=>guard({name,params:{kbId},fullPath},{fullPath:previous})
-  enter('kbCreatChat','kb-a','/platform/knowledge-bases/kb-a/creatChat')
+  enter('kbCreateChat','kb-a','/platform/knowledge-bases/kb-a/createChat')
   assert.deepEqual(selected,{kbIds:['kb-a'],fileIds:[]})
-  enter('kbCreatChat','kb-b','/platform/knowledge-bases/kb-b/creatChat','/platform/knowledge-bases/kb-a/creatChat')
+  enter('kbCreateChat','kb-b','/platform/knowledge-bases/kb-b/createChat','/platform/knowledge-bases/kb-a/createChat')
   assert.deepEqual(selected,{kbIds:['kb-b'],fileIds:[]})
   pending={kbIds:['search-kb'],fileIds:['search-file']}
-  enter('kbCreatChat','kb-b','/platform/knowledge-bases/kb-b/creatChat')
+  enter('kbCreateChat','kb-b','/platform/knowledge-bases/kb-b/createChat')
   assert.deepEqual(selected,{kbIds:['search-kb'],fileIds:['search-file']})
-  enter('globalCreatChat',undefined,'/platform/creatChat')
+  enter('globalCreateChat',undefined,'/platform/createChat')
   assert.deepEqual(selected,{kbIds:[],fileIds:[]})
   for(const invalid of ['',[], ' '.repeat(3), 'x'.repeat(201)]) {
-    enter('kbCreatChat',invalid,'/platform/knowledge-bases/invalid/creatChat')
+    enter('kbCreateChat',invalid,'/platform/knowledge-bases/invalid/createChat')
     assert.deepEqual(selected,{kbIds:[],fileIds:[]})
   }
 })

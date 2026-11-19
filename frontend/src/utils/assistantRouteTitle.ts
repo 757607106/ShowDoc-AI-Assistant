@@ -16,8 +16,8 @@ const ROUTE_TITLE_KEYS: Record<string, string> = {
   agentList: 'menu.agents',
   automationList: 'menu.automations',
   toolbox: 'toolbox.title',
-  globalCreatChat: 'menu.newChat',
-  kbCreatChat: 'menu.newChat',
+  globalCreateChat: 'menu.newChat',
+  kbCreateChat: 'menu.newChat',
   chat: 'assistant.context.pages.chat',
   organizationList: 'menu.organizations',
 }

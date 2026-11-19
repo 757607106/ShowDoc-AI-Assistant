@@ -47,7 +47,7 @@ LangGraph 将线程状态持久化与跨线程 Store 区分为两类能力；当
 | `frontend/src/components` | 96 | 79 | 14 | 3 | 86 | 92 |
 | `frontend/src/views/chat` | 54 | 34 | 16 | 4 | 38 | 48 |
 | `frontend/src/views/agent` | 2 | 0 | 2 | 0 | 0 | 2 |
-| `frontend/src/views/creatChat` | 1 | 0 | 1 | 0 | 0 | 0 |
+| `frontend/src/views/createChat` | 1 | 0 | 1 | 0 | 0 | 0 |
 
 聊天目录中官方无对应文件的 SFC：`HarnessChatPage.vue`、`LegacyChatHistory.vue`、`RetiredAgentFeature.vue`、`tool-results/ContextDBToolResult.vue`。不能仅根据“新增文件”判断应全部删除：旧历史是否迁移仍需确认；但自定义 Agent 结果渲染不能作为最终对齐方案保留。
 
@@ -82,7 +82,7 @@ LangGraph 将线程状态持久化与跨线程 Store 区分为两类能力；当
 
 | 范围 | 从固定 WeKnora 提交恢复的文件/组件 | 落地要求 |
 | --- | --- | --- |
-| 页面及输入 | `views/chat/index.vue`、`views/creatChat/creatChat.vue`、`views/agent/AgentList.vue`、`AgentEditorModal.vue`、`components/Input-field.vue` | 恢复原模板、脚本交互和全部样式块；路由返回官方页面。 |
+| 页面及输入 | `views/chat/index.vue`、`views/createChat/createChat.vue`、`views/agent/AgentList.vue`、`AgentEditorModal.vue`、`components/Input-field.vue` | 恢复原模板、脚本交互和全部样式块；路由返回官方页面。 |
 | 回答及工具 | `botmsg`、`usermsg`、`AgentStreamDisplay`、`ToolResultRenderer` 及官方 SearchResults/GraphQueryResults/McpToolResult/PlanDisplay 等 | 删除 nativeMode/harnessMode 导致的 UI 分叉和自定义结果组件，服务端输出官方接受的数据。 |
 | 交互卡片 | `PendingPromptDock`、`AskUserCard`、`ToolApprovalCard`、`McpOAuthCard`、`SecureFormCard` | 保留官方的倒计时、批量待审批、修改参数、取消与回调行为。安全表单全链路未接通前不能假装支持。 |
 | 子代理 | `ChildAgentTabBar`、`ChildAgentStream`、`CollaborationTasks` | 由官方子图/工具调用身份适配，上下文和消息不得混入父回答。 |

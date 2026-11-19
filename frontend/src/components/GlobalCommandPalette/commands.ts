@@ -57,8 +57,8 @@ export function buildCommands(ctx: CommandContext): CmdkCommand[] {
       run: () => {
         close()
         // 当前已在新对话页时重复点击命令不会触发路由守卫。
-        if (router.currentRoute.value.name === 'globalCreatChat') useSettingsStore().clearChatReferences()
-        router.push('/platform/creatChat')
+        if (router.currentRoute.value.name === 'globalCreateChat') useSettingsStore().clearChatReferences()
+        router.push('/platform/createChat')
       },
     },
     {

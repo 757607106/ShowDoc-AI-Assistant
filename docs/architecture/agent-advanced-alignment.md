@@ -26,7 +26,7 @@ PostgreSQL 保存官方 checkpoint、无向量索引的原生记忆文件以及�
 
 | 交互范围 | 直接复用的源码 |
 | --- | --- |
-| 会话与 Agent 管理 | `src/views/chat/index.vue`、`src/views/creatChat/creatChat.vue`、`src/views/agent/AgentList.vue`、`AgentEditorModal.vue` |
+| 会话与 Agent 管理 | `src/views/chat/index.vue`、`src/views/createChat/createChat.vue`、`src/views/agent/AgentList.vue`、`AgentEditorModal.vue` |
 | 输入、模型与范围选择 | `src/components/Input-field.vue`、`AgentSelector.vue`、`ModelSelector.vue`、`KnowledgeBaseSelector.vue`、附件与提及组件 |
 | 正文、工具与计划 | `views/chat/components/botmsg.vue`、`usermsg.vue`、`AgentStreamDisplay.vue`、`ToolResultRenderer.vue`、`tool-results/PlanDisplay.vue` |
 | 审批与提问 | `PendingPromptDock.vue`、`ToolApprovalCard.vue`、`AskUserCard.vue`、`McpOAuthCard.vue` |

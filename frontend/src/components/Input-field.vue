@@ -1158,7 +1158,7 @@ const ensureModelSelection = () => {
 // 修复场景：导航离开再返回时，initChatModelSelection 会用 localStorage 的 lastPick
 // 覆盖共享智能体绑定的源空间 model_id，UI 显示「未配置」——此时需要拉回 agent 模型。
 // 但若用户在本页手动改过模型（lastPick 与 agent 默认不同且当前选中即为 lastPick），
-// 则保留用户选择，避免 creatChat → chat 跳转后把模型 B 冲回智能体默认 A。
+// 则保留用户选择，避免 createChat → chat 跳转后把模型 B 冲回智能体默认 A。
 watch(
   [selectedAgentId, () => settingsStore.selectedAgentSourceTenantId, agentModelId],
   ([, sourceTenantId, newModelId]) => {

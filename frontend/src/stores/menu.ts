@@ -26,7 +26,7 @@ export const useMenuStore = defineStore('menuStore', () => {
       title: '',
       titleKey: 'menu.newChat',
       icon: 'prefixIcon',
-      path: 'creatChat',
+      path: 'createChat',
       childrenPath: 'chat',
       children: createMenuChildren()
     },
@@ -92,7 +92,7 @@ export const useMenuStore = defineStore('menuStore', () => {
     })
   })
 
-  const chatMenuIndex = menuArr.findIndex(item => item.path === 'creatChat')
+  const chatMenuIndex = menuArr.findIndex(item => item.path === 'createChat')
 
   const clearMenuArr = () => {
     const chatMenu = menuArr[chatMenuIndex]

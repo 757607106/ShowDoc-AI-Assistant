@@ -50,7 +50,7 @@ const steps = computed<SpotlightGuideStep[]>(() => assistantOnly.value ? [assist
   },
   {
     key: 'chat',
-    target: '[data-guide="nav-creatChat"]',
+    target: '[data-guide="nav-createChat"]',
     placement: 'right',
     before: () => uiStore.expandSidebar(),
   },

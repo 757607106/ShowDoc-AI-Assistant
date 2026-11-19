@@ -68,7 +68,7 @@ test('skill ZIP drops on settings never enter knowledge upload or consume the lo
 })
 
 test('settings opened over a knowledge base or chat own their file drops', async () => {
-  for (const name of ['knowledgeBaseDetail', 'chat', 'globalCreatChat', 'kbCreatChat']) {
+  for (const name of ['knowledgeBaseDetail', 'chat', 'globalCreateChat', 'kbCreateChat']) {
     const f = fixture(name, { kbId: 'kb-1', settingsOpen: true })
     const event = fileDrag()
     f.handleGlobalDragEnter(event)
@@ -107,7 +107,7 @@ test('knowledge file drops still validate initialization and reach the knowledge
 })
 
 test('chat file drops still dispatch attachments without knowledge initialization', async () => {
-  for (const name of ['chat', 'globalCreatChat', 'kbCreatChat']) {
+  for (const name of ['chat', 'globalCreateChat', 'kbCreateChat']) {
     const f = fixture(name, { kbId: 'kb-1' })
     const event = fileDrag()
     await f.handleGlobalDrop(event)

@@ -208,7 +208,7 @@ export function useCmdkSearch(options: {
   // cached (the sidebar already paginates them). Good enough for "jump to a
   // session I've seen recently" — not a substitute for message-content search.
   const sessionList = computed<CmdkSessionItem[]>(() => {
-    const chatMenu = (menuStore.menuArr as any[]).find((m: any) => m.path === 'creatChat')
+    const chatMenu = (menuStore.menuArr as any[]).find((m: any) => m.path === 'createChat')
     const children = (chatMenu?.children as any[]) || []
     return children.map((c: any) => ({
       id: String(c.id || ''),

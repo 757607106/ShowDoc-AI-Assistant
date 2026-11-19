@@ -121,7 +121,7 @@ test('batch deletion freezes confirmed IDs and reconciles only those conversatio
   f.settle({ success: true })
   await pending
   assert.deepEqual(f.remaining(), ['B'])
-  assert.deepEqual(f.navigation, ['/platform/creatChat'])
+  assert.deepEqual(f.navigation, ['/platform/createChat'])
   assert.deepEqual(f.notices, ['success'])
 })
 
@@ -179,7 +179,7 @@ test('the all-conversations action remains fixed while transport is pending', as
   await pending
   await f.confirm().onConfirm()
   assert.deepEqual(f.calls, [['ALL']])
-  assert.deepEqual(f.navigation, ['/platform/creatChat'])
+  assert.deepEqual(f.navigation, ['/platform/createChat'])
   assert.deepEqual(f.remaining(), [])
   assert.equal(f.batchMode.value, false)
   assert.equal(f.destroyed(), 1)

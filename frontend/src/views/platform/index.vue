@@ -133,7 +133,7 @@ const getCurrentKbId = (): string | null => {
     return (route.params as any)?.kbId as string || null
 }
 
-const CHAT_DROP_ROUTE_NAMES = new Set(['chat', 'globalCreatChat', 'kbCreatChat']);
+const CHAT_DROP_ROUTE_NAMES = new Set(['chat', 'globalCreateChat', 'kbCreateChat']);
 
 const isChatDropRoute = () => {
     return CHAT_DROP_ROUTE_NAMES.has(String(route.name || ''));
@@ -267,7 +267,7 @@ onMounted(() => {
     // 支持通过 URL 查询参数打开全局命令面板，例如旧路径
     // /platform/knowledge-search?q=foo 重定向后携带 ?cmdk=foo
     maybeOpenCmdkFromRoute()
-    // 后台预取对话输入栏资源，进入 creatChat / chat 时复用缓存
+    // 后台预取对话输入栏资源，进入 createChat / chat 时复用缓存
     void useChatResourcesStore().prefetchChatInput()
 });
 

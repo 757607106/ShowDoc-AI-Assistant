@@ -177,15 +177,15 @@ const router = createRouter({
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
-          path: "creatChat",
-          name: "globalCreatChat",
-          component: () => import("../views/creatChat/creatChat.vue"),
+          path: "createChat",
+          name: "globalCreateChat",
+          component: () => import("../views/createChat/createChat.vue"),
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
-          path: "knowledge-bases/:kbId/creatChat",
-          name: "kbCreatChat",
-          component: () => import("../views/creatChat/creatChat.vue"),
+          path: "knowledge-bases/:kbId/createChat",
+          name: "kbCreateChat",
+          component: () => import("../views/createChat/createChat.vue"),
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
@@ -412,12 +412,12 @@ router.beforeEach(async (to, from, next) => {
 })
 
 router.beforeResolve((to, from) => {
-  if ((to.name === 'globalCreatChat' || to.name === 'kbCreatChat') && to.fullPath !== from.fullPath) {
+  if ((to.name === 'globalCreateChat' || to.name === 'kbCreateChat') && to.fullPath !== from.fullPath) {
     const settingsStore = useSettingsStore()
     const references = settingsStore.consumeNewChatReferences()
     const kbId = to.params.kbId
     if (references) settingsStore.setNewChatReferences(references.kbIds, references.fileIds)
-    else if (to.name === 'kbCreatChat' && typeof kbId === 'string' && kbId.trim() && kbId.length <= 200) {
+    else if (to.name === 'kbCreateChat' && typeof kbId === 'string' && kbId.trim() && kbId.length <= 200) {
       settingsStore.setNewChatReferences([kbId], [])
     }
     else settingsStore.clearChatReferences()

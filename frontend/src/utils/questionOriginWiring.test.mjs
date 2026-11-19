@@ -6,7 +6,7 @@ import ts from 'typescript'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const inputField = read('../components/Input-field.vue')
-const homePage = read('../views/creatChat/creatChat.vue')
+const homePage = read('../views/createChat/createChat.vue')
 const chatPage = read('../views/chat/index.vue')
 
 test('the composer forwards the origin only for the matching submitted draft', () => {
@@ -27,7 +27,7 @@ test('the composer forwards the origin only for the matching submitted draft', (
 })
 
 test('recommendations prefill the composer and the provenance travels with the later send', () => {
-  for (const [name, source] of [['creatChat.vue', homePage], ['chat/index.vue', chatPage]]) {
+  for (const [name, source] of [['createChat.vue', homePage], ['chat/index.vue', chatPage]]) {
     assert.doesNotMatch(source, /pendingQuestionOrigin/, `${name} must not keep a pending origin`)
     assert.match(source, /prefillSuggestion\(item\.question, questionOriginFromSuggestion\(item\)\)/, name)
   }

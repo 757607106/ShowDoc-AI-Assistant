@@ -29,7 +29,7 @@ export function useStartChat() {
     settingsStore.prepareNewChatReferences(kbIds, fileIds)
 
     menuStore.setPrefillQuery(q)
-    void router.push('/platform/creatChat').finally(() => settingsStore.consumeNewChatReferences())
+    void router.push('/platform/createChat').finally(() => settingsStore.consumeNewChatReferences())
   }
 
   return { startChat }
