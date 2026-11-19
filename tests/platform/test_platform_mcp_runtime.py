@@ -29,8 +29,8 @@ from governance.store import StoreError
 from tests.platform.test_platform_harness import call, harness, original_prepare
 from tests.platform.test_platform_weknora_adapter import events
 from webapi.auth import auth_bp, require_login
-from webapi.mcp_runtime import mcp_runtime_bp
-from webapi.model_runtime import model_runtime_bp
+from webapi.runtime.mcp_runtime import mcp_runtime_bp
+from webapi.runtime.model_runtime import model_runtime_bp
 
 
 @contextmanager

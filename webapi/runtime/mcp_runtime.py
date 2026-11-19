@@ -108,7 +108,7 @@ def generate_usage(service_id):
         budget -= size
     if not tools:
         raise StoreError('没有可用的 MCP 工具，无法生成用法', 400)
-    prompt = Path(__file__).resolve().parents[1].joinpath('agent/mcp_usage_prompt.txt').read_text()
+    prompt = Path(__file__).resolve().parent.joinpath('mcp_usage_prompt.txt').read_text()
     language = {'zh-CN': 'Simplified Chinese', 'zh-TW': 'Traditional Chinese', 'en-US': 'English', 'ja-JP': 'Japanese',
                 'ko-KR': 'Korean', 'ru-RU': 'Russian'}.get(body.get('language'), 'Simplified Chinese')
     context = {'name': value['name'][:256], 'server_name': snapshot['server_name'][:256],

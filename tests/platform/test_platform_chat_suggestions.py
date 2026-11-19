@@ -7,7 +7,7 @@ from langchain_core.tools import StructuredTool
 
 from agent import config, registry
 from governance.store import StoreError
-from webapi import chat_suggestions as suggestions
+from webapi.chat import chat_suggestions as suggestions
 
 
 class KnowledgeClient:

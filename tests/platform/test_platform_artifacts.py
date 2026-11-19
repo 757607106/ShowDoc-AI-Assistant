@@ -12,7 +12,7 @@ from agent import sessions
 
 
 def test_image_upload_history_uses_owned_preview_and_not_base64(authenticated_client):
-    from webapi.chat_resources import prepare_attachments
+    from webapi.chat.chat_resources import prepare_attachments
     owner = os.environ['TEST_PLATFORM_USER']
     sid = sessions.create_session(owner_id=owner)['id']
     raw = io.BytesIO()
@@ -28,7 +28,7 @@ def test_text_attachment_is_persisted_without_host_file_and_keeps_preview_expiry
     from agent import sandbox
     from governance.database import connection
     from governance.store import StoreError
-    from webapi import chat_resources
+    from webapi.chat import chat_resources
     owner = os.environ['TEST_PLATFORM_USER']
     sid = sessions.create_session(owner_id=owner)['id']
     other_sid = sessions.create_session(owner_id=owner)['id']
@@ -62,7 +62,7 @@ def test_text_attachment_is_persisted_without_host_file_and_keeps_preview_expiry
 def test_unconfigured_parser_rejects_text_without_host_fallback_or_partial_record(authenticated_client, monkeypatch):
     from agent import sandbox
     from governance.database import connection
-    from webapi import chat_resources
+    from webapi.chat import chat_resources
     owner = os.environ['TEST_PLATFORM_USER']
     sid = sessions.create_session(owner_id=owner)['id']
     monkeypatch.setattr(sandbox, 'enabled', lambda: False)
@@ -79,7 +79,7 @@ def test_unconfigured_parser_rejects_text_without_host_fallback_or_partial_recor
 def test_failed_isolated_parse_retains_owned_original_and_delete_removes_only_record(authenticated_client, monkeypatch):
     from agent import sandbox
     from governance.database import connection
-    from webapi import chat_resources
+    from webapi.chat import chat_resources
     owner = os.environ['TEST_PLATFORM_USER']
     sid = sessions.create_session(owner_id=owner)['id']
     monkeypatch.setattr(sandbox, 'enabled', lambda: True)
@@ -100,7 +100,7 @@ def test_failed_isolated_parse_retains_owned_original_and_delete_removes_only_re
 def test_real_attachment_http_to_isolated_parser_and_owned_preview(authenticated_client, monkeypatch):
     from dotenv import dotenv_values
     from deepagents.backends.utils import file_data_to_string
-    from webapi.chat_resources import prepare_attachments
+    from webapi.chat.chat_resources import prepare_attachments
     for key, value in dotenv_values('.env').items():
         if key.startswith('OPEN_SANDBOX_') and value:
             monkeypatch.setenv(key, value)

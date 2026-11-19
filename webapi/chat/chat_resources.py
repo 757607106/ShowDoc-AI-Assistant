@@ -280,7 +280,7 @@ def document_picker():
 
 
 def _artifact_record(sid, message_id):
-    from webapi import async_views; from webapi.weknora import traces as weknora_traces
+    from webapi.weknora import async_views; from webapi.weknora import traces as weknora_traces
     if sid.startswith(weknora_traces.PREFIX) and weknora_traces.decode(sid)[1] == async_views.NAMESPACE:
         turns = asyncio.run(async_views.artifacts(user_id(), sid))
         if message_id not in turns:

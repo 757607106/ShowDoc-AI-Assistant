@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from agent import registry
-from webapi import model_runtime
+from webapi.runtime import model_runtime
 
 
 def saved_model(kind='Embedding'):

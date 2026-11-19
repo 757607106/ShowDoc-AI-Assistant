@@ -132,7 +132,7 @@ def test_changed_cached_directory_requires_refresh(authenticated_client, policy_
 @pytest.mark.parametrize('concurrent_change', ['credentials', 'delete'])
 def test_policy_save_cannot_overwrite_concurrent_service_change(
         authenticated_client, policy_service, monkeypatch, concurrent_change):
-    from webapi import runtime_settings
+    from webapi.runtime import runtime_settings
     value, invoked = policy_service
     owner = os.environ['TEST_PLATFORM_USER']
     original_connection = runtime_settings.connection

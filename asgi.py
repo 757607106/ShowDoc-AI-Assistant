@@ -20,5 +20,5 @@ def create_app(flask_app=None):
     if flask_app is None:
         from app import app as flask_app
     from webapi.harness import routes
-    from webapi.sandbox_terminal import routes as terminal_routes
+    from webapi.weknora.sandbox_terminal import routes as terminal_routes
     return Starlette(routes=[*routes, *terminal_routes, Mount('/', WSGIMiddleware(flask_app))], lifespan=lifespan)

@@ -310,7 +310,7 @@ def test_document_picker_searches_readable_and_native_names_without_renaming(nam
     fake = Mock()
     fake.list_knowledge_bases.return_value = {'knowledge_bases': [{'id': 'wiki-id', 'name': 'knowledge-default'}]}
     fake.list_documents.return_value = {'documents': [raw]}
-    monkeypatch.setattr('webapi.chat_resources.client_for_user', lambda: fake)
+    monkeypatch.setattr('webapi.chat.chat_resources.client_for_user', lambda: fake)
     for keyword in ('历史采购', 'doc-source'):
         response = http.get('/api/v1/knowledge/search', query_string={'keyword': keyword})
         assert response.status_code == 200

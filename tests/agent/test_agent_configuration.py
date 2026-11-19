@@ -32,8 +32,8 @@ def configured_owner(platform_test_database, monkeypatch, tmp_path):
 
 @pytest.fixture
 def settings_client(configured_owner):
-    from webapi.agents import agents_bp
-    from webapi.runtime_settings import runtime_settings_bp
+    from webapi.weknora.agents import agents_bp
+    from webapi.runtime.runtime_settings import runtime_settings_bp
     app = Flask(__name__)
     app.register_blueprint(agents_bp)
     app.register_blueprint(runtime_settings_bp)

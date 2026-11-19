@@ -7,7 +7,7 @@ import pytest
 from opensandbox.models.execd import Execution, ExecutionError, ExecutionLogs, OutputMessage
 
 from governance.store import StoreError
-from webapi.chat_resources import _image_mime, _parse_attachment
+from webapi.chat.chat_resources import _image_mime, _parse_attachment
 
 
 def test_parser_uses_official_sandbox_files_and_argv_with_no_credentials_or_host_mounts(monkeypatch):

@@ -115,7 +115,7 @@ def _input(body):
 
 
 def _prepare(user, selected, context, message):
-    from webapi.chat_resources import prepare_attachments
+    from webapi.chat.chat_resources import prepare_attachments
     client = client_for_user(user['id'])
     resolved = resolve_request({**context, 'query': message}, client=client, owner_id=user['id'],
                                role=user['role'], session=selected)
@@ -673,7 +673,7 @@ async def _child(request, *, subscribe=False):
     view = request.path_params.get('session_id') or weknora_traces.PREFIX + request.path_params['view']
     parent, namespace, call_id = weknora_traces.decode(view)
     selected = await anyio.to_thread.run_sync(lambda: sessions.get_session(parent, user['id']))
-    from webapi import async_views
+    from webapi.weknora import async_views
     if namespace == async_views.NAMESPACE:
         task, rows = await async_views.read(user['id'], parent, call_id)
         return parent, namespace, task, rows, None, None, user['id']

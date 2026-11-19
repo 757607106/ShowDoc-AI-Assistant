@@ -17,7 +17,7 @@ from agent import graph, registry
 from agent.config import validate_config
 from agent.models import build_model_record, describe_model, model_capabilities
 from governance.store import StoreError
-from webapi.runtime_settings import runtime_settings_bp
+from webapi.runtime.runtime_settings import runtime_settings_bp
 
 
 def record(base='http://127.0.0.1:9', **parameters):

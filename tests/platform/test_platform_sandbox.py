@@ -116,7 +116,7 @@ def test_checkpoint_attachment_seed_is_once_per_environment(monkeypatch):
 
 
 def test_terminal_ticket_single_use_owner_and_readonly(authenticated_client):
-    from webapi.sandbox_terminal import _consume, _authorize
+    from webapi.weknora.sandbox_terminal import _consume, _authorize
     owner = os.environ['TEST_PLATFORM_USER']
     sid = sessions.create_session(owner_id=owner)['id']
     response = authenticated_client.post(f'/api/v1/sessions/{sid}/sandbox/terminal-ticket', json={})
@@ -145,7 +145,7 @@ def test_terminal_ticket_single_use_owner_and_readonly(authenticated_client):
 
 
 def test_exited_pty_mapping_does_not_exhaust_session_slots():
-    from webapi.sandbox_terminal import _pty_id
+    from webapi.weknora.sandbox_terminal import _pty_id
     owner = os.environ['TEST_PLATFORM_USER']
     sid = sessions.create_session(owner_id=owner)['id']
     registry.save_record(sandbox.SESSION_KIND, {'id': sid, 'sandbox_id': 'native-id', 'ptys': {}}, owner)
@@ -158,7 +158,7 @@ def test_exited_pty_mapping_does_not_exhaust_session_slots():
 
 
 def test_pty_handshake_failure_releases_only_unready_new_pty(monkeypatch):
-    from webapi import sandbox_terminal as terminal
+    from webapi.weknora import sandbox_terminal as terminal
     calls = []
     user = {'id': 'owner', 'role': 'editor'}
     selected = {'agent_config': {'agent_config': {'sandbox_config_id': sandbox.CONFIG_ID, 'access_level': 'confirm'}}}

@@ -385,7 +385,7 @@ def test_debug_picture_and_headers_use_saved_owner_credentials(authenticated_cli
     def parser(name, content, *, image=False):
         parsed.append((name, content, image))
         return {'mime': 'image/png'}
-    monkeypatch.setattr('webapi.chat_resources._attachment_parser_result', parser)
+    monkeypatch.setattr('webapi.chat.chat_resources._attachment_parser_result', parser)
     png.seek(0)
     result = authenticated_client.post(f'/api/v1/models/{identifier}/debug', data={'input': 'Describe',
         'options': json.dumps({'reasoning_effort': 'off', 'max_tokens': 128}), 'file': (png, 'fixture.png')})
@@ -408,7 +408,7 @@ def test_debug_picture_parser_failures_do_not_call_model(authenticated_client, s
         if failure == 'malformed':
             raise StoreError('隔离附件解析失败，请检查文件格式', 422)
         raise SandboxException('fixture parser unavailable')
-    monkeypatch.setattr('webapi.chat_resources._attachment_parser_result', parser)
+    monkeypatch.setattr('webapi.chat.chat_resources._attachment_parser_result', parser)
     response = authenticated_client.post(f'/api/v1/models/{identifier}/debug', data={
         'input': 'Describe', 'file': (io.BytesIO(b'untrusted image'), 'fixture.png')})
     assert response.status_code == status, response.json

@@ -235,7 +235,7 @@ async def _observe(owner_id, sid, task, *, detail=False):
                   'interrupts': _interrupts(state), 'error': str(run.get('error') or '')}
         if 'structured_response' in state.get('values', {}) and status == 'success':
             result['structured_response'] = state['values']['structured_response']
-        from webapi import async_views
+        from webapi.weknora import async_views
         result.update(async_views.payload(owner_id, sid, task, state, grant, status))
         row['result'] = result
     return row, client, grant, run

@@ -187,7 +187,7 @@ def debug_model(model_id):
     from agent.config import validate_config
     from agent.models import build_model_record, supports_image_input
     from agent.model_catalog import LEVELS, resolve
-    from webapi.model_runtime import debug_chat_stream, debug_nonchat_model, debug_preview
+    from webapi.runtime.model_runtime import debug_chat_stream, debug_nonchat_model, debug_preview
     if request.is_json:
         body = _body()
         options = body.get('options', body)
@@ -236,7 +236,7 @@ def debug_model(model_id):
         raise StoreError('当前对话模型不支持图片输入', 400)
     if file:
         import base64
-        from webapi.chat_resources import debug_image
+        from webapi.chat.chat_resources import debug_image
         data = file.read(10 * 1024 * 1024 + 1)
         size = len(data)
         if size > 10 * 1024 * 1024:

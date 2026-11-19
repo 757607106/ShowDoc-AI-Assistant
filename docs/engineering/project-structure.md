@@ -15,11 +15,13 @@
 ├── registry.py                    # 平台注册与爬虫工厂
 ├── requirements.txt               # 运行时依赖
 ├── .env.example                   # 环境变量模板
-├── agent/                         # DeepAgents 运行时：图、会话、模型传输、MCP、技能打包
+├── agent/                         # DeepAgents 运行时：图、会话、模型传输、MCP、技能打包（内部结构由 deploy/async-agent/aegra.json 的 graph 文件路径钉死，不重组）
 ├── webapi/                        # 全部 HTTP 路由（Blueprint 按域拆分）
 │   ├── contextdb/                 # ContextDB 官方 API 转发域（__init__ 转发核心 + files / preview / source_images）
-│   ├── weknora/                   # WeKnora 协议兼容层（adapter / artifacts / prompts / traces），命名保留协议语义
-│   └── retired_runtime.py        # 已退役旧执行入口的 410 响应助手
+│   ├── weknora/                   # WeKnora 协议兼容层（adapter / agents / artifacts / async_views / prompts / sandbox_terminal / terminal / traces），命名保留协议语义
+│   ├── chat/                      # 聊天域（chat_interactions / chat_resources / chat_suggestions）
+│   ├── runtime/                   # 运行时配置域（mcp_runtime / model_runtime / skill_runtime / runtime_settings + mcp_usage_prompt.txt 资产）
+│   └── agent / auth / browser / harness / knowledge / material / platform / retired_runtime  # 根级域模块
 ├── common/                        # 跨平台内容转换、RAG 分块、质量检查
 ├── crawlers/                      # 平台爬虫和通用网页发现能力
 ├── governance/                    # ContextDB 治理存储、任务 worker、发布与知识库同步
@@ -34,7 +36,7 @@
 │   ├── conftest.py                # 共享 fixture，仅保留根级一个
 │   ├── fakes/                     # 测试替身（aegra_fake / contextdb_fake / harness_fakes）
 │   ├── agent/                     # agent 域
-│   ├── platform/                  # 平台集成域：同一 ASGI 面的集成测试，经 test_platform_harness 夹具集线，刻意保持单层不二次分层
+│   ├── platform/                  # 平台集成域：同一 ASGI 面的集成测试（45 个），经 test_platform_harness 夹具集线，刻意保持单层不二次分层；非集成性质的域测试已按域归入对应子包
 │   ├── contextdb/                 # ContextDB 与知识库域
 │   ├── crawlers/                  # 爬虫域
 │   ├── governance/                # 治理存储域

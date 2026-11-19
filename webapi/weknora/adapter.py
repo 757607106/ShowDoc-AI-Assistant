@@ -110,7 +110,7 @@ def tool_display_name(name):
 
 
 def tool_result(message, arguments=None, names=None):
-    from webapi.chat_suggestions import _structured, _tool_succeeded
+    from webapi.chat.chat_suggestions import _structured, _tool_succeeded
     output = text(message.get('content'))
     native_message = SimpleNamespace(**message)
     native = _structured(native_message)

@@ -28,7 +28,7 @@ def draft_model(body, owner, model_type):
             raise StoreError('模型 ID 无效', 400)
         saved = registry.model_record(model_id, owner)
         if saved.get('is_builtin'):
-            from webapi.runtime_settings import _require_model_edit
+            from webapi.runtime.runtime_settings import _require_model_edit
             _require_model_edit(saved)
         saved['parameters'] = {**saved.get('parameters', {}), **registry.secrets(saved)}
         (saved['parameters'].get('extra_config') or {}).pop('secret_key', None)
@@ -73,7 +73,7 @@ def draft_model(body, owner, model_type):
 
 
 def _check(kind):
-    from webapi.runtime_settings import _require_model_admin
+    from webapi.runtime.runtime_settings import _require_model_admin
     _require_model_admin()
     value = draft_model(request.get_json(silent=True), user_id(), kind)
     try:
@@ -227,7 +227,7 @@ def debug_nonchat_model(saved, body, options, upload):
     if data and kind != 'ASR':
         if 'image' not in r['capabilities'].get('input', []):
             raise StoreError('模型未声明支持图片输入', 400)
-        from webapi.chat_resources import debug_image
+        from webapi.chat.chat_resources import debug_image
         image = debug_image(upload.filename or 'image', data, r['compat'])
     request_info = debug_preview(saved, query, options, documents=documents, upload=upload, size=len(data or b''))
     observations = {}

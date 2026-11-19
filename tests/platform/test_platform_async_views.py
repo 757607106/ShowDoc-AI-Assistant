@@ -10,7 +10,7 @@ from deepagents.backends.utils import create_file_data
 from langchain_core.messages import AIMessage, HumanMessage
 
 from agent import async_work
-from webapi import async_views; from webapi.weknora import adapter as weknora_adapter, traces as weknora_traces
+from webapi.weknora import async_views; from webapi.weknora import adapter as weknora_adapter, traces as weknora_traces
 from tests.platform.test_platform_harness import harness, original_prepare
 
 

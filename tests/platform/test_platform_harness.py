@@ -44,7 +44,7 @@ def frames(response):
 @pytest.fixture
 def original_prepare(monkeypatch):
     monkeypatch.setattr('agent.sandbox.enabled', lambda: True)
-    monkeypatch.setattr('webapi.chat_resources._parse_attachment', lambda name, content: content.decode('utf-8'))
+    monkeypatch.setattr('webapi.chat.chat_resources._parse_attachment', lambda name, content: content.decode('utf-8'))
     from webapi.harness import _prepare
     return _prepare
 
