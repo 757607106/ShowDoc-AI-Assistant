@@ -16,10 +16,10 @@
 
 平台保存账号、知识库、来源标识到根节点的映射；同名的不同来源不会合并，同来源重跑复用原节点。只有本次采集明确设置的根名可以改名，历史版本不能覆盖当前目录配置。文件修订继承原来源目录，Wiki 目录不参与同步。
 
-存量整理使用 `scripts/repair_import_directories.py`。默认仅生成计划，`--apply` 执行节点移动，不重新上传或提交评审：
+存量整理使用 `scripts/ops/repair_import_directories.py`。默认仅生成计划，`--apply` 执行节点移动，不重新上传或提交评审：
 
 ```sh
-.venv/bin/python -m scripts.repair_import_directories \
+.venv/bin/python -m scripts.ops.repair_import_directories \
   --owner-id <平台账号ID> --kb-id <知识库ID> \
   --report downloads/migrations/import-directories.json --apply
 ```

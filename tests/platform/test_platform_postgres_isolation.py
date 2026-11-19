@@ -14,7 +14,7 @@ from langgraph.store.postgres import PostgresStore
 from langgraph.types import Command, interrupt
 
 from governance import database
-from scripts import isolate_agent_postgres as isolation
+from scripts.ops import isolate_agent_postgres as isolation
 
 
 class LegacyState(TypedDict):

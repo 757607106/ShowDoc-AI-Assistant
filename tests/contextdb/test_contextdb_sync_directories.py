@@ -337,7 +337,7 @@ def test_sync_unchanged_capture_moves_existing_file_without_resubmitting_review(
 
 
 def test_repair_report_snapshots_include_all_document_and_review_pages():
-    from scripts.repair_import_directories import document_ids, review_snapshot
+    from scripts.ops.repair_import_directories import document_ids, review_snapshot
     client = Mock()
     docs = [{'id': f'doc-{index:03d}'} for index in range(103)]
     reviews = [{'review_id': f'review-{index:03d}', 'document_id': row['id'], 'created_at': '2026-11-17'}
@@ -351,7 +351,7 @@ def test_repair_report_snapshots_include_all_document_and_review_pages():
 
 
 def test_repair_report_wiki_snapshot_walks_every_directory_and_cursor_page():
-    from scripts.repair_import_directories import wiki_directories
+    from scripts.ops.repair_import_directories import wiki_directories
     client = Mock()
     def read(kb_id, *, parent_page_id, page_type, cursor):
         assert kb_id == 'kb' and page_type == 'category'

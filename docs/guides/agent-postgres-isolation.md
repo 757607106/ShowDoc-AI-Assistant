@@ -14,7 +14,7 @@ bootstrap 管理员保留数据库与 schema 运维权限，不作为应用连�
 管理员 DSN 通过 `--admin-url` 单独提供，勿将其留作运行配置。
 
 ```bash
-.venv/bin/python -m scripts.isolate_agent_postgres --admin-url "$ISOLATION_ADMIN_URL"
+.venv/bin/python -m scripts.ops.isolate_agent_postgres --admin-url "$ISOLATION_ADMIN_URL"
 ```
 
 默认仅以只读事务盘点。核对库名、角色、平台九表行数、官方 Agent 六表行数和内容校验和及准备计划。
@@ -24,7 +24,7 @@ bootstrap 管理员保留数据库与 schema 运维权限，不作为应用连�
 经独立审查并明确批准生产切换后，才执行：
 
 ```bash
-.venv/bin/python -m scripts.isolate_agent_postgres --admin-url "$ISOLATION_ADMIN_URL" --apply
+.venv/bin/python -m scripts.ops.isolate_agent_postgres --admin-url "$ISOLATION_ADMIN_URL" --apply
 ```
 
 apply 创建或检查两个专用账号、创建 Agent 库，撤销两库的 PUBLIC CONNECT 和交叉账号权限，

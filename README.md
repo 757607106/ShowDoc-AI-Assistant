@@ -71,15 +71,15 @@ Wiki 编译器接管准入结果为 **未通过**：完整受影响页定位、�
 
 ```bash
 # 只读备份旧 _governance，生成校验和
-.venv/bin/python -m scripts.migrate_runtime
+.venv/bin/python -m scripts.ops.migrate_runtime
 # 校验快照后导入指定的已绑定平台账号，不修改/删除旧云端记录
-.venv/bin/python -m scripts.migrate_runtime --snapshot downloads/migrations/<timestamp>.json --apply --owner-account admin
+.venv/bin/python -m scripts.ops.migrate_runtime --snapshot downloads/migrations/<timestamp>.json --apply --owner-account admin
 
 .venv/bin/pytest -q
 cd frontend && npm run type-check && npm run build-only
 ```
 
-默认测试不会访问 ContextDB 云端。平台与 Agent 分别在 `showdoc_knowledge_test`、`showdoc_agent_test` 使用独立临时账号和每例 schema，验证双向跨库连接被拒绝；`TEST_DATABASE_URL` 必须指向以 `_test` 结尾的测试库，并有创建临时数据库和账号的权限。单目标知识库的云端验收需显式执行 `.venv/bin/python -m scripts.contextdb_pipeline_smoke --execute`，只操作本次新建且精确记录 ID 的探测资源，并记录清理结果。
+默认测试不会访问 ContextDB 云端。平台与 Agent 分别在 `showdoc_knowledge_test`、`showdoc_agent_test` 使用独立临时账号和每例 schema，验证双向跨库连接被拒绝；`TEST_DATABASE_URL` 必须指向以 `_test` 结尾的测试库，并有创建临时数据库和账号的权限。单目标知识库的云端验收需显式执行 `.venv/bin/python -m scripts.smoke.contextdb_pipeline_smoke --execute`，只操作本次新建且精确记录 ID 的探测资源，并记录清理结果。
 
 新会话在既有 `agent_sessions.agent_config` 标记 `runtime=deepagents`，主会话执行状态保存在 Agent 专库的官方 LangGraph checkpoint；显式异步子代理的线程、运行与 checkpoint 使用独立 `showdoc_async_agent` 库和 Valkey broker。WeKnora 聊天、历史、审批与提问接口由 API Adapter 对接；主会话审批 POST 提交协议决定，随后的续接 GET 调用原生 `Command` 并流式返回；异步子代理按远端真实 interrupt ID 一次提交完整响应，由运行服务恢复。旧会话、运行记录和沙箱卷保留，旧执行入口继续拒绝执行。官方 StateBackend 提供虚拟会话文件；OpenSandbox 提供隔离文件和 Shell，接入步骤及附件解析镜像见[沙箱部署说明](deploy/opensandbox.md)。附件原始字节保存在所属账号的归档记录中，解析在无外网的临时沙箱执行，无沙箱时明确拒绝，不回退宿主解析。原生文件记忆、子代理轨迹、应用层 fork/rewind 已接入；浏览器/桌面、运行中 steering、自动安装及结构化记忆仍明确拒绝。源码核对与验证见 [官方对齐审计](docs/architecture/agent-official-alignment-audit.md)。
 

@@ -1,11 +1,11 @@
 """Safety guards for explicitly opt-in disposable cloud acceptance."""
 import pytest
 
-from scripts.contextdb_pipeline_smoke import assert_owned, run
+from scripts.smoke.contextdb_pipeline_smoke import assert_owned, run
 
 
 def test_default_run_never_constructs_a_cloud_client(monkeypatch):
-    monkeypatch.setattr('scripts.contextdb_pipeline_smoke.ContextDBClient',
+    monkeypatch.setattr('scripts.smoke.contextdb_pipeline_smoke.ContextDBClient',
         lambda *args, **kwargs: pytest.fail('dry run must not access any cloud resource'))
     assert run()['mutations'] is False
 

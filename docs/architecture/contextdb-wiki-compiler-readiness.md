@@ -33,13 +33,13 @@
 以下脚本仍固定读取 0.0.8 文档，用于复现旧报告流程，不覆盖 0.0.9 全部契约；更新脚本前不要把新输出当成当前完整能力报告。默认只读，不创建云端资源：
 
 ```bash
-.venv/bin/python -m scripts.contextdb_probe --wiki-compiler
+.venv/bin/python -m scripts.smoke.contextdb_probe --wiki-compiler
 ```
 
 显式创建并清理独立测试资源，验证切片和页面读写：
 
 ```bash
-.venv/bin/python -m scripts.contextdb_probe --wiki-compiler --write
+.venv/bin/python -m scripts.smoke.contextdb_probe --wiki-compiler --write
 ```
 
 默认输出本专项 JSON，不覆盖既有 `contextdb-capabilities.json`。报告只保存能力状态、计数、文档摘要和清理标识，不保存密钥、源文正文或预签名下载地址。

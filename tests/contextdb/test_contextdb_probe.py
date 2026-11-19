@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import pytest
 
 from integrations.contextdb import ContextDBClient, ContextDBConflictError, ContextDBError
-from scripts import contextdb_probe
+from scripts.smoke import contextdb_probe
 
 
 @pytest.fixture

@@ -6,7 +6,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from scripts import migrate_runtime, verify_crawler_names, verify_knowledge_names
+from scripts import verify_crawler_names, verify_knowledge_names
+from scripts.ops import migrate_runtime
 
 
 @pytest.mark.parametrize('module,extra', [
