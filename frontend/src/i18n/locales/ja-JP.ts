@@ -5613,6 +5613,61 @@ export default {
       }
     },
     platform: {
+      loginShowcase: {
+        "carouselLabel": "任我行ナレッジベースの機能イメージ",
+        "switchLabel": "機能テーマを切り替える",
+        "pause": "スライドとフローを一時停止",
+        "play": "スライドとフローを再生",
+        "reducedMotion": "動きを減らす設定に従い自動再生を停止",
+        "themes": {
+          "query": {
+            "title": "すべての回答に根拠を",
+            "description": "自然な言葉で質問し、出典のある回答へ",
+            "summary": "質問に関連する原文を検索し、回答と引用を表示します。",
+            "mobile": "質問 → 原文を検索 → 引用付き回答",
+            "tab": "引用付き回答"
+          },
+          "organization": {
+            "title": "分散した文書をつなぐ",
+            "description": "資料をテーマ別に整理し、関連する知識をつなぐ",
+            "summary": "資料を製品知識、導入支援、顧客サポートのテーマに整理します。",
+            "mobile": "資料 → 製品 / 導入 / サポートの知識",
+            "tab": "知識の整理"
+          },
+          "intake": {
+            "title": "社内資料を一か所に",
+            "description": "文書、Webページ、既存のナレッジ基盤をつなぐ",
+            "summary": "文書、Webページ、既存の知識を共通のナレッジ入口に集約します。",
+            "mobile": "文書 / Web / 既存の知識 → 共通の入口",
+            "tab": "資料の集約"
+          },
+          "review": {
+            "title": "変化に合わせて知識を更新",
+            "description": "内容の変更をレビューし、知識を活用し続ける",
+            "summary": "変更内容をレビューして確認した後、対応する知識を更新します。",
+            "mobile": "内容の変更 → レビュー → 知識の更新",
+            "tab": "レビューと更新"
+          }
+        },
+        "labels": {
+          "query": "質問",
+          "sourceHit": "原文を検索",
+          "citedAnswer": "引用付き回答",
+          "sourceMaterial": "元の資料",
+          "productKnowledge": "製品知識",
+          "delivery": "導入支援",
+          "customerService": "サポート",
+          "documents": "文書",
+          "webContent": "Web",
+          "existingKnowledge": "既存の知識",
+          "knowledgeEntry": "知識の入口",
+          "materialsReceived": "集約完了",
+          "contentChange": "内容の変更",
+          "knowledgeReview": "レビュー",
+          "knowledgeUpdate": "知識の更新",
+          "updateConfirmed": "更新を確認"
+        }
+      },
       subtitle: 'LLM駆動のエンタープライズ向けナレッジフレームワーク',
       description: 'RAG検索、エージェント推論、Wikiナレッジベースにより、ドキュメントを本当に理解し活用できます',
       rag: 'RAG拡張生成',

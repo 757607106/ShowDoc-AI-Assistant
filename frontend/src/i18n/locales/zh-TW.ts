@@ -4189,6 +4189,61 @@ export default {
     pinned: '已置頂'
   },
   platform: {
+    loginShowcase: {
+      "carouselLabel": "任我行知識庫功能示意",
+      "switchLabel": "切換功能主題",
+      "pause": "暫停輪播與流光",
+      "play": "播放輪播與流光",
+      "reducedMotion": "已依減少動態效果設定停止自動播放",
+      "themes": {
+        "query": {
+          "title": "每次提問，都有依據",
+          "description": "從自然語言提問，直達有出處的回答",
+          "summary": "問題進入檢索，命中原文，回答與引用同時顯現。",
+          "mobile": "提問 → 命中原文 → 回答附有引用",
+          "tab": "問答溯源"
+        },
+        "organization": {
+          "title": "分散文件，有序關聯",
+          "description": "按主題展開資料，連接相關的知識",
+          "summary": "來源資料依序展開為產品知識、實施交付和客戶服務三個主題。",
+          "mobile": "來源資料 → 產品 / 實施 / 服務知識",
+          "tab": "知識組織"
+        },
+        "intake": {
+          "title": "企業資料，一處匯聚",
+          "description": "連接文件、網頁與現有知識平台",
+          "summary": "文件、網頁和既有知識匯入同一個知識入口，資料接收後確認匯聚。",
+          "mobile": "文件 / 網頁 / 既有知識 → 統一入口",
+          "tab": "資料匯聚"
+        },
+        "review": {
+          "title": "知識變化，即時更新",
+          "description": "經過知識審核，讓資料持續產生價值",
+          "summary": "內容變更先經過審核確認，再進入知識庫更新對應內容。",
+          "mobile": "內容變化 → 知識審核 → 知識更新",
+          "tab": "審核更新"
+        }
+      },
+      "labels": {
+        "query": "自然語言提問",
+        "sourceHit": "命中原文",
+        "citedAnswer": "回答附有引用",
+        "sourceMaterial": "來源資料",
+        "productKnowledge": "產品知識",
+        "delivery": "實施交付",
+        "customerService": "客戶服務",
+        "documents": "文件資料",
+        "webContent": "網頁內容",
+        "existingKnowledge": "既有知識",
+        "knowledgeEntry": "統一知識入口",
+        "materialsReceived": "資料已匯聚",
+        "contentChange": "內容變化",
+        "knowledgeReview": "知識審核",
+        "knowledgeUpdate": "知識更新",
+        "updateConfirmed": "本次更新已確認"
+      }
+    },
     subtitle: '大型語言模型驅動的企業級知識框架',
     description: 'RAG 檢索、智慧代理推論、Wiki 知識庫，讓文件真正被理解和運用',
     rag: 'RAG 增強生成',

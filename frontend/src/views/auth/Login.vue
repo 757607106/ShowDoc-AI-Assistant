@@ -1,61 +1,5 @@
 <template>
   <div class="login-layout">
-    <div class="animated-bg" aria-hidden="true">
-      <div class="knowledge-atmosphere"></div>
-      <svg class="knowledge-lines" viewBox="0 0 1000 650" preserveAspectRatio="none" aria-hidden="true">
-        <g style="--phase:0">
-          <path class="connection-line" d="M390 78 C466 22 554 33 640 52" />
-          <path class="connection-flow" pathLength="100" d="M390 78 C466 22 554 33 640 52" />
-        </g>
-        <g style="--phase:-.85">
-          <path class="connection-line" d="M640 52 C728 35 810 42 880 97.5" />
-          <path class="connection-flow" pathLength="100" d="M640 52 C728 35 810 42 880 97.5" />
-        </g>
-        <g style="--phase:-.7">
-          <path class="connection-line" d="M880 97.5 C768 196 592 112 500 247" />
-          <path class="connection-flow" pathLength="100" d="M880 97.5 C768 196 592 112 500 247" />
-        </g>
-        <g style="--phase:-.7">
-          <path class="connection-line" d="M500 247 C492 300 548 326 540 390" />
-          <path class="connection-flow" pathLength="100" d="M500 247 C492 300 548 326 540 390" />
-        </g>
-        <g style="--phase:-.4">
-          <path class="connection-line" d="M540 390 C532 456 482 476 490 546" />
-          <path class="connection-flow" pathLength="100" d="M540 390 C532 456 482 476 490 546" />
-        </g>
-        <g class="connection-branch" style="--phase:-.85">
-          <path class="connection-line" d="M390 78 C430 138 454 174 500 247" />
-          <path class="connection-flow" pathLength="100" d="M390 78 C430 138 454 174 500 247" />
-        </g>
-        <g class="connection-branch" style="--phase:-.7">
-          <path class="connection-line" d="M640 52 C586 100 518 138 500 247" />
-          <path class="connection-flow" pathLength="100" d="M640 52 C586 100 518 138 500 247" />
-        </g>
-        <g class="connection-branch" style="--phase:-.1">
-          <path class="connection-line" d="M490 546 C428 480 422 332 500 247" />
-          <path class="connection-flow" pathLength="100" d="M490 546 C428 480 422 332 500 247" />
-        </g>
-      </svg>
-      <div class="knowledge-node" style="left:39%;top:12%;--phase:0">
-        <img src="@/assets/img/knowledge-flow/crawler.svg" alt="" class="node-icon" />
-      </div>
-      <div class="knowledge-node" style="left:64%;top:8%;--phase:-.85">
-        <img src="@/assets/img/knowledge-flow/document.svg" alt="" class="node-icon" />
-      </div>
-      <div class="knowledge-node" style="left:88%;top:15%;--phase:-.7">
-        <img src="@/assets/img/knowledge-flow/archive.svg" alt="" class="node-icon" />
-      </div>
-      <div class="knowledge-node knowledge-hub" style="left:50%;top:38%;--phase:-.7">
-        <img src="@/assets/img/knowledge-flow/knowledge.svg" alt="" class="node-icon" />
-      </div>
-      <div class="knowledge-node" style="left:54%;top:60%;--phase:-.4">
-        <img src="@/assets/img/knowledge-flow/search.svg" alt="" class="node-icon" />
-      </div>
-      <div class="knowledge-node" style="left:49%;top:84%;--phase:-.1">
-        <img src="@/assets/img/knowledge-flow/answer.svg" alt="" class="node-icon" />
-      </div>
-    </div>
-
     <!-- Logo - Top Left -->
     <div class="header-logo">
       <img src="@/assets/img/renwoxing-knowledge.svg" alt="任我行知识库" class="logo-image" />
@@ -85,190 +29,164 @@
     </div>
     -->
 
-    <!-- Left Showcase Section -->
-    <div class="showcase-section">
-      <div class="showcase-content">
-        <p class="showcase-subtitle">{{ $t('platform.subtitle') }}</p>
-        <p class="showcase-description">{{ $t('platform.description') }}</p>
+    <div class="login-content">
+      <LoginShowcase class="showcase-section" :form-active="formActive || loading || oidcLoading" />
 
-        <div class="feature-tags">
-          <span class="tag">{{ $t('platform.rag') }}</span>
-          <span class="tag">{{ $t('platform.agent') }}</span>
-          <span class="tag">{{ $t('platform.wiki') }}</span>
-          <span class="tag">{{ $t('platform.hybridSearch') }}</span>
-        </div>
-
-        <!-- Swiper Carousel -->
-        <div class="carousel-container">
-          <swiper :modules="modules" :slides-per-view="1" :loop="true" :autoplay="{
-            delay: 4000,
-            disableOnInteraction: false,
-          }" :effect="'fade'" :fade-effect="{ crossFade: true }"
-            :pagination="{ clickable: true, dynamicBullets: false }" :speed="800" class="screenshot-swiper">
-            <swiper-slide v-for="(slide, index) in slides" :key="index">
-              <div class="slide-content">
-                <img :src="slide.image" :alt="slide.title" class="slide-image" />
-              </div>
-            </swiper-slide>
-          </swiper>
-        </div>
-      </div>
-    </div>
-
-    <!-- Right Form Section -->
-    <div class="form-section">
-      <div class="form-panel">
-        <!-- Login Card -->
-        <div class="form-card" v-if="!isRegisterMode">
-          <!-- 登录已有账号时保留邀请上下文。 -->
-          <div v-if="inviteLookup" class="invite-banner">
-            <t-icon name="link" class="invite-banner__icon" />
-            <div class="invite-banner__text">
-              <div class="invite-banner__title">
-                {{ $t('inviteRegister.bannerTitle', { tenant: inviteLookup.tenant_name || '' }) }}
-              </div>
-              <div class="invite-banner__hint">
-                {{ $t('inviteRegister.bannerHintLogin') }}
-              </div>
-            </div>
-          </div>
-          <div v-else-if="inviteLookupError" class="invite-banner invite-banner--error">
-            {{ inviteLookupError }}
-          </div>
-          <div class="form-header">
-            <h2 class="form-title">{{ $t('auth.login') }}</h2>
-            <p v-if="registrationEnabled" class="form-hint">{{ $t('auth.loginHint') }}</p>
-          </div>
-
-          <div class="form-content">
-            <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
-              label-align="top">
-              <t-form-item :label="$t('auth.account')" name="account">
-                <t-input v-model="formData.account" :placeholder="$t('auth.accountPlaceholder')" type="text"
-                  autocomplete="username" size="large" :disabled="loading" />
-              </t-form-item>
-
-              <t-form-item :label="$t('auth.password')" name="password">
-                <t-input v-model="formData.password" :placeholder="$t('auth.passwordPlaceholder')" type="password"
-                  autocomplete="current-password" size="large" :disabled="loading" @enter="handleLogin" />
-              </t-form-item>
-
-              <t-button type="submit" theme="primary" size="large" block :loading="loading" class="submit-button">
-                {{ loading ? $t('auth.loggingIn') : $t('auth.login') }}
-              </t-button>
-
-              <div class="register-cta" v-if="registrationEnabled">
-                <div class="register-cta__divider">
-                  <span>{{ $t('auth.firstTime') }}</span>
+      <!-- Right Form Section -->
+      <div class="form-section" @focusin="formActive = true" @focusout="handleFormFocusOut">
+        <div class="form-panel">
+          <!-- Login Card -->
+          <div class="form-card" v-if="!isRegisterMode">
+            <!-- 登录已有账号时保留邀请上下文。 -->
+            <div v-if="inviteLookup" class="invite-banner">
+              <t-icon name="link" class="invite-banner__icon" />
+              <div class="invite-banner__text">
+                <div class="invite-banner__title">
+                  {{ $t('inviteRegister.bannerTitle', { tenant: inviteLookup.tenant_name || '' }) }}
                 </div>
-                <t-button theme="default" variant="outline" size="large" block class="register-cta__button"
-                  :disabled="loading" @click="toggleMode">
-                  {{ $t('auth.createAccount') }}
+                <div class="invite-banner__hint">
+                  {{ $t('inviteRegister.bannerHintLogin') }}
+                </div>
+              </div>
+            </div>
+            <div v-else-if="inviteLookupError" class="invite-banner invite-banner--error">
+              {{ inviteLookupError }}
+            </div>
+            <div class="form-header">
+              <h2 class="form-title">{{ $t('auth.login') }}</h2>
+              <p v-if="registrationEnabled" class="form-hint">{{ $t('auth.loginHint') }}</p>
+            </div>
+
+            <div class="form-content">
+              <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
+                label-align="top">
+                <t-form-item :label="$t('auth.account')" name="account">
+                  <t-input v-model="formData.account" :placeholder="$t('auth.accountPlaceholder')" type="text"
+                    autocomplete="username" size="large" :disabled="loading" />
+                </t-form-item>
+
+                <t-form-item :label="$t('auth.password')" name="password">
+                  <t-input v-model="formData.password" :placeholder="$t('auth.passwordPlaceholder')" type="password"
+                    autocomplete="current-password" size="large" :disabled="loading" @enter="handleLogin" />
+                </t-form-item>
+
+                <t-button type="submit" theme="primary" size="large" block :loading="loading" class="submit-button">
+                  {{ loading ? $t('auth.loggingIn') : $t('auth.login') }}
                 </t-button>
-              </div>
 
-              <div v-if="oidcEnabled" class="oidc-divider">
-                <span>{{ $t('auth.orContinueWith') }}</span>
-              </div>
+                <div class="register-cta" v-if="registrationEnabled">
+                  <div class="register-cta__divider">
+                    <span>{{ $t('auth.firstTime') }}</span>
+                  </div>
+                  <t-button theme="default" variant="outline" size="large" block class="register-cta__button"
+                    :disabled="loading" @click="toggleMode">
+                    {{ $t('auth.createAccount') }}
+                  </t-button>
+                </div>
 
-              <t-button v-if="oidcEnabled" theme="default" size="large" block :loading="oidcLoading" :disabled="loading"
-                class="oidc-button" @click="handleOIDCLogin">
-                {{ oidcLoading ? $t('auth.redirectingToOIDC') : oidcLoginText }}
-              </t-button>
-            </t-form>
+                <div v-if="oidcEnabled" class="oidc-divider">
+                  <span>{{ $t('auth.orContinueWith') }}</span>
+                </div>
 
-            <!-- Features list -->
-            <div class="login-features">
-              <div class="feature-item">
-                <span class="feature-icon">✓</span>
-                <span class="feature-text">{{ $t('platform.multimodalParsing') }}</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">✓</span>
-                <span class="feature-text">{{ $t('platform.hybridSearchEngine') }}</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">✓</span>
-                <span class="feature-text">{{ $t('platform.ragQandA') }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+                <t-button v-if="oidcEnabled" theme="default" size="large" block :loading="oidcLoading" :disabled="loading"
+                  class="oidc-button" @click="handleOIDCLogin">
+                  {{ oidcLoading ? $t('auth.redirectingToOIDC') : oidcLoginText }}
+                </t-button>
+              </t-form>
 
-        <!-- Registration must be allowed for this mode and invitation. -->
-        <div class="form-card" v-if="isRegisterMode && registrationEnabled">
-          <!-- Share-link banner: shown only when ?token= resolved to a
-               real invitation row. Sits above the form header so the
-               invitee instantly sees who invited them and into which
-               workspace, without bumping the existing register UX. -->
-          <div v-if="inviteLookup" class="invite-banner">
-            <t-icon name="link" class="invite-banner__icon" />
-            <div class="invite-banner__text">
-              <div class="invite-banner__title">
-                {{ $t('inviteRegister.bannerTitle', { tenant: inviteLookup.tenant_name || '' }) }}
-              </div>
-              <div class="invite-banner__hint">
-                {{ $t('inviteRegister.bannerHint') }}
+              <!-- Features list -->
+              <div class="login-features">
+                <div class="feature-item">
+                  <span class="feature-icon">✓</span>
+                  <span class="feature-text">{{ $t('platform.multimodalParsing') }}</span>
+                </div>
+                <div class="feature-item">
+                  <span class="feature-icon">✓</span>
+                  <span class="feature-text">{{ $t('platform.hybridSearchEngine') }}</span>
+                </div>
+                <div class="feature-item">
+                  <span class="feature-icon">✓</span>
+                  <span class="feature-text">{{ $t('platform.ragQandA') }}</span>
+                </div>
               </div>
             </div>
           </div>
-          <div v-else-if="inviteLookupError" class="invite-banner invite-banner--error">
-            {{ inviteLookupError }}
-          </div>
-          <div class="form-header">
-            <h2 class="form-title">{{ $t('auth.createAccount') }}</h2>
-            <p class="form-subtitle">{{ $t('auth.registerSubtitle') }}</p>
-          </div>
 
-          <div class="form-content">
-            <t-form ref="registerFormRef" :data="registerData" :rules="registerRules" @submit="handleRegister"
-              layout="vertical" label-align="top">
-              <t-form-item :label="$t('auth.username')" name="username">
-                <t-input v-model="registerData.username" :placeholder="$t('auth.usernamePlaceholder')" size="large"
-                  :disabled="loading" />
-              </t-form-item>
-
-              <t-form-item :label="$t('auth.email')" name="email">
-                <t-input v-model="registerData.email" :placeholder="$t('auth.emailPlaceholder')" type="text"
-                  autocomplete="email" size="large" :disabled="loading" />
-              </t-form-item>
-
-              <t-form-item :label="$t('auth.password')" name="password">
-                <t-input v-model="registerData.password" :placeholder="$t('auth.passwordPlaceholder')" type="password"
-                  autocomplete="new-password" size="large" :disabled="loading" />
-              </t-form-item>
-
-              <t-form-item :label="$t('auth.confirmPassword')" name="confirmPassword">
-                <t-input v-model="registerData.confirmPassword" :placeholder="$t('auth.confirmPasswordPlaceholder')"
-                  type="password" autocomplete="new-password" size="large" :disabled="loading"
-                  @enter="handleRegister" />
-              </t-form-item>
-
-              <t-button type="submit" theme="primary" size="large" block :loading="loading" class="submit-button">
-                {{ loading ? $t('auth.registering') : $t('auth.register') }}
-              </t-button>
-            </t-form>
-
-            <div class="form-footer">
-              <span>{{ $t('auth.haveAccount') }}</span>
-              <a href="#" @click.prevent="toggleMode" class="link-button">
-                {{ $t('auth.backToLogin') }}
-              </a>
+          <!-- Registration must be allowed for this mode and invitation. -->
+          <div class="form-card" v-if="isRegisterMode && registrationEnabled">
+            <!-- Share-link banner: shown only when ?token= resolved to a
+                 real invitation row. Sits above the form header so the
+                 invitee instantly sees who invited them and into which
+                 workspace, without bumping the existing register UX. -->
+            <div v-if="inviteLookup" class="invite-banner">
+              <t-icon name="link" class="invite-banner__icon" />
+              <div class="invite-banner__text">
+                <div class="invite-banner__title">
+                  {{ $t('inviteRegister.bannerTitle', { tenant: inviteLookup.tenant_name || '' }) }}
+                </div>
+                <div class="invite-banner__hint">
+                  {{ $t('inviteRegister.bannerHint') }}
+                </div>
+              </div>
+            </div>
+            <div v-else-if="inviteLookupError" class="invite-banner invite-banner--error">
+              {{ inviteLookupError }}
+            </div>
+            <div class="form-header">
+              <h2 class="form-title">{{ $t('auth.createAccount') }}</h2>
+              <p class="form-subtitle">{{ $t('auth.registerSubtitle') }}</p>
             </div>
 
-            <!-- Features list for register -->
-            <div class="login-features">
-              <div class="feature-item">
-                <span class="feature-icon">✓</span>
-                <span class="feature-text">{{ $t('platform.independentTenant') }}</span>
+            <div class="form-content">
+              <t-form ref="registerFormRef" :data="registerData" :rules="registerRules" @submit="handleRegister"
+                layout="vertical" label-align="top">
+                <t-form-item :label="$t('auth.username')" name="username">
+                  <t-input v-model="registerData.username" :placeholder="$t('auth.usernamePlaceholder')" size="large"
+                    :disabled="loading" />
+                </t-form-item>
+
+                <t-form-item :label="$t('auth.email')" name="email">
+                  <t-input v-model="registerData.email" :placeholder="$t('auth.emailPlaceholder')" type="text"
+                    autocomplete="email" size="large" :disabled="loading" />
+                </t-form-item>
+
+                <t-form-item :label="$t('auth.password')" name="password">
+                  <t-input v-model="registerData.password" :placeholder="$t('auth.passwordPlaceholder')" type="password"
+                    autocomplete="new-password" size="large" :disabled="loading" />
+                </t-form-item>
+
+                <t-form-item :label="$t('auth.confirmPassword')" name="confirmPassword">
+                  <t-input v-model="registerData.confirmPassword" :placeholder="$t('auth.confirmPasswordPlaceholder')"
+                    type="password" autocomplete="new-password" size="large" :disabled="loading"
+                    @enter="handleRegister" />
+                </t-form-item>
+
+                <t-button type="submit" theme="primary" size="large" block :loading="loading" class="submit-button">
+                  {{ loading ? $t('auth.registering') : $t('auth.register') }}
+                </t-button>
+              </t-form>
+
+              <div class="form-footer">
+                <span>{{ $t('auth.haveAccount') }}</span>
+                <a href="#" @click.prevent="toggleMode" class="link-button">
+                  {{ $t('auth.backToLogin') }}
+                </a>
               </div>
-              <div class="feature-item">
-                <span class="feature-icon">✓</span>
-                <span class="feature-text">{{ $t('platform.fullApiAccess') }}</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">✓</span>
-                <span class="feature-text">{{ $t('platform.knowledgeBaseManagement') }}</span>
+
+              <!-- Features list for register -->
+              <div class="login-features">
+                <div class="feature-item">
+                  <span class="feature-icon">✓</span>
+                  <span class="feature-text">{{ $t('platform.independentTenant') }}</span>
+                </div>
+                <div class="feature-item">
+                  <span class="feature-icon">✓</span>
+                  <span class="feature-text">{{ $t('platform.fullApiAccess') }}</span>
+                </div>
+                <div class="feature-item">
+                  <span class="feature-icon">✓</span>
+                  <span class="feature-text">{{ $t('platform.knowledgeBaseManagement') }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -286,11 +204,7 @@ import { useRoleLabel } from '@/composables/useRoleLabel'
 import { notifyLoginSuccess } from '@/utils/loginNotify'
 import { canRegister } from './registrationPolicy'
 import { newPasswordRules } from '@/utils/passwordPolicy'
-import { Swiper, SwiperSlide } from 'swiper/vue'
-import { Autoplay, EffectFade, Pagination } from 'swiper/modules'
-import 'swiper/css'
-import 'swiper/css/effect-fade'
-import 'swiper/css/pagination'
+import LoginShowcase from './LoginShowcase.vue'
 import {
   login,
   register,
@@ -307,44 +221,11 @@ import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 import { getApiBaseUrl } from '@/utils/api-base'
 
-// Import screenshot images
-import screenshot1 from '@/assets/img/screenshot-1.svg'
-import screenshot2 from '@/assets/img/screenshot-2.svg'
-import screenshot3 from '@/assets/img/screenshot-3.svg'
-import screenshot4 from '@/assets/img/screenshot-4.svg'
-
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const { t, tm } = useI18n()
 const { formatRole, roleIcon } = useRoleLabel()
-
-// Swiper modules
-const modules = [Autoplay, EffectFade, Pagination]
-
-// Carousel slides data
-const slides = [
-  {
-    image: screenshot4,
-    title: t('platform.carousel.agenticRagTitle'),
-    description: t('platform.carousel.agenticRagDesc')
-  },
-  {
-    image: screenshot2,
-    title: t('platform.carousel.hybridSearchTitle'),
-    description: t('platform.carousel.hybridSearchDesc')
-  },
-  {
-    image: screenshot3,
-    title: t('platform.carousel.wikiTitle'),
-    description: t('platform.carousel.wikiDesc')
-  },
-  {
-    image: screenshot1,
-    title: t('platform.carousel.smartDocRetrievalTitle'),
-    description: t('platform.carousel.smartDocRetrievalDesc')
-  }
-]
 
 // Form references
 const formRef = ref()
@@ -353,6 +234,11 @@ const registerFormRef = ref()
 // State management
 const loading = ref(false)
 const oidcLoading = ref(false)
+const formActive = ref(false)
+const handleFormFocusOut = (event: FocusEvent) => {
+  const nextTarget = event.relatedTarget
+  formActive.value = nextTarget instanceof Node && (event.currentTarget as HTMLElement).contains(nextTarget)
+}
 const isRegisterMode = ref(false)
 // const showLanguageMenu = ref(false)
 const oidcEnabled = ref(false)
@@ -785,7 +671,7 @@ onMounted(async () => {
   --td-component-stroke: #cbd9e3;
   display: flex;
   width: 100%;
-  min-height: 100%;
+  min-height: 100dvh;
   overflow: hidden;
   position: relative;
   background: linear-gradient(225deg, #0b2035 0%, #12344e 15%, #184561 25%, #205b7b 38%, #2d7395 50%, #3b8eb0 65%, #5ca7c4 78%, #8ac2d8 90%, #b9ddeb 100%);
@@ -803,295 +689,33 @@ onMounted(async () => {
   }
 }
 
-.animated-bg {
-  --flow-duration: 14s;
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  overflow: hidden;
-  contain: strict;
-}
-
-.knowledge-atmosphere {
-  position: absolute;
-  inset: 0 3% 0 30%;
-  background: radial-gradient(ellipse at 30% 58%, rgba(151, 204, 235, 0.1), transparent 65%);
-}
-
-.knowledge-lines {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  // 固定像素遮罩让流光在不同屏幕下都停在节点边缘。
-  mask-image:
-    radial-gradient(circle 32px at 39% 12%, transparent 98%, #000 100%),
-    radial-gradient(circle 32px at 64% 8%, transparent 98%, #000 100%),
-    radial-gradient(circle 32px at 88% 15%, transparent 98%, #000 100%),
-    radial-gradient(circle 37px at 50% 38%, transparent 98%, #000 100%),
-    radial-gradient(circle 32px at 54% 60%, transparent 98%, #000 100%),
-    radial-gradient(circle 32px at 49% 84%, transparent 98%, #000 100%);
-  mask-composite: intersect;
-}
-
-.connection-line {
-  fill: none;
-  stroke: rgba(180, 213, 234, 0.16);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.connection-branch {
-  opacity: 0.6;
-}
-
-.connection-flow {
-  fill: none;
-  stroke: #dcf3ff;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
-  stroke-dasharray: 3.5 116.5;
-  stroke-dashoffset: 8;
-  opacity: 0;
-  filter: drop-shadow(0 0 3px rgba(166, 219, 250, 0.5));
-  animation: lineFlow var(--flow-duration) linear infinite;
-  animation-delay: calc(var(--flow-duration)*var(--phase));
-}
-
-.knowledge-node {
-  position: absolute;
-  display: flex;
+.login-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(370px, 1fr);
   align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  width: 60px;
-  height: 60px;
-  border: 1px solid rgba(207, 237, 255, 0.34);
-  border-radius: calc(var(--app-radius-xl) + var(--app-radius-sm));
-  background: linear-gradient(145deg, rgba(198, 233, 252, 0.15), rgba(91, 151, 187, 0.06));
-  box-shadow: inset 0 2px 0 rgba(235, 249, 255, 0.12), 0 4px 14px rgba(8, 30, 48, 0.09);
-  backdrop-filter: blur(8px);
-  transform: translate(-50%, -50%);
-  animation: nodePulse var(--flow-duration) ease-in-out infinite;
-  animation-delay: calc(var(--flow-duration)*var(--phase));
-}
-
-.knowledge-node .node-icon {
-  display: block;
-  width: 86%;
-  height: 86%;
-  filter: drop-shadow(0 2px 3px rgba(8, 30, 48, 0.16));
-}
-
-.knowledge-node::after {
-  content: "";
-  position: absolute;
-  inset: -12px;
-  z-index: -1;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(181, 227, 255, 0.18), transparent 68%);
-  opacity: 0;
-  animation: nodeArrival var(--flow-duration) ease-out infinite;
-  animation-delay: calc(var(--flow-duration)*var(--phase));
-}
-
-.knowledge-hub {
-  width: 70px;
-  height: 70px;
-  border-radius: calc(var(--app-radius-xl) + var(--app-radius-lg));
-}
-
-@keyframes lineFlow {
-  0%, 2% {
-    stroke-dashoffset: 8;
-    opacity: 0;
-  }
-  4% {
-    opacity: 0.95;
-  }
-  34% {
-    stroke-dashoffset: -108;
-    opacity: 0.95;
-  }
-  38%, 100% {
-    stroke-dashoffset: -108;
-    opacity: 0;
-  }
-}
-
-@keyframes nodePulse {
-  0%, 100% {
-    transform: translate(-50%, -50%) scale(1);
-    opacity: 0.78;
-  }
-  2% {
-    transform: translate(-50%, -50%) scale(1.025);
-    opacity: 1;
-  }
-  12% {
-    transform: translate(-50%, -50%) scale(1);
-    opacity: 0.84;
-  }
-  20% {
-    opacity: 0.78;
-  }
-}
-
-@keyframes nodeArrival {
-  0%, 3% {
-    transform: scale(0.98);
-    opacity: 0;
-  }
-  7% {
-    opacity: 0.42;
-  }
-  22%, 100% {
-    transform: scale(1.14);
-    opacity: 0;
-  }
-}
-
-
-/* Left Showcase Section */
-.showcase-section {
-  flex: 0 0 52%;
-  min-width: 0;
-  display: flex;
-  align-items: flex-end;
-  padding: 100px 30px 100px 50px;
-  box-sizing: border-box;
-  position: relative;
-}
-
-.showcase-content {
+  gap: clamp(45px, 6vw, 115px);
+  min-height: 100dvh;
   width: 100%;
-  min-width: 0;
-  max-width: 600px;
+  padding: 132px 50px 72px;
+  box-sizing: border-box;
   position: relative;
   z-index: 2;
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 60px;
 }
 
-.showcase-subtitle {
-  margin-top: 0;
-  font-size: 22px;
-  color: rgba(255, 255, 255, 0.95);
-  margin: 0 0 8px 0;
-  font-family: var(--app-font-family);
-  line-height: 1.4;
-  font-weight: 500;
-}
-
-.showcase-description {
-  font-size: var(--app-text-lg);
-  color: rgba(255, 255, 255, 0.8);
-  margin: 0 0 28px 0;
-  font-family: var(--app-font-family);
-  line-height: 1.5;
-}
-
-.feature-tags {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 0;
-  flex-wrap: wrap;
-}
-
-.tag {
-  display: inline-block;
-  padding: 8px 20px;
-  background: linear-gradient(120deg, rgba(202, 225, 240, 0.23), rgba(102, 155, 184, 0.22));
-  border-radius: 20px;
-  color: var(--td-text-color-anti);
-  font-size: var(--app-text-base);
-  font-weight: 500;
-  font-family: var(--app-font-family);
-}
-
-/* Carousel */
-.carousel-container {
-  width: 100%;
-  margin-top: 48px;
-}
-
-.screenshot-swiper {
-  width: 100%;
-  border-radius: 16px;
-  overflow: hidden;
-  background: linear-gradient(135deg, rgba(211, 229, 241, 0.18), rgba(37, 78, 106, 0.28));
-  box-shadow: 0 20px 60px rgba(11, 32, 53, 0.3);
-  padding-bottom: 40px;
-
-  :deep(.swiper-wrapper) {
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  :deep(.swiper-pagination) {
-    bottom: 15px !important;
-    z-index: 10;
-  }
-
-  :deep(.swiper-pagination-bullet) {
-    width: 10px;
-    height: 10px;
-    background: rgba(194, 219, 235, 0.55);
-    opacity: 1;
-    transition: all var(--app-motion-slow) ease;
-    margin: 0 6px !important;
-  }
-
-  :deep(.swiper-pagination-bullet-active) {
-    background: #e7f2fa;
-    width: 28px;
-    border-radius: 5px;
-  }
-}
-
-.slide-content {
-  width: 100%;
-  height: 100%;
-  background: var(--td-bg-color-container);
-  border-radius: 16px;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.slide-image {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: contain;
-}
-
-/* Right Form Section */
 .form-section {
-  flex: 0 0 48%;
-  min-width: 0;
   display: flex;
-  align-items: flex-end;
   justify-content: center;
-  padding: 112px 50px 100px 30px;
-  box-sizing: border-box;
-  position: relative;
+  min-width: 0;
 }
 
 .form-panel {
   width: 100%;
   max-width: 480px;
-  margin-bottom: 60px;
   position: relative;
-  z-index: 2;
 }
 
 .header-logo {
-  position: fixed;
+  position: absolute;
   top: 32px;
   left: 50px;
   z-index: 100;
@@ -1547,121 +1171,35 @@ onMounted(async () => {
 }
 
 /* Responsive Design */
-@media (max-width: 1440px) {
-  .animated-bg {
-    display: none;
+@media (min-width: 1650px) {
+  .login-content {
+    grid-template-columns: minmax(0, 790px) minmax(420px, 1fr);
+    gap: 125px;
   }
 }
 
-@media (max-width: 1024px) {
-  .showcase-subtitle {
-    font-size: var(--app-text-2xl);
-  }
-
-  .header-logo {
-    top: 26px;
-    left: 50px;
-
-    .logo-image {
-      width: 212px;
-      height: 32px;
-    }
-  }
-
-  .header-links {
-    top: 22px;
-    right: 22px;
-    gap: 8px;
-
-    .link-text {
-      display: none;
-    }
-
-    .header-link {
-      padding: 10px;
-      gap: 0;
-    }
-  }
-}
-
-@media (max-width: 768px) {
-  .login-layout {
-    flex-direction: column;
-    padding-top: 64px;
-    box-sizing: border-box;
-  }
-
-  .showcase-section {
-    flex: 0 0 auto;
-    min-height: 50vh;
-    padding: 40px 24px;
-  }
-
-  .showcase-content {
-    max-width: 100%;
-    margin-bottom: 0;
-  }
-
-  .header-logo {
-    top: 12px;
-    left: 24px;
-
-    .logo-image {
-      width: 196px;
-      height: 30px;
-    }
-  }
-
-  .showcase-subtitle {
-    font-size: var(--app-text-xl);
-    margin-bottom: 24px;
-  }
-
-  .feature-tags {
-    margin-bottom: 0;
-  }
-
-  .carousel-container {
-    margin-top: 24px;
+@media (max-width: 1150px) {
+  .login-content {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 780px;
+    margin-inline: auto;
+    padding: 125px 36px 60px;
+    gap: 48px;
   }
 
   .form-section {
-    order: -1;
-    flex: 0 0 auto;
-    padding: 24px;
+    grid-row: 1;
   }
 
-  .form-panel {
-    margin-bottom: 0;
-  }
-
-  .header-links {
-    top: 18px;
-    right: 18px;
-    gap: 8px;
-
-    .link-text {
-      display: inline;
-    }
-
-    .header-link {
-      padding: 8px 12px;
-      font-size: var(--app-text-sm);
-    }
-  }
-
-  .form-card {
-    padding: 32px 24px;
-  }
-
-  .form-title {
-    font-size: 22px;
+  .header-logo {
+    left: 36px;
   }
 }
 
-@media (max-width: 480px) {
-  .showcase-section {
-    padding: 32px 20px;
+@media (max-width: 520px) {
+  .login-content {
+    padding: 88px 20px 42px;
+    gap: 45px;
   }
 
   .header-logo {
@@ -1674,54 +1212,15 @@ onMounted(async () => {
     }
   }
 
-  .showcase-subtitle {
-    font-size: var(--app-text-base);
-  }
-
-  .tag {
-    font-size: var(--app-text-sm);
-    padding: 6px 16px;
-  }
-
-  .form-section {
-    padding: 20px;
-  }
-
-  .header-links {
-    top: 14px;
-    right: 14px;
-    gap: 6px;
-    flex-wrap: wrap;
-
-    .link-text {
-      display: none;
-    }
-
-    .header-link {
-      padding: 7px 10px;
-      font-size: var(--app-text-xs);
-    }
-  }
-
   .form-card {
     padding: 28px 20px;
   }
 
-  .form-header {
-    margin-bottom: 24px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-
-  .knowledge-node,
-  .knowledge-node::after,
-  .connection-flow {
-    animation: none !important;
-    transition: none !important;
+  .form-title {
+    font-size: 22px;
   }
 
-  .animated-bg {
+  .header-links .link-text {
     display: none;
   }
 }
@@ -1765,9 +1264,6 @@ html[theme-mode="dark"] {
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
   }
 
-  .tag {
-    background: linear-gradient(120deg, rgba(153, 192, 216, 0.2), rgba(56, 98, 127, 0.2));
-  }
 
   .form-card {
     background: linear-gradient(145deg, rgba(23, 44, 60, 0.98), rgba(32, 62, 81, 0.98)) !important;
@@ -1792,9 +1288,6 @@ html[theme-mode="dark"] {
     }
   }
 
-  .screenshot-swiper .swiper-pagination-bullet-active {
-    background: rgba(255, 255, 255, 0.9) !important;
-  }
 
   .login-features .feature-icon {
     background: var(--td-brand-color-light);

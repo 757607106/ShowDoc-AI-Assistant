@@ -4189,6 +4189,61 @@ export default {
     pinned: '已置顶'
   },
   platform: {
+    loginShowcase: {
+      "carouselLabel": "任我行知识库功能示意",
+      "switchLabel": "切换功能主题",
+      "pause": "暂停轮播与流光",
+      "play": "播放轮播与流光",
+      "reducedMotion": "已按减少动态效果设置停止自动播放",
+      "themes": {
+        "query": {
+          "title": "每次提问，都有依据",
+          "description": "从自然语言提问，直达有出处的回答",
+          "summary": "问题进入检索，命中原文，回答与引用同时显现。",
+          "mobile": "提问 → 命中原文 → 回答附有引用",
+          "tab": "问答溯源"
+        },
+        "organization": {
+          "title": "分散文档，有序关联",
+          "description": "按主题展开资料，连接相关的知识",
+          "summary": "来源资料依次展开为产品知识、实施交付和客户服务三个主题。",
+          "mobile": "来源资料 → 产品 / 实施 / 服务知识",
+          "tab": "知识组织"
+        },
+        "intake": {
+          "title": "企业资料，一处汇聚",
+          "description": "连接文档、网页与现有知识平台",
+          "summary": "文档、网页和已有知识汇入同一个知识入口，资料接收后确认汇聚。",
+          "mobile": "文档 / 网页 / 已有知识 → 统一入口",
+          "tab": "资料汇聚"
+        },
+        "review": {
+          "title": "知识变化，及时更新",
+          "description": "经过知识评审，让资料持续产生价值",
+          "summary": "内容变更先经过评审确认，再进入知识库更新对应内容。",
+          "mobile": "内容变化 → 知识评审 → 知识更新",
+          "tab": "评审更新"
+        }
+      },
+      "labels": {
+        "query": "自然语言提问",
+        "sourceHit": "命中原文",
+        "citedAnswer": "回答附有引用",
+        "sourceMaterial": "来源资料",
+        "productKnowledge": "产品知识",
+        "delivery": "实施交付",
+        "customerService": "客户服务",
+        "documents": "文档资料",
+        "webContent": "网页内容",
+        "existingKnowledge": "已有知识",
+        "knowledgeEntry": "统一知识入口",
+        "materialsReceived": "资料已汇聚",
+        "contentChange": "内容变化",
+        "knowledgeReview": "知识评审",
+        "knowledgeUpdate": "知识更新",
+        "updateConfirmed": "本次更新已确认"
+      }
+    },
     subtitle: '大模型驱动的企业级知识库',
     description: 'RAG 检索、智能体推理、Wiki 知识库，让文档真正被理解和运用',
     rag: 'RAG 增强生成',

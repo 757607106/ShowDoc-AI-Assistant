@@ -5613,6 +5613,61 @@ export default {
       }
     },
     platform: {
+      loginShowcase: {
+        "carouselLabel": "Renwoxing knowledge base feature illustration",
+        "switchLabel": "Switch feature topic",
+        "pause": "Pause carousel and flow animation",
+        "play": "Play carousel and flow animation",
+        "reducedMotion": "Autoplay stopped to respect reduced motion",
+        "themes": {
+          "query": {
+            "title": "Every answer has a source",
+            "description": "Ask naturally and find answers grounded in your documents",
+            "summary": "A question finds relevant source material, then reveals an answer with its citation.",
+            "mobile": "Question → Source material → Cited answer",
+            "tab": "Cited answers"
+          },
+          "organization": {
+            "title": "Scattered documents, connected knowledge",
+            "description": "Organize materials by topic and connect related knowledge",
+            "summary": "Source materials are organized into product knowledge, implementation and customer service topics.",
+            "mobile": "Source materials → Product / Delivery / Service knowledge",
+            "tab": "Organization"
+          },
+          "intake": {
+            "title": "Company knowledge, brought together",
+            "description": "Connect documents, web pages and existing knowledge platforms",
+            "summary": "Documents, web pages and existing knowledge come together in one knowledge entry point.",
+            "mobile": "Documents / Web / Existing knowledge → One entry point",
+            "tab": "Collection"
+          },
+          "review": {
+            "title": "Keep knowledge up to date",
+            "description": "Review content changes so knowledge continues to be useful",
+            "summary": "Content changes are reviewed and confirmed before the corresponding knowledge is updated.",
+            "mobile": "Content change → Knowledge review → Knowledge update",
+            "tab": "Review & update"
+          }
+        },
+        "labels": {
+          "query": "Question",
+          "sourceHit": "Source found",
+          "citedAnswer": "Cited answer",
+          "sourceMaterial": "Sources",
+          "productKnowledge": "Product",
+          "delivery": "Delivery",
+          "customerService": "Support",
+          "documents": "Documents",
+          "webContent": "Web",
+          "existingKnowledge": "Knowledge",
+          "knowledgeEntry": "Knowledge hub",
+          "materialsReceived": "Collected",
+          "contentChange": "Changes",
+          "knowledgeReview": "Review",
+          "knowledgeUpdate": "Updated",
+          "updateConfirmed": "Update confirmed"
+        }
+      },
       subtitle: 'LLM-Powered Enterprise Knowledge Framework',
       description: 'RAG retrieval, agentic reasoning and Wiki knowledge bases — so your documents are truly understood and put to work',
       rag: 'RAG Enhanced Generation',

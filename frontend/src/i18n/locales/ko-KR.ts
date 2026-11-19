@@ -4187,6 +4187,61 @@ export default {
     pinned: '고정됨'
   },
   platform: {
+    loginShowcase: {
+      "carouselLabel": "런워싱 지식 베이스 기능 예시",
+      "switchLabel": "기능 주제 전환",
+      "pause": "슬라이드와 흐름 애니메이션 일시 정지",
+      "play": "슬라이드와 흐름 애니메이션 재생",
+      "reducedMotion": "동작 줄이기 설정에 따라 자동 재생 중지",
+      "themes": {
+        "query": {
+          "title": "모든 답변에 근거를",
+          "description": "자연스러운 질문으로 출처가 있는 답변을 찾으세요",
+          "summary": "질문과 관련된 원문을 검색하고 답변과 인용을 함께 표시합니다.",
+          "mobile": "질문 → 원문 검색 → 인용이 있는 답변",
+          "tab": "답변과 출처"
+        },
+        "organization": {
+          "title": "흩어진 문서를 연결된 지식으로",
+          "description": "자료를 주제별로 정리하고 관련 지식을 연결합니다",
+          "summary": "자료를 제품 지식, 구축 및 납품, 고객 서비스 주제로 정리합니다.",
+          "mobile": "원본 자료 → 제품 / 구축 / 서비스 지식",
+          "tab": "지식 정리"
+        },
+        "intake": {
+          "title": "회사 자료를 한곳에",
+          "description": "문서, 웹 페이지, 기존 지식 플랫폼을 연결합니다",
+          "summary": "문서, 웹 페이지와 기존 지식을 하나의 지식 접근 창구로 모읍니다.",
+          "mobile": "문서 / 웹 / 기존 지식 → 통합 접근",
+          "tab": "자료 수집"
+        },
+        "review": {
+          "title": "변화에 맞춰 지식 업데이트",
+          "description": "내용 변경을 검토하여 지식의 가치를 이어갑니다",
+          "summary": "내용 변경을 검토하고 확인한 후 관련 지식을 업데이트합니다.",
+          "mobile": "내용 변경 → 지식 검토 → 지식 업데이트",
+          "tab": "검토 및 업데이트"
+        }
+      },
+      "labels": {
+        "query": "질문",
+        "sourceHit": "원문 검색",
+        "citedAnswer": "인용된 답변",
+        "sourceMaterial": "원본 자료",
+        "productKnowledge": "제품 지식",
+        "delivery": "구축",
+        "customerService": "고객 지원",
+        "documents": "문서",
+        "webContent": "웹",
+        "existingKnowledge": "기존 지식",
+        "knowledgeEntry": "지식 접근",
+        "materialsReceived": "수집 완료",
+        "contentChange": "내용 변경",
+        "knowledgeReview": "검토",
+        "knowledgeUpdate": "지식 갱신",
+        "updateConfirmed": "업데이트 확인"
+      }
+    },
     subtitle: '대규모 언어 모델 기반 엔터프라이즈 지식 프레임워크',
     description: 'RAG 검색, 에이전트 추론, Wiki 지식베이스로 문서를 진정으로 이해하고 활용합니다',
     rag: 'RAG 강화 생성',
