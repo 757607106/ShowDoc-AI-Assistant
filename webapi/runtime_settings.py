@@ -5,7 +5,7 @@ from flask import Blueprint, g, jsonify, request
 from psycopg.types.json import Jsonb
 
 from agent import registry
-from webapi.legacy_runtime import unavailable
+from webapi.retired_runtime import unavailable
 from governance.database import connection
 from governance.store import StoreError, now
 

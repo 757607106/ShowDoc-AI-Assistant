@@ -1,7 +1,7 @@
 """Keep retired browser URLs explicit without starting the browser daemon."""
 from flask import Blueprint
 
-from webapi.legacy_runtime import unavailable
+from webapi.retired_runtime import unavailable
 
 browser_bp = Blueprint('browser', __name__)
 

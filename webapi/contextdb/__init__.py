@@ -12,7 +12,7 @@ from common.converter import clean_filename
 from governance.store import StoreError
 from governance.knowledge_names import KnowledgeNames, download_name
 from webapi.auth import client_for_user, user_id
-from webapi.contextdb_preview import asset_response, attachment_response, document_response
+from webapi.contextdb.preview import asset_response, attachment_response, document_response
 
 contextdb_bp = Blueprint('contextdb', __name__)
 MAX_BATCH_DOWNLOAD_BYTES = 512 * 1024 * 1024
@@ -125,7 +125,7 @@ def forward(version, resource):
         else:
             raise StoreError('知识库更新请使用 PUT', 405)
         return jsonify(success=True, data=result)
-    from webapi.contextdb_files import RESOURCES, forward_file
+    from webapi.contextdb.files import RESOURCES, forward_file
     if resource in RESOURCES:
         from webapi.material import get_store
         result = forward_file(client, get_store(), resource)
@@ -207,7 +207,7 @@ def attachment(document_id, chunk_index, attachment_index):
 
 @contextdb_bp.get('/api/contextdb/documents/<document_id>/source-images')
 def source_images(document_id):
-    from webapi.contextdb_source_images import source_images
+    from webapi.contextdb.source_images import source_images
     images = source_images(client_for_user(), document_id, request.args.get('knowledge_base_id'))
     return jsonify(success=True, data={'document_id': document_id, 'images': [
         {'image_key': key, 'description': image['description']} for key, image in images.items()]})
@@ -215,7 +215,7 @@ def source_images(document_id):
 
 @contextdb_bp.get('/api/contextdb/documents/<document_id>/source-images/<image_key>')
 def source_image(document_id, image_key):
-    from webapi.contextdb_source_images import source_image_response
+    from webapi.contextdb.source_images import source_image_response
     return source_image_response(client_for_user(), document_id, image_key, request.args.get('knowledge_base_id'))
 
 

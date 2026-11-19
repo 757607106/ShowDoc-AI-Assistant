@@ -259,7 +259,7 @@ def _native_chat():
 
 
 def test_chat_stream_and_history_add_readable_names_without_mutating_native_messages(names_data):
-    from webapi.weknora_adapter import StreamProjection, history
+    from webapi.weknora.adapter import StreamProjection, history
     owner, _ = names_data
     state, assistant, message = _native_chat()
     original = deepcopy(state.values)
@@ -281,7 +281,7 @@ def test_chat_stream_and_history_add_readable_names_without_mutating_native_mess
 
 
 def test_projection_without_request_owner_keeps_native_fallback_and_never_reads_database(monkeypatch):
-    from webapi.weknora_adapter import StreamProjection, history
+    from webapi.weknora.adapter import StreamProjection, history
     monkeypatch.setattr('governance.knowledge_names.connection', lambda: pytest.fail('ownerless projection must not read a database'))
     state, assistant, message = _native_chat()
     projection = StreamProjection('chat-1', 'answer-1', ['wiki-id'])
@@ -293,7 +293,7 @@ def test_projection_without_request_owner_keeps_native_fallback_and_never_reads_
 
 
 def test_chat_citation_uses_cloud_metadata_when_no_local_capture_exists(names_data):
-    from webapi.weknora_adapter import history
+    from webapi.weknora.adapter import history
     owner, _ = names_data
     state, _, message = _native_chat()
     chunk = message['artifact']['structured_content']['results'][0]

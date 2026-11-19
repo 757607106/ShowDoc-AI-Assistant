@@ -9,7 +9,7 @@ from itsdangerous import BadSignature, URLSafeSerializer
 
 from agent.checkpointer import make_checkpointer
 from governance.store import StoreError
-from webapi.weknora_adapter import StreamProjection, assistant_id, history, message_dict
+from webapi.weknora.adapter import StreamProjection, assistant_id, history, message_dict
 
 PREFIX = 'subgraph~'
 # These handles last only as long as their owning HTTP request. No event log or runner.

@@ -14,7 +14,7 @@ async def ancestry(graph, state):
 
 
 async def select(graph, session_id, message_id, *, rewind=False):
-    from webapi.weknora_adapter import history
+    from webapi.weknora.adapter import history
     head = await graph.aget_state({'configurable': {'thread_id': session_id}})
     states = [state async for state in ancestry(graph, head)]
     if not states:

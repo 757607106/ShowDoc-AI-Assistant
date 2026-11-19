@@ -156,7 +156,7 @@ def debug_preview(saved, query, options, *, documents=None, upload=None, size=0)
 
 
 async def debug_chat_stream(model, messages):
-    from webapi.weknora_adapter import message_dict, reasoning_text, text
+    from webapi.weknora.adapter import message_dict, reasoning_text, text
     events = []
     result = None
     async for chunk in model.astream(messages):

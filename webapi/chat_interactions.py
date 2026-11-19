@@ -8,7 +8,7 @@ from agent import registry, sessions
 from governance.database import connection
 from governance.store import StoreError
 from webapi.auth import user_id
-from webapi.legacy_runtime import unavailable
+from webapi.retired_runtime import unavailable
 
 chat_interactions_bp = Blueprint('chat_interactions', __name__)
 

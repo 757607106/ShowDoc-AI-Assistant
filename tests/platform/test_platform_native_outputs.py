@@ -146,7 +146,7 @@ def test_native_structured_output_reaches_sse_and_each_history_turn_without_stal
 def test_generic_payload_field_names_do_not_turn_into_malformed_legacy_approvals(value):
     from types import SimpleNamespace
     from langgraph.types import Interrupt
-    from webapi.weknora_prompts import cards
+    from webapi.weknora.prompts import cards
     state = SimpleNamespace(interrupts=[Interrupt(value=value, id='generic')], tasks=[],
         values={}, created_at=None)
     projected = cards(state, 'session')[0]

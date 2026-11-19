@@ -10,6 +10,7 @@ __pycache__/
 .idea/
 .cursor/
 .qoder/
+.impeccable/
 
 downloads/
 *.log

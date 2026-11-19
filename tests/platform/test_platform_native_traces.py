@@ -60,7 +60,7 @@ def test_native_child_messages_tools_survive_reload_without_shadow_sessions(harn
 
 def test_child_view_is_authenticated_read_only_and_bound_to_real_namespace(harness):
     from webapi.auth import create_user
-    from webapi import weknora_traces
+    from webapi.weknora import traces as weknora_traces
     client, sid, model, *_ = harness
     delegate(model)
     events(client.post(f'/api/v1/agent-chat/{sid}', json={'query': 'Delegate'}))
@@ -164,7 +164,7 @@ def test_child_hitl_history_waits_and_parent_approval_resumes_same_namespace(har
 @pytest.mark.parametrize('exit_mode', ['complete', 'child_disconnect', 'parent_disconnect', 'child_header_failure', 'other_worker', 'references'])
 def test_live_child_observes_the_single_native_request_and_releases_subscriptions(harness, exit_mode, monkeypatch):
     from urllib.parse import urlencode
-    from webapi import weknora_traces
+    from webapi.weknora import traces as weknora_traces
     client, sid, model, tools, _, app, headers = harness
     if exit_mode == 'references':
         from webapi import harness as api
@@ -315,8 +315,8 @@ def test_live_child_observes_the_single_native_request_and_releases_subscription
 
 
 def test_child_subscriber_overflow_is_bounded_and_requests_history_refresh():
-    from webapi.weknora_adapter import StreamProjection
-    from webapi.weknora_traces import LiveTraces
+    from webapi.weknora.adapter import StreamProjection
+    from webapi.weknora.traces import LiveTraces
     trace = LiveTraces('parent', StreamProjection('parent', 'turn'))
     trace.nodes['native-ns'] = {'projection': StreamProjection('view', 'child')}
     queue = trace.subscribe('native-ns')

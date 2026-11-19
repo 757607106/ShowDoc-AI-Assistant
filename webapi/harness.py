@@ -27,7 +27,7 @@ from governance.database import connection
 from governance.store import StoreError
 from integrations.contextdb import ContextDBError
 from webapi.auth import client_for_user, validate_access_token
-from webapi import weknora_traces
+from webapi.weknora import traces as weknora_traces
 
 _followers = set()
 
@@ -35,7 +35,7 @@ _followers = set()
 
 def _json_default(value):
     if isinstance(value, Interrupt):
-        from webapi.weknora_prompts import response_schema
+        from webapi.weknora.prompts import response_schema
         return {'id': value.id, 'value': value.value, 'response_schema': response_schema(value)}
     if isinstance(value, BaseMessage):
         return value.model_dump(mode='json')
@@ -259,15 +259,15 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                 state = await graph.aget_state(config, subgraphs=True)
                 resume_context = None
                 if resume_protocol:
-                    from webapi.weknora_adapter import history
+                    from webapi.weknora.adapter import history
                     rows = history(state, selected['id'], owner_id=user['id'])
                     if not rows or rows[-1]['id'] != request.query_params.get('message_id'):
                         raise StoreError('消息与当前待恢复交互不匹配', 409)
-                    from webapi.weknora_prompts import consume
+                    from webapi.weknora.prompts import consume
                     resume = await anyio.to_thread.run_sync(lambda: consume(user['id'], selected['id'], state,
                         pending_id))
                     if resume is None:
-                        from webapi.weknora_adapter import StreamProjection
+                        from webapi.weknora.adapter import StreamProjection
                         target = rows[-1]
                         projection = StreamProjection(selected['id'], target['id'], owner_id=user['id'])
                         yield _event('message', projection.event('agent_query'))
@@ -278,7 +278,7 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                 if resume is not None:
                     if not state.interrupts or set(resume) != {item.id for item in state.interrupts}:
                         raise StoreError('审批已失效，请重新加载当前会话', 409)
-                    from webapi.weknora_prompts import validate_native_resume
+                    from webapi.weknora.prompts import validate_native_resume
                     validate_native_resume(state, resume)
                     pending_oauth = {item.id for item in state.interrupts
                                      if isinstance(item.value, dict) and item.value.get('kind') == 'mcp_oauth'}
@@ -286,7 +286,7 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                         resume_context = {'pending_oauth': pending_oauth}
                     inputs = Command(resume=resume)
                     if resume_protocol:
-                        from webapi.weknora_prompts import cards, _receipt
+                        from webapi.weknora.prompts import cards, _receipt
                         receipt = await anyio.to_thread.run_sync(lambda: _receipt(user['id'], selected['id'], state))
                         human = next(message for message in reversed(state.values.get('messages', []))
                                      if getattr(message, 'type', None) == 'human')
@@ -322,7 +322,7 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                         inputs['structured_response'] = None
                 projection = None
                 if weknora:
-                    from webapi.weknora_adapter import StreamProjection, history, pending_calls, tool_display_name
+                    from webapi.weknora.adapter import StreamProjection, history, pending_calls, tool_display_name
                     identifier = history(state, selected['id'], owner_id=user['id'])[-1]['id'] if resume_protocol else 'assistant:' + inputs['messages'][0]['id']
                     projection = StreamProjection(selected['id'], identifier,
                                                   resolved.get('knowledge_base_ids', []), owner_id=user['id'])
@@ -441,7 +441,7 @@ async def stream(request, *, weknora=False, resume_protocol=False, pending_id=No
                     attached = False
         except Exception as exc:
             if weknora:
-                from webapi.weknora_adapter import StreamProjection
+                from webapi.weknora.adapter import StreamProjection
                 failed = projection if 'projection' in locals() and projection else StreamProjection(selected['id'], '', owner_id=user['id'])
                 yield terminal_frame(_event('message', failed.event('error', str(exc), {'status': getattr(exc, 'status', 500)}, done=True)))
             else:
@@ -492,9 +492,9 @@ async def read_snapshot(user, selected):
 
 
 async def read_weknora_history(user, selected):
-    from webapi.weknora_adapter import history, structured_outputs
-    from webapi.weknora_artifacts import collect
-    from webapi.weknora_prompts import cards, _receipt
+    from webapi.weknora.adapter import history, structured_outputs
+    from webapi.weknora.artifacts import collect
+    from webapi.weknora.prompts import cards, _receipt
     owner, sid = user['id'], selected['id']
     resolved = selected['agent_config']
     if not resolved.get('agent_config'):
@@ -543,7 +543,7 @@ async def _completion(graph, state, *, user, selected, resolved, projection, tra
     state = await reconcile_parent(graph, state, user['id'], selected['id'])
     if traces.nodes:
         yield _event('message', projection.event('collaboration_status', data=traces.collaboration()))
-    from webapi.weknora_artifacts import collect
+    from webapi.weknora.artifacts import collect
     artifacts = collect([snapshot async for snapshot in ancestry(graph, state)], user['id'], selected['id'])
     artifact_meta = [metadata for metadata, _ in artifacts.get(projection.identifier, [])]
     if not selected['title'] and not (request.url.path.startswith('/api/v1/knowledge-chat/')
@@ -562,7 +562,7 @@ async def _completion(graph, state, *, user, selected, resolved, projection, tra
                 yield _event('message', projection.event('session_title', title,
                     {'session_id': selected['id'], 'title': title}, done=True))
     if state.interrupts:
-        from webapi.weknora_prompts import cards, card_event, bind_card_ids
+        from webapi.weknora.prompts import cards, card_event, bind_card_ids
         pending = cards(state, selected['id'])
         await anyio.to_thread.run_sync(lambda: bind_card_ids(user['id'], selected['id'], state,
                                                           pending, projection.child_calls))
@@ -589,12 +589,12 @@ async def continue_weknora(request):
         user, selected = await anyio.to_thread.run_sync(lambda: _identity(request))
         state = await read_snapshot(user, selected)
         if state is not None and state.interrupts:
-            from webapi.weknora_prompts import cards, _receipt
+            from webapi.weknora.prompts import cards, _receipt
             pending = cards(state, selected['id'])
             receipt = await anyio.to_thread.run_sync(lambda: _receipt(user['id'], selected['id'], state))
             if pending and all(item['id'] in receipt['responses'] for item in pending):
                 return await stream(request, weknora=True, resume_protocol=True, pending_id=pending[-1]['id'])
-        from webapi.weknora_adapter import StreamProjection, history
+        from webapi.weknora.adapter import StreamProjection, history
         rows = history(state, selected['id'], selected['agent_config'].get('knowledge_base_ids', []),
                        owner_id=user['id']) if state is not None else []
         target = next((row for row in rows if row['id'] == request.query_params.get('message_id')
@@ -719,7 +719,7 @@ async def continue_child(request):
                        and row['id'] == request.query_params.get('message_id')), None)
         if target is None:
             raise StoreError('消息不存在', 404)
-        from webapi.weknora_adapter import StreamProjection
+        from webapi.weknora.adapter import StreamProjection
         projection = StreamProjection(task['session_id'], target['id'], owner_id=owner)
         async def events():
             try:

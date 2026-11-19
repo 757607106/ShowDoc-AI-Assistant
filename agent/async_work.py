@@ -228,7 +228,7 @@ async def _observe(owner_id, sid, task, *, detail=False):
         'started_at': task.get('created_at'), 'finished_at': run.get('updated_at') if status in ('success', 'error', 'timeout', 'cancelled', 'interrupted') else None}
     if detail:
         state = await client.threads.get_state(task['thread_id'], subgraphs=True)
-        from webapi.weknora_adapter import text, message_dict
+        from webapi.weknora.adapter import text, message_dict
         messages = [message_dict(message) for message in state.get('values', {}).get('messages', [])]
         answers = [text(message.get('content')) for message in messages if message.get('type', message.get('role')) in ('ai', 'assistant') and not message.get('tool_calls')]
         result = {'display_type': 'async_subagent', 'output': answers[-1] if answers else '',

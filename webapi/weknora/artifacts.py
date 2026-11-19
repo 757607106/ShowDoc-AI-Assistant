@@ -3,7 +3,7 @@ from pathlib import PurePosixPath
 
 from agent.artifacts import artifact_key, deleted_for, download, is_artifact
 from agent.time_travel import ancestry
-from webapi.weknora_adapter import assistant_id, media_files, message_dict
+from webapi.weknora.adapter import assistant_id, media_files, message_dict
 
 
 def collect(snapshots, owner_id, session_id):

@@ -6,7 +6,7 @@ import requests
 
 import app as app_module
 from integrations.contextdb import ContextDBAuthError, ContextDBClient
-import webapi.contextdb_preview as preview
+import webapi.contextdb.preview as preview
 
 
 def resource(raw=b'image', mime_type='image/png', status=200, headers=None):

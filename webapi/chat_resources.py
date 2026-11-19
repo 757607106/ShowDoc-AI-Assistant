@@ -18,7 +18,7 @@ from governance.knowledge_names import KnowledgeNames
 from governance.store import StoreError
 from governance.workspaces import set_file_sizes
 from webapi.auth import client_for_user, user_id
-from webapi.legacy_runtime import unavailable
+from webapi.retired_runtime import unavailable
 
 chat_resources_bp = Blueprint('chat_resources', __name__)
 TEXT_EXTENSIONS = {'.txt', '.md', '.csv', '.tsv', '.json', '.xml', '.html', '.htm', '.yaml', '.yml', '.log', '.py', '.js', '.ts', '.sql', '.css'}
@@ -280,7 +280,7 @@ def document_picker():
 
 
 def _artifact_record(sid, message_id):
-    from webapi import async_views, weknora_traces
+    from webapi import async_views; from webapi.weknora import traces as weknora_traces
     if sid.startswith(weknora_traces.PREFIX) and weknora_traces.decode(sid)[1] == async_views.NAMESPACE:
         turns = asyncio.run(async_views.artifacts(user_id(), sid))
         if message_id not in turns:
@@ -289,7 +289,7 @@ def _artifact_record(sid, message_id):
                 'artifacts_truncated': False, '_native_items': turns[message_id]}
     selected = sessions.get_session(sid)
     if selected['agent_config'].get('runtime') == 'deepagents':
-        from webapi.weknora_artifacts import read
+        from webapi.weknora.artifacts import read
         turns = asyncio.run(read(g.user, selected))
         if message_id not in turns:
             raise StoreError('消息不存在', 404)
@@ -353,7 +353,7 @@ def _delete_artifact_versions(sid, message_id, index, all_versions=False):
     with sessions._mutation(sid, owner) as selected:
         if not message_id or index is None or index < 0:
             raise StoreError('产物标识无效', 400)
-        from webapi.weknora_artifacts import delete
+        from webapi.weknora.artifacts import delete
         result = asyncio.run(delete(g.user, selected, message_id, index, all_versions=all_versions))
     return jsonify(success=True, data=result)
 
@@ -369,7 +369,7 @@ def _recorded_artifacts(sid=None):
     linked = {(run['pending_json'] or {}).get('resumed_run_id') for run in runs}
     values = [{**item, 'session_id': run['session_id'], 'session_title': run['title'], 'message_id': run['id']}
               for run in runs if run['id'] not in linked for item in run['artifacts_json']]
-    from webapi.weknora_artifacts import read
+    from webapi.weknora.artifacts import read
     for selected in native_sessions:
         for message_id, items in asyncio.run(read(g.user, selected)).items():
             values.extend({**metadata, 'session_id': selected['id'], 'session_title': selected['title'],

@@ -2,9 +2,9 @@
 from types import SimpleNamespace
 
 from governance.store import StoreError
-from webapi import weknora_traces
-from webapi.weknora_adapter import history, media_files
-from webapi.weknora_prompts import cards, card_event
+from webapi.weknora import traces as weknora_traces
+from webapi.weknora.adapter import history, media_files
+from webapi.weknora.prompts import cards, card_event
 
 NAMESPACE = '__async__'
 
@@ -84,7 +84,7 @@ async def artifacts(owner_id, view):
 async def _artifact_versions(owner_id, view, client, thread_id, head):
     from langchain_core.messages import convert_to_messages
     from agent.time_travel import ancestry
-    from webapi.weknora_artifacts import collect
+    from webapi.weknora.artifacts import collect
 
     def view_state(state):
         value = snapshot(state)

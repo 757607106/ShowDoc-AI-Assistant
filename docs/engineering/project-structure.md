@@ -17,6 +17,9 @@
 ├── .env.example                   # 环境变量模板
 ├── agent/                         # DeepAgents 运行时：图、会话、模型传输、MCP、技能打包
 ├── webapi/                        # 全部 HTTP 路由（Blueprint 按域拆分）
+│   ├── contextdb/                 # ContextDB 官方 API 转发域（__init__ 转发核心 + files / preview / source_images）
+│   ├── weknora/                   # WeKnora 协议兼容层（adapter / artifacts / prompts / traces），命名保留协议语义
+│   └── retired_runtime.py        # 已退役旧执行入口的 410 响应助手
 ├── common/                        # 跨平台内容转换、RAG 分块、质量检查
 ├── crawlers/                      # 平台爬虫和通用网页发现能力
 ├── governance/                    # ContextDB 治理存储、任务 worker、发布与知识库同步
@@ -31,7 +34,7 @@
 │   ├── conftest.py                # 共享 fixture，仅保留根级一个
 │   ├── fakes/                     # 测试替身（aegra_fake / contextdb_fake / harness_fakes）
 │   ├── agent/                     # agent 域
-│   ├── platform/                  # webapi / 平台集成域
+│   ├── platform/                  # 平台集成域：同一 ASGI 面的集成测试，经 test_platform_harness 夹具集线，刻意保持单层不二次分层
 │   ├── contextdb/                 # ContextDB 与知识库域
 │   ├── crawlers/                  # 爬虫域
 │   ├── governance/                # 治理存储域
@@ -51,6 +54,8 @@
 ```
 
 运行时产物不属于源代码结构：`downloads/`（运行时数据根，由 `GOVERNANCE_DATA_DIR` 重定向）、`output/`（验证报告根）、`logs/`、`.runtime/`（运行时凭据与探活状态）统一由 `.gitignore` 排除，不得纳入源码清理或迁移范围。
+
+`deploy/async-agent/` 是宿主机路径；镜像内刻意保留 `/app/deployment/async-agent/` 容器路径（Dockerfile COPY 目标、`AEGRA_CONFIG` 与 `start.py` 均指向容器路径）。这一不对称是为零行为变化保留的既定差异，改动它必须重建镜像并做运行冒烟。`registry.py` 留在根目录是本规范文档化的例外（爬虫注册表被 `app.py` 与 CLI 直接导入）。
 
 ## 命名规则
 

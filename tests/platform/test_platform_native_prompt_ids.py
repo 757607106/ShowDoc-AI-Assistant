@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from agent import registry, sessions
 from agent.interactions import make_interaction_tools
 from tests.platform.test_platform_harness import call, frames, harness, original_prepare
-from webapi import weknora_prompts
+from webapi.weknora import prompts as weknora_prompts
 
 
 def events(response):

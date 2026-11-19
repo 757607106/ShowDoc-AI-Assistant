@@ -8,7 +8,7 @@ from agent import sessions as agent_sessions
 from governance.store import StoreError
 from governance.database import connection
 from webapi.auth import user_id
-from webapi.legacy_runtime import unavailable
+from webapi.retired_runtime import unavailable
 
 agent_bp = Blueprint('agent', __name__)
 
@@ -337,13 +337,13 @@ def stop(session_id):
 
 @agent_bp.route('/api/v1/agent/tool-approvals/<pending_id>', methods=['POST'])
 def approve_tool(pending_id):
-    from webapi.weknora_prompts import stage
+    from webapi.weknora.prompts import stage
     return jsonify(resumed=stage(g.user, pending_id, _json_body(), 'tool_approval'))
 
 
 @agent_bp.route('/api/v1/agent/prompts/<pending_id>', methods=['POST'])
 def answer_prompt(pending_id):
-    from webapi.weknora_prompts import stage
+    from webapi.weknora.prompts import stage
     body = _json_body()
     kind = body.get('kind')
     if kind not in ('ask_user', 'native_interrupt'):
@@ -354,7 +354,7 @@ def answer_prompt(pending_id):
 @agent_bp.route('/api/v1/agent/mcp-oauth-resolutions/<pending_id>', methods=['POST'])
 @agent_bp.route('/api/v1/agent/mcp-oauth-resolutions/<pending_id>/cancel', methods=['POST'])
 def resolve_oauth(pending_id):
-    from webapi.weknora_prompts import stage
+    from webapi.weknora.prompts import stage
     body = {'decision': 'cancel'} if request.path.endswith('/cancel') else _json_body()
     return jsonify(resumed=stage(g.user, pending_id, body, 'mcp_oauth'))
 

@@ -48,7 +48,7 @@ def test_native_file_create_update_preserve_body_metadata_and_final_id(library):
 def test_review_conversion_keeps_original_filename_metadata(library, monkeypatch, metadata, filename):
     import json
     _, fake, http, kb = library
-    monkeypatch.setattr('webapi.contextdb_files.prepare_review_file',
+    monkeypatch.setattr('webapi.contextdb.files.prepare_review_file',
         lambda client, base, name, path, **kwargs: ('业务手册.md', path, True))
     upload = Mock(wraps=fake.upload_file)
     monkeypatch.setattr(fake, 'upload_file', upload)
@@ -65,7 +65,7 @@ def test_review_conversion_does_not_silently_drop_full_metadata(library, monkeyp
     import json
     _, fake, http, kb = library
     metadata = {f'key{index}': str(index) for index in range(32)}
-    monkeypatch.setattr('webapi.contextdb_files.prepare_review_file',
+    monkeypatch.setattr('webapi.contextdb.files.prepare_review_file',
         lambda client, base, name, path, **kwargs: ('业务手册.md' if converted else name, path, converted))
     upload = Mock(wraps=fake.upload_file)
     monkeypatch.setattr(fake, 'upload_file', upload)

@@ -8,7 +8,7 @@ from urllib3 import PoolManager
 from urllib3.response import HTTPResponse
 
 from governance.store import StoreError
-import webapi.contextdb_source_images as images
+import webapi.contextdb.source_images as images
 
 
 def original(body):

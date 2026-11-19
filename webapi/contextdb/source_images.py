@@ -16,7 +16,7 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from governance.store import StoreError
-from webapi.contextdb_preview import _source_detail
+from webapi.contextdb.preview import _source_detail
 
 MAX_SOURCE_BYTES = 20 * 1024 * 1024
 MAX_IMAGE_BYTES = 20 * 1024 * 1024

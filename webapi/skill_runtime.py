@@ -16,7 +16,7 @@ from agent.skill_bundle import MAX_DOWNLOAD, fetch_bundle, parse_bundle
 from governance.database import connection
 from governance.store import StoreError, data_dir
 from governance.workspaces import set_file_sizes
-from webapi.legacy_runtime import unavailable
+from webapi.retired_runtime import unavailable
 
 skill_runtime_bp = Blueprint('skill_runtime', __name__)
 INSTRUCTION_BACKENDS = ('state-backend', CONFIG_ID)

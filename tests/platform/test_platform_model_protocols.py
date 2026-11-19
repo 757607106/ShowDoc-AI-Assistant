@@ -19,7 +19,7 @@ from agent.checkpointer import async_checkpointer
 from agent.models import build_model_record, model_capabilities
 from governance.store import StoreError
 from tests.platform.test_platform_mcp_runtime import serve
-from webapi.weknora_adapter import StreamProjection, history, reasoning_text
+from webapi.weknora.adapter import StreamProjection, history, reasoning_text
 
 
 MODELS = [('openai', 'gpt-5.1'), ('aliyun', 'qwen-plus'), ('deepseek', 'deepseek-v4-pro'),

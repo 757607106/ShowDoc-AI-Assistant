@@ -197,8 +197,8 @@ def provider():
 
 def test_native_http_overflow_summarizes_without_replacing_raw_history(harness, provider, monkeypatch):
     from agent.time_travel import ancestry
-    from webapi.weknora_artifacts import collect
-    monkeypatch.setattr('webapi.weknora_artifacts.deleted_for', lambda *args: {})
+    from webapi.weknora.artifacts import collect
+    monkeypatch.setattr('webapi.weknora.artifacts.deleted_for', lambda *args: {})
     base, state = provider
     messages = []
     for i in range(10):

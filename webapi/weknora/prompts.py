@@ -54,7 +54,7 @@ def validate_native_resume(state, responses):
 
 
 def cards(state, session_id):
-    from webapi.weknora_adapter import message_dict
+    from webapi.weknora.adapter import message_dict
     origins = interrupt_origins(state)
     ask_requests = [item.value.get('request', {}) for item, _ in origins.values()
                     if isinstance(item.value, dict) and item.value.get('kind') == 'ask_user']
