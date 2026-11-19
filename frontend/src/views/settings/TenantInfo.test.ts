@@ -7,12 +7,20 @@ test('assistant profile changes refresh the workspace page without discarding an
   const f = fixture(t)
   let saved = { id: 7, name: 'Original', description: 'Original description' }
   const read = t.mock.fn(async () => ({ success: true, data: { tenant: { ...saved } } }))
+  let failDescription = true
+  const writes: Array<{ name?: string; description?: string }> = []
+  const update = async (_id: number, patch: { name?: string; description?: string }) => {
+    writes.push({ ...patch })
+    if (failDescription && patch.description) return { success: false, message: 'offline' }
+    saved = { ...saved, ...patch }
+    return { success: true }
+  }
   const auth = reactive({ currentTenantId: 7, currentTenantRole: 'owner', hasRole: () => true })
   const { vm, close } = f.component(new URL('./TenantInfo.vue', import.meta.url), {
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key, locale: ref('en-US') }) },
-    'tdesign-vue-next': { MessagePlugin: { error: assert.fail }, DialogPlugin: {} },
+    'tdesign-vue-next': { MessagePlugin: { error(message: string) { assert.equal(message, 'offline') }, success() {} }, DialogPlugin: {} },
     '@/api/auth': { getCurrentUser: read },
-    '@/api/tenant': {},
+    '@/api/tenant': { updateTenant: update },
     '@/api/tenant/members': { fetchAllTenantMembers: async () => [{ user_id: 'owner', role: 'owner' }] },
     '@/stores/auth': { useAuthStore: () => auth },
     '@/composables/useRoleLabel': { useRoleLabel: () => ({ formatRole: String }), useHomeTenant: () => ({ homeTenantId: ref(7) }) },
@@ -34,6 +42,17 @@ test('assistant profile changes refresh the workspace page without discarding an
   assert.equal(vm.editName, 'Unfinished input')
   assert.equal(vm.editing, true)
   assert.equal(read.mock.callCount(), 2)
+  vm.startEditDescription()
+  vm.editDescription = 'Draft description'
+  await vm.saveDraft()
+  assert.deepEqual(writes, [{ name: 'Unfinished input' }, { description: 'Draft description' }])
+  assert.equal(vm.tenantInfo.name, 'Unfinished input')
+  assert.equal(vm.editDescription, 'Draft description')
+  assert.equal(vm.dirty, true)
+  failDescription = false
+  await vm.saveDraft()
+  assert.deepEqual(writes.at(-1), { description: 'Draft description' })
+  assert.equal(vm.dirty, false)
   close()
   f.emit(change('workspace.update'))
   t.mock.timers.tick(300)

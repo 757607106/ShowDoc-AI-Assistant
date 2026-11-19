@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import KnowledgeOverlay from './components/KnowledgeOverlay.vue'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { nativeAPI } from '@/api/contextdb'
 import { useAuthStore } from '@/stores/auth'
 import { graphDocumentLabel } from '@/utils/contextdbDocumentName'
+import KnowledgeActionMenu from './components/KnowledgeActionMenu.vue'
 
 const props = defineProps<{ kbId: string; active: boolean; documents: any[]; canEdit?: boolean; attach?: () => HTMLElement }>()
 const emit = defineEmits<{
@@ -17,6 +19,12 @@ const kind = ref<'entity' | 'relation'>('entity'), editingId = ref(''), detailRe
 const form = ref({ entity_name: '', entity_type: '', description: '', aliases: [] as string[], source_entity_id: '', target_entity_id: '', relation_type: '', keywords: [] as string[], weight: 1 })
 const choices = ref<any[]>([]), selectedEndpoints = ref<any[]>([]), endpointLoading = ref(false), endpointError = ref('')
 const deleting = ref<any>(null), deleteError = ref(''), removing = ref(false)
+const writeInProgress = computed(() => saving.value || removing.value)
+const editable = computed(() => props.canEdit ?? auth.hasRole('contributor'))
+const rowActions = computed(() => [
+  { content: '查看子图', value: 'expand' },
+  ...(editable.value ? [{ content: '编辑', value: 'edit' }, { content: '删除', value: 'delete', theme: 'error' }] : []),
+])
 let listRequest = 0, editRequest = 0, endpointRequest = 0, deleteRequest = 0
 const label = (name: string) => graphDocumentLabel(name || '', props.documents)
 const endpointOptions = computed(() => [...new Map([...choices.value, ...selectedEndpoints.value].map(item => [item.entity_id, item])).values()]
@@ -121,6 +129,11 @@ function askDelete(resource: 'entity' | 'relation', item: any) {
 }
 const deleteEntity = (entity: any) => askDelete('entity', entity)
 const deleteRelation = (relation: any) => askDelete('relation', relation)
+function selectRowAction(row: any, value: string) {
+  if (value === 'expand') emit('expand', row)
+  else if (value === 'edit') void editEntity(row)
+  else if (value === 'delete') deleteEntity(row)
+}
 async function remove() {
   if (!(props.canEdit ?? auth.hasRole('contributor')) || !deleting.value || removing.value) return
   const request = deleteRequest, kb = props.kbId, target = deleting.value
@@ -144,27 +157,32 @@ watch(() => props.kbId, () => {
 })
 watch(() => [props.kbId, props.active], () => { if (props.active) void load(); else { listRequest++; loading.value = false } }, { immediate: true })
 onUnmounted(() => { listRequest++; editRequest++; endpointRequest++; deleteRequest++ })
-defineExpose({ editEntity, editRelation, deleteEntity, deleteRelation, load })
+defineExpose({ editEntity, editRelation, deleteEntity, deleteRelation, load, writeInProgress })
 </script>
 
 <template>
   <section v-if="active" class="graph-management" aria-label="实体管理">
     <div class="management-search">
       <t-input v-model="keyword" clearable placeholder="搜索实体名称、ID、类型或别名" aria-label="搜索管理实体" @enter="query" />
-      <t-select :popup-props="{ attach: attach || 'body' }" v-model="mode" aria-label="匹配方式" :options="[{value:'fuzzy',label:'模糊匹配'},{value:'exact',label:'精确匹配'},{value:'semantic',label:'语义匹配'}]" />
+      <label class="matching-mode"><span>匹配方式</span><t-select :popup-props="{ attach: attach || 'body' }" v-model="mode" :options="[{value:'fuzzy',label:'模糊匹配'},{value:'exact',label:'精确匹配'},{value:'semantic',label:'语义匹配'}]" @change="query" /></label>
       <t-button :loading="loading" @click="query">查询</t-button>
       <t-button v-if="(props.canEdit ?? auth.hasRole('contributor'))" variant="outline" @click="editEntity()">新建实体</t-button>
     </div>
     <p class="management-hint">{{ searchHint }}</p>
     <t-alert v-if="error" theme="error" :message="error"><template #operation><t-button variant="text" @click="load">重试</t-button></template></t-alert>
-    <t-table row-key="entity_id" :data="items" :loading="loading" :columns="[{colKey:'entity_name',title:'实体名称',width:220},{colKey:'entity_type',title:'实体类型',width:120},{colKey:'description',title:'描述',ellipsis:true},{colKey:'operations',title:'操作',width:160}]">
-      <template #entity_name="{row}"><t-link @click="emit('inspect',row.entity_id,false)">{{ label(row.entity_name) }}</t-link></template>
-      <template #entity_type="{row}"><t-tag variant="light">{{ row.entity_type || '未分类' }}</t-tag></template>
-      <template #operations="{row}"><t-button variant="text" @click="emit('expand',row)">查看子图</t-button><t-button v-if="(props.canEdit ?? auth.hasRole('contributor'))" variant="text" @click="editEntity(row)">编辑</t-button></template>
+    <t-table row-key="entity_id" :data="items" :loading="loading" :columns="[{colKey:'entity_name',title:'实体'},{colKey:'operations',title:'操作',width:88}]">
+      <template #entity_name="{row}">
+        <button type="button" class="entity-name" @click="emit('inspect',row.entity_id,false)">{{ label(row.entity_name) }}</button>
+        <t-tag size="small" variant="light">{{ row.entity_type || '未分类' }}</t-tag>
+        <p v-if="row.description" class="entity-description">{{ row.description }}</p>
+      </template>
+      <template #operations="{row}"><KnowledgeActionMenu :label="'实体更多操作 '+label(row.entity_name)" :options="rowActions" @select="selectRowAction(row,$event)" /></template>
+      <template #empty><span>{{ keyword.trim() ? '未找到符合条件的实体' : '暂无实体' }}</span></template>
     </t-table>
-    <t-pagination :total="total" :current="page" :page-size="20" :show-page-size="false" @current-change="(value:number)=>{page=value;load()}" />
+    <p v-if="!loading && !error" class="management-hint" role="status">共 {{ total }} 个实体</p>
+    <t-pagination v-if="total > 20" :total="total" :current="page" :page-size="20" :total-content="false" :show-page-size="false" @current-change="(value:number)=>{page=value;load()}" />
   </section>
-  <t-dialog :attach="attach || 'body'" :visible="editorOpen" :header="`${editingId ? '编辑' : '新建'}${kind === 'entity' ? '实体' : '关系'}`" width="600px" :close-on-overlay-click="!saving" :close-btn="!saving" :cancel-btn="{disabled:saving}" :confirm-btn="{content:'保存',loading:saving,disabled:editorLoading || !detailReady}" @close="closeEditor" @confirm="save">
+  <KnowledgeOverlay :attach="attach || 'body'" :visible="editorOpen" :header="`${editingId ? '编辑' : '新建'}${kind === 'entity' ? '实体' : '关系'}`" width="600px" :close-on-overlay-click="!saving" :close-on-esc-keydown="!saving" :close-btn="!saving" :cancel-btn="{disabled:saving}" :confirm-btn="{content:'保存',loading:saving,disabled:editorLoading || !detailReady}" @close="closeEditor" @confirm="save">
     <t-loading v-if="editorLoading" text="正在读取完整信息" />
     <t-form v-else label-align="top" :disabled="saving">
       <p class="management-hint">人工维护的{{ kind === 'entity' ? '名称、类型、描述和别名' : '关系类型、描述、关键词和权重' }}会在后续图谱自动构建后保留。</p>
@@ -183,20 +201,24 @@ defineExpose({ editEntity, editRelation, deleteEntity, deleteRelation, load })
       </template>
       <t-form-item label="描述"><t-textarea v-model="form.description" :maxlength="8192" :autosize="{minRows:4,maxRows:8}" aria-label="描述" /></t-form-item>
     </t-form>
-    <t-alert v-if="editError" theme="error" :message="editError" />
-  </t-dialog>
-  <t-dialog :attach="attach || 'body'" :visible="!!deleting" header="确认删除" :close-on-overlay-click="!removing" :close-btn="!removing" :cancel-btn="{disabled:removing}" :confirm-btn="{content:'删除',theme:'danger',loading:removing}" @close="!removing && (deleting=null)" @confirm="remove">
+    <t-alert v-if="editError" role="alert" theme="error" :message="editError" />
+  </KnowledgeOverlay>
+  <KnowledgeOverlay :attach="attach || 'body'" :visible="!!deleting" header="确认删除" :close-on-overlay-click="!removing" :close-on-esc-keydown="!removing" :close-btn="!removing" :cancel-btn="{disabled:removing}" :confirm-btn="{content:'删除',theme:'danger',loading:removing}" @close="!removing && (deleting=null)" @confirm="remove">
     <p>删除“{{ deleting?.name }}”？{{ deleting?.kind === 'entity' ? '该实体及其所有入向、出向关系将被删除，无法恢复。' : '该关系将被删除，起点和终点实体保留，无法恢复。' }}</p>
-    <t-alert v-if="deleteError" theme="error" :message="deleteError" />
-  </t-dialog>
+    <t-alert v-if="deleteError" role="alert" theme="error" :message="deleteError" />
+  </KnowledgeOverlay>
 </template>
 
 <style scoped lang="less">
 .graph-management { flex: 1; min-width: 0; overflow: auto; padding: 20px; background: var(--td-bg-color-container); }
-.management-search { display: flex; align-items: center; gap: 10px; }
+.management-search { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 .management-search :deep(.t-input__wrap) { flex: 1; min-width: 160px; max-width: 440px; }
 .management-search :deep(.t-select__wrap) { width: 140px; flex: none; }
 .management-hint { color: var(--td-text-color-secondary); font-size: var(--app-text-sm); line-height: 1.6; margin: 12px 0 16px; }
 .graph-management :deep(.t-pagination) { margin-top: 20px; }
-@media (max-width: 700px) { .management-search { flex-wrap: wrap; } }
+ .matching-mode { display: grid; gap: 4px; font-size: var(--app-text-sm); }
+.entity-name { border: 0; padding: 0; margin: 0 8px 4px 0; color: var(--td-brand-color); background: transparent; font: inherit; text-align: start; overflow-wrap: anywhere; cursor: pointer; }
+.entity-name:hover { text-decoration: underline; }
+.entity-description { margin: 4px 0 0; color: var(--td-text-color-secondary); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+@media (max-width: 700px) { .graph-management { padding: 12px; } .management-search :deep(.t-input__wrap) { flex-basis: 100%; } }
 </style>

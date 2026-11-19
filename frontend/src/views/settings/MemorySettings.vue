@@ -7,11 +7,12 @@ import { MessagePlugin } from 'tdesign-vue-next'
 
 interface MemoryPolicy { enabled?: boolean; effective: boolean; storage_mode?: string }
 interface MemoryFile { content: string; file_path: string; effective: boolean; modified_at?: string|null }
-const emit=defineEmits<{(event:'dirty',value:boolean):void}>()
+const emit=defineEmits<{(event:'switch-agent',id:string,opener?:HTMLElement):void}>()
 const auth=useAuthStore()
 const agents=ref<CustomAgent[]>([]),selectedAgentId=ref(''),policy=ref<MemoryPolicy|null>(null)
 const file=ref<MemoryFile|null>(null),content=ref(''),savedContent=ref(''),error=ref('')
 const loading=ref(false),fileLoading=ref(false),saving=ref(false),policySaving=ref(false)
+const agentPicker=ref<HTMLElement>()
 const enabled=computed(()=>policy.value?.enabled??policy.value?.effective??false)
 const canEdit=computed(()=>auth.hasRole('contributor'))
 const agentMemoryDisabled=computed(()=>agents.value.find(agent=>agent.id===selectedAgentId.value)?.config?.memory_enabled===false)
@@ -71,25 +72,31 @@ function selectAgent(id:string){
   selectedAgentId.value=id;void loadFile()
 }
 function discard(){if(!saving.value)content.value=savedContent.value}
-watch(dirty,value=>emit('dirty',value),{immediate:true})
+function requestAgent(value:unknown){
+  if(typeof value==='string'&&value!==selectedAgentId.value)emit('switch-agent',value,agentPicker.value?.querySelector('input') ?? undefined)
+}
+defineExpose({dirty,saving,saveDraft:save,discardDraft:discard,selectAgent})
 watch(()=>auth.user?.id,()=>{void load()},{immediate:true})
-onUnmounted(()=>{identityGeneration++;fileGeneration++;emit('dirty',false)})
+onUnmounted(()=>{identityGeneration++;fileGeneration++})
 </script>
 
 <template>
   <div class="memory-settings">
     <h2>文件记忆</h2>
-    <p>每个 Agent 使用自己的 AGENTS.md，记忆按当前账号与 Agent 隔离，跨会话保存。</p>
     <t-alert v-if="error" theme="error" :message="error"/>
     <div class="setting-row"><label>启用我的文件记忆</label><t-switch :value="enabled" :loading="policySaving" :disabled="loading||!policy" @change="setEnabled"/></div>
     <p>关闭不会删除已有文件。新会话读取文件更新，正在进行的会话沿用原生记忆缓存。</p>
     <t-button v-if="!policy" variant="outline" :loading="loading" @click="load">重新加载</t-button>
     <template v-else>
-      <label for="memory-agent">Agent</label>
-      <t-select id="memory-agent" :value="selectedAgentId" :options="agents.map(agent=>({value:agent.id,label:agent.name}))" :disabled="loading||fileLoading||saving||dirty" @change="selectAgent"/>
+      <div ref="agentPicker">
+        <t-select aria-label="Agent" :value="selectedAgentId" :options="agents.map(agent=>({value:agent.id,label:agent.name}))" :disabled="loading||fileLoading||saving" @change="requestAgent"/>
+      </div>
       <p v-if="!loading&&!agents.length">当前没有可用的 Agent。</p>
       <template v-if="selectedAgentId">
-        <p v-if="file" class="memory-path">{{file.file_path}}</p>
+        <div v-if="file" class="memory-file-header">
+          <p class="memory-path">{{file.file_path}}</p>
+          <span role="status">{{dirty?'有未保存修改':''}}</span>
+        </div>
         <t-alert v-if="file&&agentMemoryDisabled&&enabled" theme="info" message="当前 Agent 未启用文件记忆；可在智能体配置中修改。"/>
         <t-alert v-if="!canEdit" theme="info" message="当前账号只能查看记忆文件。"/>
         <t-textarea v-model="content" :disabled="!canEdit||loading||fileLoading||!file||saving" :maxlength="100000" :autosize="{minRows:12,maxRows:24}" placeholder="记录希望 Agent 在后续会话中遵循的事实、偏好和工作约定"/>
@@ -103,4 +110,4 @@ onUnmounted(()=>{identityGeneration++;fileGeneration++;emit('dirty',false)})
   </div>
 </template>
 
-<style scoped>.memory-settings{display:flex;flex-direction:column;gap:16px}h2,p{margin:0}.setting-row{display:flex;align-items:center;justify-content:space-between}.memory-path{font-family:var(--app-font-mono);overflow-wrap:anywhere}</style>
+<style scoped>.memory-settings{display:flex;flex-direction:column;gap:16px}h2,p{margin:0}.setting-row{display:flex;align-items:center;justify-content:space-between}.memory-file-header{display:flex;flex-wrap:wrap;gap:4px 16px;justify-content:space-between;color:var(--td-text-color-secondary)}.memory-path{font-family:var(--app-font-mono);overflow-wrap:anywhere}</style>

@@ -69,8 +69,10 @@ test('directory labels and menu names use readable document names while preservi
   const template = descriptor.template!.content
   const compiled = compileTemplate({ source: template.slice(template.indexOf('<t-tree '), template.indexOf('</t-tree>') + '</t-tree>'.length), filename: 'ContextDBDocuments.vue', id: 'directory-names' })
   assert.deepEqual(compiled.errors, [])
-  const dropdown = { inheritAttrs: false, setup: (_: unknown, { slots }: any) => () => slots.default?.() }
-  const components: Record<string, any> = { 't-tree': Tree, 't-dropdown': dropdown, 't-button': 'button', 't-icon': 'i' }
+  const actionMenu = vue.defineComponent({
+    inheritAttrs: false, props: { label: String }, setup: props => () => vue.h('button', { 'aria-label': props.label }),
+  })
+  const components: Record<string, any> = { 't-tree': Tree, KnowledgeActionMenu: actionMenu, 't-icon': 'i' }
   const { render } = f.fixture.evaluate(compiled.code, {
     vue: { ...vue, resolveComponent: (name: string) => components[name] || name },
   })
@@ -84,6 +86,30 @@ test('directory labels and menu names use readable document names while preservi
   assert.deepEqual(plain(f.vm.tree.map((item: any) => item.label)), expected)
   assert.doesNotMatch(html, /doc-[a-f\d]{64}/i)
   assert.deepEqual(items, original)
+})
+
+test('narrow file lists keep selection, statuses and metadata access alongside the row menu', async t => {
+  const f = await setup(t, { canEdit: false })
+  const columnKeys = () => Array.from(f.vm.columns, (column: { colKey: string }) => column.colKey)
+  f.vm.mainWidth = 1400
+  assert.ok(columnKeys().includes('wiki_status') && columnKeys().includes('graph_status'))
+  f.vm.selected = ['node-a']; f.vm.mainWidth = 328
+  assert.deepEqual(columnKeys(), ['selection', 'name', 'compact_status', 'actions'])
+  assert.equal(f.vm.selection[0].node_id, 'node-a')
+  assert.deepEqual(Array.from(f.vm.menu(f.vm.rows[1]), (item: { value: string }) => item.value), ['enter', 'metadata'])
+  await f.vm.act(f.vm.rows[1], 'metadata')
+  assert.equal(f.vm.metadata.id, 'doc-a')
+  await f.vm.act(f.vm.rows[1], 'enter')
+  assert.equal(f.vm.preview.id, 'doc-a')
+})
+
+test('the upload picker excludes invalid files before submission without dropping valid files', async t => {
+  const f = await setup(t)
+  f.vm.add()
+  f.vm.appendFiles([new File(['ok'], 'valid.md'), new File([], 'empty.md'), { name: 'too-large.md', size: 2 * 1024 * 1024 + 1 }])
+  assert.deepEqual(Array.from(f.vm.files, (file: File) => file.name), ['valid.md'])
+  assert.deepEqual(Array.from(f.vm.fileIssues), ['empty.md', 'too-large.md'])
+  assert.equal(f.calls.some(call => call.method === 'UPLOAD'), false)
 })
 test('the current directory uses node state without depending on document detail availability', async t => {
   const f = await setup(t, { document: async () => { throw new Error('COMMON_BAD_REQUEST: document not found') } })

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import KnowledgeOverlay from '../components/KnowledgeOverlay.vue'
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
@@ -162,14 +163,14 @@ onUnmounted(() => { alive = false; active = false; request++; detailRequest++; s
 <template>
   <section class="wiki-issues">
     <div class="toolbar">
-      <t-select v-model="status" style="width:170px" :options="[{ value: '', label: '全部处理状态' }, ...Object.entries(states).filter(([key]) => !['succeeded', 'running', 'partial', 'cancelled'].includes(key)).map(([value, label]) => ({ value, label }))]" />
-      <t-select v-model="severity" style="width:150px" :options="[{ value: '', label: '全部严重程度' }, { value: 'high', label: '高' }, { value: 'medium', label: '中' }, { value: 'low', label: '低' }]" />
-      <t-select v-model="issueType" style="width:180px" :options="[{ value: '', label: '全部问题类型' }, ...Object.entries(types).map(([value, label]) => ({ value, label }))]" />
+      <t-select v-model="status" aria-label="筛选处理状态" style="width:170px" :options="[{ value: '', label: '全部处理状态' }, ...Object.entries(states).filter(([key]) => !['succeeded', 'running', 'partial', 'cancelled'].includes(key)).map(([value, label]) => ({ value, label }))]" />
+      <t-select v-model="severity" aria-label="筛选严重程度" style="width:150px" :options="[{ value: '', label: '全部严重程度' }, { value: 'high', label: '高' }, { value: 'medium', label: '中' }, { value: 'low', label: '低' }]" />
+      <t-select v-model="issueType" aria-label="筛选问题类型" style="width:180px" :options="[{ value: '', label: '全部问题类型' }, ...Object.entries(types).map(([value, label]) => ({ value, label }))]" />
       <t-button variant="outline" :loading="loading" @click="load()">刷新</t-button><span v-if="total != null" class="hint">共 {{ total }} 个问题</span>
     </div>
     <p class="hint">先核对双方陈述与来源，再提交处理决定。关闭问题不会修改主题正文；处理任务完成后仍需核对正式正文。</p>
     <t-alert v-if="error" theme="error" :message="error" />
-    <t-alert v-if="notice" theme="info" :message="notice" />
+    <t-alert v-if="notice" role="status" theme="info" :message="notice" />
     <t-alert v-if="taskError" theme="warning" :message="taskError" />
     <t-alert v-if="pageCheck" theme="info" :message="pageCheck" />
     <div v-if="task" class="task-results">
@@ -178,7 +179,7 @@ onUnmounted(() => { alive = false; active = false; request++; detailRequest++; s
       <details><summary>任务诊断信息</summary>任务编号：{{ task.event_id }}</details>
     </div>
     <t-table row-key="issue_id" :data="rows" :loading="loading" :columns="[{ colKey: 'description', title: '问题' }, { colKey: 'issue_type', title: '类型' }, { colKey: 'severity', title: '严重程度' }, { colKey: 'status', title: '状态' }, { colKey: 'updated_at', title: '更新时间' }, { colKey: 'actions', title: '操作' }]">
-      <template #description="{ row }"><t-link @click="openIssue(row)">{{ row.title || row.description || types[row.issue_type] || '查看问题证据' }}</t-link></template>
+      <template #description="{ row }"><button type="button" class="issue-link" @click="openIssue(row)">{{ row.title || row.description || types[row.issue_type] || '查看问题证据' }}</button></template>
       <template #issue_type="{ row }">{{ types[row.issue_type] || '其他问题' }}</template>
       <template #severity="{ row }">{{ ({ high: '高', medium: '中', low: '低' } as Record<string, string>)[row.severity] || '未返回' }}</template>
       <template #status="{ row }">{{ states[row.status] || '状态待确认' }}</template>
@@ -186,9 +187,9 @@ onUnmounted(() => { alive = false; active = false; request++; detailRequest++; s
       <template #actions="{ row }"><t-space><t-button variant="text" @click="openIssue(row)">核对证据</t-button><t-button v-if="row.page_id" variant="text" @click="emit('open-page', row.page_id)">打开主题页</t-button></t-space></template>
     </t-table>
     <t-button v-if="cursor" variant="outline" :loading="loading" @click="load(true)">加载更多问题</t-button>
-    <t-drawer :visible="drawer" header="核对问题与来源" size="min(760px, 94vw)" :footer="false" :close-btn="true" @update:visible="closeDrawer">
+    <KnowledgeOverlay drawer :visible="drawer" header="核对问题与来源" size="min(760px, 94vw)" :footer="false" :close-btn="true" @update:visible="closeDrawer">
       <t-loading :loading="detailLoading" size="small">
-        <t-alert v-if="detailError" theme="error" :message="detailError" />
+        <t-alert v-if="detailError" role="alert" theme="error" :message="detailError" />
         <div v-if="detail" class="detail">
           <div class="toolbar"><t-tag>{{ states[detail.status] || '状态待确认' }}</t-tag><strong>{{ detail.title || detail.description || types[detail.issue_type || ''] || '内容问题' }}</strong></div>
           <t-alert v-if="uncertain" theme="warning" message="来源复核存在不确定性，只能人工核对后填写修订正文。" />
@@ -218,7 +219,7 @@ onUnmounted(() => { alive = false; active = false; request++; detailRequest++; s
           <t-space><t-button variant="outline" :disabled="busy" @click="openIssue(detail)">重新读取证据</t-button><t-button v-if="detail.page_id" variant="outline" @click="emit('open-page', detail.page_id)">打开主题页核对</t-button></t-space>
         </div>
       </t-loading>
-    </t-drawer>
+    </KnowledgeOverlay>
   </section>
 </template>
 
@@ -228,4 +229,7 @@ onUnmounted(() => { alive = false; active = false; request++; detailRequest++; s
 .detail h3,.detail h4,.task-results h4{font-weight:600}.detail { display:flex; flex-direction:column; gap:20px; }.evidence-group h4 { font-size:var(--app-text-xl);font-weight:600;margin:0 0 12px; }.evidence { padding:12px 16px; background:var(--td-bg-color-secondarycontainer); border-radius:var(--app-radius-md); margin-bottom:8px; }
 blockquote { margin:0 0 8px; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; }.task-results { border:1px solid var(--td-component-border); border-radius:var(--app-radius-md); padding:16px; }.result { margin:8px 0; }
 details { font-size:var(--app-text-sm); color:var(--td-text-color-secondary); overflow-wrap:anywhere; }summary { cursor:pointer; }pre { font-family:var(--app-font-family-mono);font-size:var(--app-text-base);white-space:pre-wrap; overflow-wrap:anywhere; }
+.issue-link { border: 0; padding: 0; background: transparent; color: var(--td-brand-color); font: inherit; text-align: start; cursor: pointer; overflow-wrap: anywhere; }
+.issue-link:hover { text-decoration: underline; }
+@media (max-width: 700px) { .wiki-issues { padding: 12px; } }
 </style>

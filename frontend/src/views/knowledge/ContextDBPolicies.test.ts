@@ -13,7 +13,8 @@ async function setup(t: TestContext, options: { kb?: string; section?: string; c
   })
   let permissions = options.permissions || (async () => profile(route.params.kbId))
   const { vm, close } = f.component(file, {
-    'vue-router': { useRoute: () => route, useRouter: () => ({ replace: async (value: any) => { replacements.push(JSON.parse(JSON.stringify(value))); route.query = value.query }, push() {} }) },
+    'vue-router': { useRoute: () => route, onBeforeRouteLeave() {}, onBeforeRouteUpdate() {}, useRouter: () => ({ replace: async (value: any) => { replacements.push(JSON.parse(JSON.stringify(value))); route.query = value.query }, push() {} }) },
+    'tdesign-vue-next': { MessagePlugin: { warning() {} } },
     '@/stores/auth': { useAuthStore: () => ({ hasRole: () => options.contributor !== false }) },
     '@/api/contextdb': { knowledgeAccess: api.knowledgeAccess, listBases: options.libraries || (async () => ({ data: [{ id: route.params.kbId, name: route.params.kbId }] })), getBasePermissions: () => permissions() },
   })
@@ -22,7 +23,7 @@ async function setup(t: TestContext, options: { kb?: string; section?: string; c
 test('the original opaque KB identity and section survive tab navigation and route reuse', async t => {
   const f = await setup(t, { kb: '原始/知识库?#', section: 'templates' })
   assert.equal(f.vm.kbId, '原始/知识库?#'); assert.equal(f.vm.section, 'templates')
-  f.vm.section = 'settings'; await flush()
+  f.vm.selectSection('settings'); await flush()
   assert.deepEqual(f.replacements, [{ query: { section: 'settings', keep: 'retained' } }])
   f.route.query.section = 'templates'; await flush(); assert.equal(f.vm.section, 'templates'); assert.equal(f.replacements.length, 1)
   f.route.params.kbId = 'two'; await flush(); assert.equal(f.vm.kbId, 'two'); assert.equal(f.vm.bases[0].id, 'two')

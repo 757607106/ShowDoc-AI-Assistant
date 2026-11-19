@@ -40,7 +40,7 @@ function fixture(get?: (call: Call) => Promise<any>, post?: (call: Call) => Prom
     '@/stores/auth': { useAuthStore: () => ({ hasRole: (role: string) => { assert.equal(role, 'contributor'); return contributor } }) },
     './ContextDBGraphCanvas.vue': {}, './contextdbGraphPresentation': presentation, '@/utils/contextdbDocumentName': documentName, './ContextDBGraphManagement.vue': {}, '@/components/DocMarkdown.vue': {}, '@/utils/platformPresentation': { dateTime: (value: unknown) => value },
   }
-  scope.run(() => vm.runInNewContext(compiled, { exports, defineProps: () => props, defineEmits: () => () => {},
+  scope.run(() => vm.runInNewContext(compiled, { exports, defineProps: () => props, defineEmits: () => () => {}, defineExpose() {},
     require: (id: string) => { assert.ok(id in modules, `unexpected import ${id}`); return modules[id] }, console, document: { removeEventListener() {} },
     setTimeout: (fn: () => void, delay: number) => { assert.equal(delay, 3000); timers.set(++timerId, fn); return timerId },
     clearTimeout: (id: number) => timers.delete(id),

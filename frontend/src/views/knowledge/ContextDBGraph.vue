@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, useId, watch, onMounted, onUnmounted } from 'vue'
 import { nativeAPI } from '@/api/contextdb'
 import { useAuthStore } from '@/stores/auth'
 import ContextDBGraphCanvas from './ContextDBGraphCanvas.vue'
@@ -9,15 +9,21 @@ import ContextDBGraphManagement from './ContextDBGraphManagement.vue'
 import DocMarkdown from '@/components/DocMarkdown.vue'
 import { chunkAttachments } from '@/utils/contextdbResources'
 import { dateTime } from '@/utils/platformPresentation'
+import { navigateKnowledgeTabs } from './components/knowledgeTabNavigation'
 
 const props = defineProps<{ kbId: string; canEdit?: boolean }>()
 const emit = defineEmits<{ (e: 'open-source-doc', id: string): void }>()
 const auth = useAuthStore()
+const modeId = useId()
 const graph = ref<any>(null), root = ref(''), hops = ref(2), documentId = ref('')
 const view = ref('graph'), settingsOpen = ref(false), maxNodes = ref(100), maxEdges = ref(200)
 const appliedHops = ref(2)
 const settingsError = ref(''), locatedId = ref(''), graphScale = ref(1)
 const manager = ref<InstanceType<typeof ContextDBGraphManagement> | null>(null)
+const writeInProgress = computed(() => !!manager.value?.writeInProgress)
+const inspectorClose = ref<HTMLButtonElement | null>(null)
+let detailTrigger: HTMLElement | null = null
+defineExpose({ writeInProgress })
 const container = ref<HTMLElement | null>(null), fullscreen = ref(false)
 const dialogAttach = () => container.value || document.body
 const relations = ref<any[]>([]), relationTotal = ref(0), relationPage = ref(1), relationType = ref('')
@@ -60,6 +66,18 @@ function closeDetail() {
   detailRequest++; sourceRequest++; relationRequest++; detailOpen.value = false; detail.value = null; sources.value = []
   selectedId.value = ''; locatedId.value = ''; relations.value = []; relationError.value = ''; relationLoading.value = false
   detailLoading.value = false; sourceLoading.value = false; detailError.value = ''; sourceError.value = ''; sourceResult.value = null
+}
+function dismissDetail() {
+  closeDetail()
+  const trigger = detailTrigger?.isConnected && detailTrigger.tagName !== 'BODY'
+    ? detailTrigger : container.value?.querySelector<HTMLElement>('.graph-canvas [role="application"], .graph-canvas[role="application"]')
+  detailTrigger = null
+  trigger?.focus({ preventScroll: true })
+}
+function selectGraphView(value: 'graph' | 'entities') {
+  if (view.value === value || writeInProgress.value) return
+  closeDetail()
+  view.value = value
 }
 async function load() {
   const request = ++graphRequest, kb = props.kbId, requestedHops = hops.value
@@ -149,9 +167,11 @@ async function loadRelations(page = 1) {
 }
 function changeRelationPage(page: number) { void loadRelations(page) }
 async function inspect(id: string, relation = false) {
+  if (!detailOpen.value) detailTrigger = document.activeElement as HTMLElement | null
   closeDetail(); selectedId.value = id; isRelation.value = relation; detailOpen.value = true
   if (!relation) locatedId.value = nodes.value.some((node: any) => node.id === id) ? id : ''
   relationType.value = ''; relationTotal.value = 0
+  void nextTick(() => inspectorClose.value?.focus({ preventScroll: true }))
   await Promise.all([loadDetail(), ...(!relation ? [loadSources(), loadRelations()] : [])])
 }
 function expandEntity(entity = detail.value) {
@@ -174,9 +194,9 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
 
 <template>
   <div ref="container" class="native-graph" :class="{ 'is-fullscreen': fullscreen }">
-    <div class="graph-tabs" role="tablist" aria-label="图谱视图">
-      <button type="button" role="tab" :aria-selected="view === 'graph'" @click="view = 'graph'">查看图谱</button>
-      <button type="button" role="tab" :aria-selected="view === 'entities'" @click="view = 'entities'">实体管理</button>
+    <div class="graph-tabs" role="tablist" aria-label="图谱视图" @keydown="navigateKnowledgeTabs">
+      <button :id="modeId+'-graph'" type="button" role="tab" :aria-selected="view === 'graph'" :tabindex="view === 'graph'?0:-1" :aria-controls="modeId" @click="selectGraphView('graph')">查看图谱</button>
+      <button :id="modeId+'-entities'" type="button" role="tab" :aria-selected="view === 'entities'" :tabindex="view === 'entities'?0:-1" :aria-controls="modeId" @click="selectGraphView('entities')">实体管理</button>
     </div>
     <div v-show="view === 'graph'" class="graph-toolbar">
       <div class="graph-search-row">
@@ -191,13 +211,13 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
         <label><span>关系上限</span><t-input-number v-model="maxEdges" :min="1" :max="20000" :decimal-places="0" :input-props="{ 'aria-label': '关系上限' }" /></label>
         <t-button @click="applySettings">应用</t-button><span v-if="settingsError" role="alert">{{ settingsError }}</span>
       </div>
-      <div class="graph-summary"><span>{{ scopeLabel }}</span><t-button v-if="root" variant="text" size="small" @click="root = ''; load()">返回原图谱范围</t-button><span v-if="graph" class="graph-count">已展示 <strong>{{ nodes.length }}</strong> 个实体 / <strong>{{ edges.length }}</strong> 条关系<span class="graph-total">当前查询范围共 {{ graph.entity_total ?? '—' }} 个实体 / {{ graph.relation_total ?? '—' }} 条关系</span></span></div>
+      <div class="graph-summary" role="status"><span>{{ scopeLabel }}</span><t-button v-if="root" variant="text" size="small" @click="root = ''; load()">清除实体展开</t-button><span v-if="graph" class="graph-count">已展示 <strong>{{ nodes.length }}</strong> 个实体 / <strong>{{ edges.length }}</strong> 条关系<span class="graph-total">当前查询范围共 {{ graph.entity_total ?? '—' }} 个实体 / {{ graph.relation_total ?? '—' }} 条关系</span></span></div>
       <t-alert v-if="error" theme="error" :message="error"><template #operation><t-button variant="text" @click="load">重试</t-button></template></t-alert>
       <t-alert v-if="entityError" theme="warning" :message="`实体搜索失败：${entityError}`"><template #operation><t-button variant="text" @click="searchEntities()">重试</t-button></template></t-alert>
       <t-alert v-if="documentError" theme="warning" :message="`文档列表读取失败：${documentError}`"><template #operation><t-button variant="text" @click="loadDocuments()">重试</t-button></template></t-alert>
       <p v-if="graphNotice" class="graph-notice"><t-icon name="info-circle" />{{ graph?.truncated ? '已达到展示上限，可缩小查询范围或调整展示上限。' : graphNotice }}</p>
     </div>
-    <div class="graph-workspace" :class="{ 'graph-workspace-view': view === 'graph' }">
+    <div :id="modeId" class="graph-workspace" :class="{ 'graph-workspace-view': view === 'graph' }" role="tabpanel" :aria-labelledby="modeId+'-'+view" :aria-busy="view==='graph'&&busy">
       <div v-show="view === 'graph'" class="graph-stage">
         <div class="graph-canvas-tools">
           <t-select v-model="locatedId" filterable clearable placeholder="定位当前画布中的实体" aria-label="定位当前画布中的实体" :popup-props="{ attach: dialogAttach }" :options="nodes.map((node: any) => ({ value: node.id, label: node.label }))" @change="(id: any) => locate(String(id || ''))" />
@@ -205,20 +225,20 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
           <t-button variant="outline" @click="toggleFullscreen"><t-icon :name="fullscreen ? 'fullscreen-exit' : 'fullscreen'" />{{ fullscreen ? '退出全屏' : '全屏' }}</t-button>
         </div>
         <ContextDBGraphCanvas ref="graphCanvas" class="graph-canvas" :nodes="nodes" :edges="edges" :root-id="root" :selected-id="selectedId" :is-relation="isRelation" @select="inspect" @zoom="graphScale = $event" />
-        <div v-if="busy" class="graph-overlay"><t-loading text="正在读取图谱" /></div>
+        <div v-if="busy" class="graph-overlay"><t-loading text="正在读取图谱…" role="status" /></div>
         <t-empty v-else-if="!nodes.length && !error" class="graph-overlay" description="当前范围暂无实体与关系" />
         <div class="graph-zoom"><span>{{ Math.round(graphScale * 100) }}%</span><t-button variant="text" aria-label="缩小图谱" @click="zoom(1 / 1.25)"><t-icon name="zoom-out" /></t-button><t-button variant="text" aria-label="放大图谱" @click="zoom(1.25)"><t-icon name="zoom-in" /></t-button></div>
         <div class="graph-footer"><div class="graph-types"><span v-for="type in types" :key="type"><i :style="{ background: typeColor(type) }" />{{ type || '未分类' }}</span></div><p>拖动画布移动，滚轮缩放；拖动节点调整位置，点击实体或关系查看详情。也可通过实体定位框选择节点。</p></div>
       </div>
       <ContextDBGraphManagement ref="manager" :attach="dialogAttach" :kb-id="kbId" :active="view === 'entities'" :can-edit="props.canEdit" :documents="documents" @inspect="inspect" @expand="expandEntity" @changed="changed" />
-      <aside v-if="detailOpen || view === 'graph'" class="graph-inspector" :aria-label="isRelation ? '关系详情' : '实体详情'">
-        <div class="inspector-heading"><div><span class="inspector-kicker">{{ isRelation ? '关系详情' : '实体详情' }}</span><h3>{{ isRelation ? detail?.relation_type || edges.find((edge: any) => edge.id === selectedId)?.label || '加载中' : selectedId ? displayName(detail?.entity_name || nodes.find((node: any) => node.id === selectedId)?.label || '加载中') : '实体详情' }}</h3><t-tag v-if="!isRelation && detail?.entity_type" variant="light">{{ detail.entity_type }}</t-tag></div><t-button variant="text" aria-label="关闭详情" @click="closeDetail"><t-icon name="close" /></t-button></div>
-        <div v-if="!detailOpen" class="inspector-body graph-scope">拖动画布移动，滚轮缩放；点击实体或关系查看详情。也可通过实体定位框选择节点。</div>
-        <div v-else class="inspector-body">
-          <t-loading v-if="detailLoading" text="正在读取详情" />
+      <aside v-if="detailOpen" class="graph-inspector" :aria-label="isRelation ? '关系详情' : '实体详情'"
+        @keydown.esc.stop.prevent="dismissDetail">
+        <div class="inspector-heading"><div><span class="inspector-kicker">{{ isRelation ? '关系详情' : '实体详情' }}</span><h3>{{ isRelation ? detail?.relation_type || edges.find((edge: any) => edge.id === selectedId)?.label || '加载中' : selectedId ? displayName(detail?.entity_name || nodes.find((node: any) => node.id === selectedId)?.label || '加载中') : '实体详情' }}</h3><t-tag v-if="!isRelation && detail?.entity_type" variant="light">{{ detail.entity_type }}</t-tag></div><button ref="inspectorClose" type="button" class="inspector-close" aria-label="关闭详情" @click="dismissDetail"><t-icon name="close" /></button></div>
+        <div class="inspector-body">
+          <t-loading v-if="detailLoading" text="正在读取详情…" role="status" />
           <t-alert v-if="detailError" theme="error" :message="detailError"><template #operation><t-button variant="text" @click="loadDetail">重试详情</t-button></template></t-alert>
           <template v-if="detail">
-            <template v-if="isRelation"><dl class="relation-endpoints"><dt>起点实体</dt><dd><t-link @click="inspect(detail.source_entity_id)">{{ displayName(detail.source_entity_name || detail.source_entity_id) }}</t-link></dd><dt>终点实体</dt><dd><t-link @click="inspect(detail.target_entity_id)">{{ displayName(detail.target_entity_name || detail.target_entity_id) }}</t-link></dd><dt>权重</dt><dd>{{ detail.weight ?? '—' }}</dd><dt>关键词</dt><dd>{{ detail.keywords?.join('、') || '—' }}</dd></dl></template>
+            <template v-if="isRelation"><dl class="relation-endpoints"><dt>起点实体</dt><dd><button type="button" class="graph-text-action" @click="inspect(detail.source_entity_id)">{{ displayName(detail.source_entity_name || detail.source_entity_id) }}</button></dd><dt>终点实体</dt><dd><button type="button" class="graph-text-action" @click="inspect(detail.target_entity_id)">{{ displayName(detail.target_entity_name || detail.target_entity_id) }}</button></dd><dt>权重</dt><dd>{{ detail.weight ?? '—' }}</dd><dt>关键词</dt><dd>{{ detail.keywords?.join('、') || '—' }}</dd></dl></template>
             <div v-else-if="detail.aliases?.length" class="detail-aliases"><span>别名</span><t-tag v-for="alias in detail.aliases" :key="alias" variant="light">{{ displayName(alias) }}</t-tag></div>
             <h4>描述</h4><DocMarkdown :content="detail.description || '暂无描述'" /><p class="graph-scope">更新时间：{{ dateTime(detail.updated_at) }}</p>
             <div class="detail-actions"><t-button v-if="!isRelation" @click="expandEntity()">查看子图</t-button><template v-if="(props.canEdit ?? auth.hasRole('contributor'))"><t-button variant="outline" @click="isRelation ? manager?.editRelation(detail) : manager?.editEntity(detail)">编辑</t-button><t-button variant="outline" theme="danger" @click="isRelation ? manager?.deleteRelation(detail) : manager?.deleteEntity(detail)">删除</t-button></template></div>
@@ -227,7 +247,7 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
             <section class="detail-section"><div class="section-heading"><h4>关联关系 <span>{{ relationTotal }}</span></h4><t-button v-if="(props.canEdit ?? auth.hasRole('contributor')) && detail" variant="text" size="small" @click="manager?.editRelation(undefined, detail)">新建关系</t-button></div>
               <div class="relation-search"><t-input v-model="relationType" placeholder="按关系类型精确查询" aria-label="按关系类型精确查询" clearable @enter="loadRelations()" /><t-button variant="outline" @click="loadRelations()">查询</t-button></div>
               <t-alert v-if="relationError" theme="error" :message="relationError"><template #operation><t-button variant="text" @click="loadRelations()">重试</t-button></template></t-alert>
-              <ul class="relation-list"><li v-for="relation in relations" :key="relation.relation_id"><div><t-tag size="small" variant="light">{{ relation.source_entity_id === selectedId ? '出向' : '入向' }}</t-tag><t-link @click="inspect(relation.relation_id, true)">{{ relation.relation_type }}</t-link><t-link @click="inspect(relation.source_entity_id === selectedId ? relation.target_entity_id : relation.source_entity_id)">{{ displayName(relation.source_entity_id === selectedId ? relation.target_entity_name || relation.target_entity_id : relation.source_entity_name || relation.source_entity_id) }}</t-link></div><p>{{ relation.description }}</p></li></ul>
+              <ul class="relation-list"><li v-for="relation in relations" :key="relation.relation_id"><div><t-tag size="small" variant="light">{{ relation.source_entity_id === selectedId ? '出向' : '入向' }}</t-tag><button type="button" class="graph-text-action" @click="inspect(relation.relation_id, true)">{{ relation.relation_type }}</button><button type="button" class="graph-text-action" @click="inspect(relation.source_entity_id === selectedId ? relation.target_entity_id : relation.source_entity_id)">{{ displayName(relation.source_entity_id === selectedId ? relation.target_entity_name || relation.target_entity_id : relation.source_entity_name || relation.source_entity_id) }}</button></div><p>{{ relation.description }}</p></li></ul>
               <t-loading v-if="relationLoading" text="正在读取关联关系" /><t-empty v-else-if="!relations.length && !relationError" description="暂无关联关系" />
               <t-pagination v-if="relationTotal > 10" size="small" :current="relationPage" :total="relationTotal" :page-size="10" :show-page-size="false" :show-page-number="false" @current-change="changeRelationPage" />
             </section>
@@ -236,7 +256,7 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
               <t-alert v-if="sourceError" theme="warning" :message="sourceError"><template #operation><t-button variant="text" @click="loadSources">重试来源</t-button></template></t-alert>
               <p v-if="sourceResult" class="graph-scope">本次返回 {{ sources.length }} 个片段<span v-if="sourceResult.truncated">；仅显示部分候选来源，可打开来源文档核对</span>。</p>
               <t-empty v-if="!sourceLoading && !sourceError && !sources.length" description="当前实体没有可读取的来源片段" />
-              <div v-for="item in sources" :key="item.chunk_id" class="graph-source"><t-link v-if="item.document_id" @click="emit('open-source-doc', item.document_id)">{{ displayName(item.document_name) || '来源文档' }}</t-link><p v-if="item.toc_path" class="graph-scope">{{ displayName(item.toc_path) }}</p><DocMarkdown :content="item.content || ''" :source-name="item.document_name" :source-display-name="displayName(item.document_name)" :attachments="chunkAttachments([item], item.document_id)" :kb-id="kbId" /></div>
+              <div v-for="item in sources" :key="item.chunk_id" class="graph-source"><button type="button" class="graph-text-action" v-if="item.document_id" @click="emit('open-source-doc', item.document_id)">{{ displayName(item.document_name) || '来源文档' }}</button><p v-if="item.toc_path" class="graph-scope">{{ displayName(item.toc_path) }}</p><DocMarkdown :content="item.content || ''" :source-name="item.document_name" :source-display-name="displayName(item.document_name)" :attachments="chunkAttachments([item], item.document_id)" :kb-id="kbId" /></div>
             </section>
           </template>
         </div>
@@ -246,7 +266,7 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
 </template>
 
 <style scoped lang="less">
-.native-graph { display: flex; flex-direction: column; flex: 1; width: 100%; height: 100%; min-height: 0; overflow: auto; color: var(--td-text-color-primary); background: var(--td-bg-color-container); }
+.native-graph { display: flex; flex-direction: column; flex: 1; width: 100%; height: 100%; min-height: 0; overflow: auto; color: var(--td-text-color-primary); background: var(--td-bg-color-container); container-type: inline-size; }
 .native-graph:fullscreen { padding: 24px; box-sizing: border-box; }
 .native-graph:fullscreen .graph-workspace-view { flex: 1; min-height: 440px; height: auto; }
 .graph-tabs { display: flex; gap: 24px; padding: 0; border-bottom: 1px solid var(--td-component-stroke); }
@@ -277,6 +297,11 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
 .graph-types span { display: inline-flex; align-items: center; gap: 5px; }.graph-types i { width: 8px; height: 8px; border-radius: 50%; }
 .graph-inspector { width: 32%; flex: 0 0 32%; min-width: 300px; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--td-component-stroke); background: var(--td-bg-color-container); }
 .inspector-heading { padding: 18px 16px; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--td-component-stroke); }
+.inspector-close { display: inline-grid; place-items: center; flex: none; width: 36px; height: 36px; border: 0; border-radius: var(--app-radius-sm); background: transparent; color: var(--td-text-color-primary); cursor: pointer; }
+.inspector-close:hover { background: var(--td-bg-color-container-hover); }
+.graph-text-action { border: 0; padding: 0; font: inherit; color: var(--td-brand-color); background: transparent; text-align: start; overflow-wrap: anywhere; cursor: pointer; }
+.graph-text-action:hover { text-decoration: underline; }
+.inspector-body :deep(.doc-markdown-toggle) { display: none; }
 .inspector-heading h3 { margin: 4px 0 10px; font-size: var(--app-text-xl); font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }.inspector-kicker { font-size: var(--app-text-xs); color: var(--td-text-color-placeholder); }
 .inspector-body { overflow: auto; min-height: 0; padding: 16px; font-size: var(--app-text-base); line-height: 1.65; }.inspector-body h4 { margin: 0 0 12px; font-size: var(--app-text-base); font-weight: 600; }
 .detail-aliases { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }.detail-aliases > span:first-child { color: var(--td-text-color-secondary); }
@@ -285,6 +310,23 @@ onUnmounted(() => { entityRequest++; graphRequest++; documentRequest++; closeDet
 .relation-search { display: flex; gap: 8px; }.relation-list { list-style: none; padding: 0; margin: 8px 0; }.relation-list li { padding: 12px 0; border-bottom: 1px solid var(--td-component-stroke); }.relation-list li > div { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }.relation-list p { margin: 6px 0 0; color: var(--td-text-color-secondary); font-size: var(--app-text-sm); }
 .relation-endpoints { display: grid; grid-template-columns: 64px 1fr; gap: 10px; margin: 0 0 20px; }.relation-endpoints dt { color: var(--td-text-color-secondary); }.relation-endpoints dd { margin: 0; overflow-wrap: anywhere; }
 .graph-source { margin-top: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--td-component-stroke); }
-@media (max-width: 900px) { .graph-inspector { width: 300px; flex-basis: 300px; }.graph-total { display: none; }.graph-canvas-tools { flex-wrap: wrap; }.graph-canvas-tools :deep(.t-select__wrap) { flex: 1; min-width: 140px; } }
-@media (max-width: 640px) { .graph-workspace { position: relative; }.graph-inspector { position: absolute; inset: 0 0 0 auto; width: min(360px, 94%); z-index: 2; box-shadow: var(--td-shadow-2); }.graph-toolbar { padding: 10px; }.graph-field { flex-basis: 100%; }.graph-count { margin-left: 0; }.graph-footer p { display: none; } }
+@media (max-width: 900px) { .graph-total { display: none; }.graph-canvas-tools { flex-wrap: wrap; }.graph-canvas-tools :deep(.t-select__wrap) { flex: 1; min-width: 140px; } }
+@media (max-width: 640px) { .graph-toolbar { padding: 10px; }.graph-field { flex-basis: 100%; }.graph-count { margin-left: 0; }.graph-footer p { display: none; } }
+@container (max-width: 760px) {
+  .graph-inspector {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 100;
+    width: auto;
+    min-width: 0;
+    max-height: min(55dvh, 440px);
+    padding-bottom: env(safe-area-inset-bottom);
+    border: 1px solid var(--td-component-stroke);
+    border-radius: var(--app-radius-lg) var(--app-radius-lg) 0 0;
+    box-shadow: var(--td-shadow-2);
+  }
+  .inspector-heading { flex: none; padding: 12px 16px; }
+  .inspector-body { overscroll-behavior: contain; }
+  .detail-actions { flex-wrap: wrap; }
+}
 </style>

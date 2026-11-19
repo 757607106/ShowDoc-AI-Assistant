@@ -2,7 +2,6 @@
   <div class="tenant-info">
     <div class="section-header">
       <h2>{{ $t('tenant.title') }}</h2>
-      <p class="section-description">{{ $t('tenant.sectionDescription') }}</p>
     </div>
 
     <!-- Loading state -->
@@ -27,7 +26,6 @@
         <div class="setting-row">
           <div class="setting-info">
             <label>{{ $t('tenant.details.idLabel') }}</label>
-            <p class="desc">{{ $t('tenant.details.idDescription') }}</p>
           </div>
           <div class="setting-control">
             <span class="info-value">{{ tenantInfo?.id || '-' }}</span>
@@ -38,7 +36,6 @@
         <div class="setting-row">
           <div class="setting-info">
             <label>{{ $t('tenant.details.nameLabel') }}</label>
-            <p class="desc">{{ $t('tenant.details.nameDescription') }}</p>
           </div>
           <div class="setting-control">
             <!-- 只读态：显示名称 + 编辑按钮（owner 才看得见编辑入口）。
@@ -72,7 +69,6 @@
         <div class="setting-row">
           <div class="setting-info">
             <label>{{ $t('tenant.details.descriptionLabel') }}</label>
-            <p class="desc">{{ $t('tenant.details.descriptionDescription') }}</p>
           </div>
           <div class="setting-control">
             <!-- 只读态：显示描述（空时给占位）+ 编辑按钮（owner 才看得见编辑入口）。
@@ -114,7 +110,6 @@
         <div v-if="tenantInfo?.business" class="setting-row">
           <div class="setting-info">
             <label>{{ $t('tenant.details.businessLabel') }}</label>
-            <p class="desc">{{ $t('tenant.details.businessDescription') }}</p>
           </div>
           <div class="setting-control">
             <span class="info-value">{{ tenantInfo.business }}</span>
@@ -125,7 +120,6 @@
         <div class="setting-row">
           <div class="setting-info">
             <label>{{ $t('tenant.details.statusLabel') }}</label>
-            <p class="desc">{{ $t('tenant.details.statusDescription') }}</p>
           </div>
           <div class="setting-control">
             <t-tag :theme="getStatusTheme(tenantInfo?.status)" variant="light" size="small">
@@ -138,47 +132,24 @@
         <div class="setting-row">
           <div class="setting-info">
             <label>{{ $t('tenant.details.createdAtLabel') }}</label>
-            <p class="desc">{{ $t('tenant.details.createdAtDescription') }}</p>
           </div>
           <div class="setting-control">
             <span class="info-value">{{ formatDate(tenantInfo?.created_at) }}</span>
           </div>
         </div>
 
-        <!-- Storage quota -->
-        <div v-if="tenantInfo?.storage_quota !== undefined" class="setting-row">
-          <div class="setting-info">
-            <label>{{ $t('tenant.storage.quotaLabel') }}</label>
-            <p class="desc">{{ $t('tenant.storage.quotaDescription') }}</p>
-          </div>
-          <div class="setting-control">
-            <span class="info-value">{{ formatBytes(tenantInfo.storage_quota) }}</span>
-          </div>
-        </div>
-
-        <!-- Used storage -->
-        <div v-if="tenantInfo?.storage_quota !== undefined" class="setting-row">
-          <div class="setting-info">
-            <label>{{ $t('tenant.storage.usedLabel') }}</label>
-            <p class="desc">{{ $t('tenant.storage.usedDescription') }}</p>
-          </div>
-          <div class="setting-control">
-            <span class="info-value">{{ formatBytes(tenantInfo.storage_used || 0) }}</span>
-          </div>
-        </div>
-
-        <!-- Storage usage -->
         <div v-if="tenantInfo?.storage_quota !== undefined" class="setting-row">
           <div class="setting-info">
             <label>{{ $t('tenant.storage.usageLabel') }}</label>
-            <p class="desc">{{ $t('tenant.storage.usageDescription') }}</p>
           </div>
           <div class="setting-control">
             <div class="usage-control">
-              <span class="usage-text">{{ getUsagePercentage() }}%</span>
-              <!-- t-progress: theme = 形态（line/plump/circle）；颜色用 status -->
-              <t-progress :percentage="getUsagePercentage()" :show-info="false" size="small"
-                :status="getUsagePercentage() > 80 ? 'warning' : 'success'" style="flex: 1;" />
+              <div class="usage-text">
+                <span>{{ formatBytes(tenantInfo.storage_used || 0) }} / {{ formatBytes(tenantInfo.storage_quota) }}</span>
+                <span>{{ getUsagePercentage() }}%</span>
+              </div>
+              <t-progress aria-hidden="true" :percentage="getUsagePercentage()" :show-info="false" size="small"
+                :status="getUsagePercentage() > 80 ? 'warning' : 'success'" />
             </div>
           </div>
         </div>
@@ -466,7 +437,8 @@ const cancelEditName = () => {
 
 // t-input 自身不冒泡 esc，这里手动处理（与 enter 的体验对称）。
 const onEditKeydown = (_value: any, ctx: { e: KeyboardEvent }) => {
-  if (ctx?.e?.key === 'Escape') {
+  if (ctx?.e?.key === 'Escape' && !dirty.value) {
+    ctx.e.stopPropagation()
     cancelEditName()
   }
 }
@@ -497,7 +469,10 @@ const onEditDescriptionKeydown = (_value: any, ctx: { e: KeyboardEvent }) => {
   const e = ctx?.e
   if (!e) return
   if (e.key === 'Escape') {
-    cancelEditDescription()
+    if (!dirty.value) {
+      e.stopPropagation()
+      cancelEditDescription()
+    }
     return
   }
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -507,7 +482,7 @@ const onEditDescriptionKeydown = (_value: any, ctx: { e: KeyboardEvent }) => {
 }
 
 const saveTenantDescription = async () => {
-  if (!tenantInfo.value?.id) return
+  if (!tenantInfo.value?.id || savingDescription.value) return
   const newDesc = editDescriptionTrimmed.value
   if (newDesc === (tenantInfo.value.description || '')) {
     editingDescription.value = false
@@ -536,6 +511,7 @@ const saveTenantDescription = async () => {
 }
 
 const saveTenantName = async () => {
+  if (saving.value) return
   const newName = editNameTrimmed.value
   if (!newName) {
     MessagePlugin.warning(t('tenant.details.editNameRequired'))
@@ -579,6 +555,20 @@ const saveTenantName = async () => {
     saving.value = false
   }
 }
+
+const nameDirty = computed(() => editing.value && editNameTrimmed.value !== tenantInfo.value?.name)
+const descriptionDirty = computed(() => editingDescription.value && editDescriptionTrimmed.value !== (tenantInfo.value?.description || ''))
+const dirty = computed(() => nameDirty.value || descriptionDirty.value)
+const draftSaving = computed(() => saving.value || savingDescription.value)
+async function saveDraft() {
+  if (nameDirty.value) await saveTenantName()
+  if (!nameDirty.value && descriptionDirty.value) await saveTenantDescription()
+}
+function discardDraft() {
+  cancelEditName()
+  cancelEditDescription()
+}
+defineExpose({ dirty, saving: draftSaving, saveDraft, discardDraft })
 
 // Methods
 const loadInfo = async () => {
@@ -876,17 +866,27 @@ onMounted(() => {
 }
 
 .usage-control {
-  //   width: 100%;
-  //   display: flex;
-  //   align-items: center;
-  //   gap: 12px;
+  width: min(100%, 280px);
+}
 
-  .usage-text {
-    font-size: var(--app-text-base);
-    font-weight: 500;
-    color: var(--td-text-color-primary);
-    min-width: 50px;
-    text-align: right;
+.usage-text {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 560px) {
+  .stacked-setting-rows();
+  .setting-info {
+    padding-right: 0;
+  }
+  .setting-control .info-value {
+    text-align: start;
+  }
+  .inline-edit {
+    justify-content: flex-start;
   }
 }
 

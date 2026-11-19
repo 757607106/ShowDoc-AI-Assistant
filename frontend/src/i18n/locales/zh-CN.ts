@@ -3855,6 +3855,7 @@ export default {
     }
   },
   modelSettings: {
+    moreActions: '更多操作',
     title: '模型配置',
     description: '管理当前空间的远程 AI 模型与 API 配置',
     copySuffix: ' 副本',
@@ -7081,6 +7082,8 @@ export default {
     updatedAt: '你于 {time} 设置'
   },
   defaultSettings: {
+    autoSave: '选择即保存',
+    saving: '保存中',
     loadFailed: '默认设置加载失败，请重试后再编辑。',
     title: '默认配置',
     description: '集中管理本空间各项功能默认使用的模型和搜索引擎。',

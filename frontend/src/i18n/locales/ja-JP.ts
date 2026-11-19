@@ -2743,6 +2743,8 @@ export default {
     updatedAt: '{time}に設定しました'
   },
   defaultSettings: {
+    autoSave: '選択すると自動で保存されます',
+    saving: '保存中',
     loadFailed: 'デフォルト設定を読み込めませんでした。再試行してから編集してください。',
     title: 'デフォルト設定',
     description: 'このワークスペースの各機能が既定で使うモデルと検索エンジンをまとめて管理します。',
@@ -5814,6 +5816,7 @@ export default {
       toolsStale: '再同期が必要'
     },
     modelSettings: {
+      moreActions: 'その他の操作',
       title: 'モデル設定',
       description: '現在のアカウントのリモートAIモデルとAPI設定を管理します',
       typeShort: {

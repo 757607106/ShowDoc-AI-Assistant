@@ -66,7 +66,6 @@
         </div>
       </div>
 
-      <!-- 修改密码：与其它 setting-row 同款只读行 + 编辑入口，表单进原地 popup -->
       <div class="setting-row">
         <div class="setting-info">
           <label>{{ $t('userProfile.changePassword.label') }}</label>
@@ -82,95 +81,69 @@
           </template>
           <template v-else>
             <span class="info-value password-mask" aria-hidden="true">••••••••</span>
-            <t-popup
-              v-model="passwordPopupVisible"
-              trigger="click"
-              placement="bottom-end"
-              destroy-on-close
-              overlay-class-name="wk-popover wk-popover--form user-profile-password-popup-overlay"
+            <t-button
+              theme="default"
+              variant="text"
+              shape="square"
+              size="small"
+              class="edit-btn"
+              :title="$t('userProfile.changePassword.label')"
+              :aria-label="$t('userProfile.changePassword.label')"
+              aria-haspopup="dialog"
+              @click="openPasswordDialog"
             >
-              <t-button
-                theme="default"
-                variant="text"
-                shape="square"
-                size="small"
-                class="edit-btn"
-                :title="$t('userProfile.changePassword.label')"
-                :aria-label="$t('userProfile.changePassword.label')"
-              >
-                <template #icon>
-                  <t-icon name="edit" />
-                </template>
-              </t-button>
-              <template #content>
-                <div class="password-popup-inner" @click.stop>
-                  <div class="password-popup-title">{{ $t('userProfile.changePassword.label') }}</div>
-                  <p class="password-popup-hint">{{ $t('userProfile.changePassword.description') }}</p>
-                  <t-form
-                    ref="passwordFormRef"
-                    :data="passwordForm"
-                    :rules="passwordRules"
-                    label-align="top"
-                    class="password-popup-form"
-                    @submit.prevent
-                  >
-                    <t-form-item :label="$t('userProfile.changePassword.currentLabel')" name="oldPassword">
-                      <t-input
-                        v-model="passwordForm.oldPassword"
-                        type="password"
-                        autocomplete="current-password"
-                        :disabled="passwordSubmitting"
-                        :placeholder="$t('userProfile.changePassword.currentPlaceholder')"
-                      />
-                    </t-form-item>
-                    <t-form-item :label="$t('userProfile.changePassword.newLabel')" name="newPassword">
-                      <t-input
-                        v-model="passwordForm.newPassword"
-                        type="password"
-                        autocomplete="new-password"
-                        :disabled="passwordSubmitting"
-                        :placeholder="$t('userProfile.changePassword.newPlaceholder')"
-                      />
-                    </t-form-item>
-                    <t-form-item :label="$t('userProfile.changePassword.confirmLabel')" name="confirmPassword">
-                      <t-input
-                        v-model="passwordForm.confirmPassword"
-                        type="password"
-                        autocomplete="new-password"
-                        :disabled="passwordSubmitting"
-                        :placeholder="$t('userProfile.changePassword.confirmPlaceholder')"
-                        @enter="submitPasswordChange"
-                      />
-                    </t-form-item>
-                  </t-form>
-                  <div class="password-popup-footer">
-                    <t-button
-                      variant="outline"
-                      :disabled="passwordSubmitting"
-                      @click="closePasswordPopup"
-                    >
-                      {{ $t('common.cancel') }}
-                    </t-button>
-                    <t-button
-                      theme="primary"
-                      :loading="passwordSubmitting"
-                      @click="submitPasswordChange"
-                    >
-                      {{ $t('userProfile.changePassword.submit') }}
-                    </t-button>
-                  </div>
-                </div>
+              <template #icon>
+                <t-icon name="edit" />
               </template>
-            </t-popup>
+            </t-button>
           </template>
         </div>
       </div>
     </div>
+
+    <t-dialog
+      v-model:visible="passwordDialogVisible"
+      attach="body"
+      placement="center"
+      width="min(480px, calc(100vw - 32px))"
+      :header="$t('userProfile.changePassword.label')"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="$t('userProfile.changePassword.label')"
+      :close-btn="false"
+      :cancel-btn="{ content: $t('common.cancel'), disabled: passwordSubmitting }"
+      :confirm-btn="$t('userProfile.changePassword.submit')"
+      :confirm-loading="passwordSubmitting"
+      :close-on-overlay-click="!passwordSubmitting"
+      :close-on-esc-keydown="!passwordSubmitting"
+      @confirm="submitPasswordChange"
+      @keydown.tab="cycleDialogFocus"
+      @closed="restorePasswordFocus"
+    >
+      <div ref="passwordDialogBody">
+        <p class="password-dialog-hint">{{ $t('userProfile.changePassword.description') }}</p>
+        <t-form ref="passwordFormRef" :data="passwordForm" :rules="passwordRules" label-align="top"
+          :disabled="passwordSubmitting" @submit.prevent>
+          <t-form-item :label="$t('userProfile.changePassword.currentLabel')" name="oldPassword" :for="`${passwordFormId}-oldPassword`">
+            <t-input v-model="passwordForm.oldPassword" name="oldPassword" type="password" autocomplete="current-password"
+              :placeholder="$t('userProfile.changePassword.currentPlaceholder')" />
+          </t-form-item>
+          <t-form-item :label="$t('userProfile.changePassword.newLabel')" name="newPassword" :for="`${passwordFormId}-newPassword`">
+            <t-input v-model="passwordForm.newPassword" name="newPassword" type="password" autocomplete="new-password"
+              :placeholder="$t('userProfile.changePassword.newPlaceholder')" />
+          </t-form-item>
+          <t-form-item :label="$t('userProfile.changePassword.confirmLabel')" name="confirmPassword" :for="`${passwordFormId}-confirmPassword`">
+            <t-input v-model="passwordForm.confirmPassword" name="confirmPassword" type="password" autocomplete="new-password"
+              :placeholder="$t('userProfile.changePassword.confirmPlaceholder')" @enter="submitPasswordChange" />
+          </t-form-item>
+        </t-form>
+      </div>
+    </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick, useId, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
@@ -184,6 +157,7 @@ import {
 import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 import { newPasswordRules } from '@/utils/passwordPolicy'
+import { cycleDialogFocus } from '@/utils/dialogFocus'
 
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -194,7 +168,10 @@ const complexPasswordEnabled = ref(false)
 const loading = ref(true)
 const error = ref('')
 
-const passwordPopupVisible = ref(false)
+const passwordDialogVisible = ref(false)
+const passwordDialogBody = ref<HTMLElement>()
+const passwordFormId = useId()
+let passwordOpener: HTMLElement | null = null
 const passwordFormRef = ref<FormInstanceFunctions | null>(null)
 const passwordSubmitting = ref(false)
 const passwordForm = reactive({
@@ -216,13 +193,8 @@ const oidcOnlyLogin = computed(
   () => userInfo.value?.preferences?.oidc_only_login === true,
 )
 
-watch(passwordPopupVisible, (open) => {
-  if (!open) {
-    resetPasswordForm()
-    return
-  }
-  resetPasswordForm()
-  void loadPasswordPolicy()
+watch(passwordDialogVisible, (open) => {
+  if (!open) resetPasswordForm()
 })
 
 const passwordRules = computed<Record<string, FormRule[]>>(() => ({
@@ -288,10 +260,21 @@ const resetPasswordForm = () => {
   passwordFormRef.value?.clearValidate?.()
 }
 
-const closePasswordPopup = () => {
-  if (passwordSubmitting.value) return
-  passwordPopupVisible.value = false
+const openPasswordDialog = async (event: MouseEvent) => {
+  passwordOpener = event.currentTarget as HTMLElement
   resetPasswordForm()
+  void loadPasswordPolicy()
+  passwordDialogVisible.value = true
+  await nextTick()
+  passwordDialogBody.value?.querySelectorAll<HTMLInputElement>('input[name]').forEach(input => {
+    input.id = `${passwordFormId}-${input.name}`
+  })
+  passwordDialogBody.value?.querySelector<HTMLElement>('input[name="oldPassword"]')?.focus({ preventScroll: true })
+}
+
+const restorePasswordFocus = () => {
+  passwordOpener?.focus({ preventScroll: true })
+  passwordOpener = null
 }
 
 const submitPasswordChange = async () => {
@@ -310,7 +293,7 @@ const submitPasswordChange = async () => {
       return
     }
 
-    passwordPopupVisible.value = false
+    passwordDialogVisible.value = false
     MessagePlugin.success(t('userProfile.changePassword.success'))
     resetPasswordForm()
 
@@ -338,6 +321,7 @@ onMounted(loadInfo)
 
 .user-profile {
   width: 100%;
+  container-type: inline-size;
 }
 
 .section-header {
@@ -396,56 +380,19 @@ onMounted(loadInfo)
   color: var(--td-text-color-secondary);
 }
 
-.password-popup-inner {
-  max-width: 100%;
+@container (max-width: 520px) {
+  .stacked-setting-rows();
+
+  .setting-control .info-value {
+    text-align: start;
+    overflow-wrap: anywhere;
+  }
 }
 
-.password-popup-title {
-  font-size: var(--app-text-lg);
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-  margin: 0 0 8px;
-  line-height: 1.35;
-}
-
-.password-popup-hint {
+.password-dialog-hint {
   margin: 0 0 12px;
   font-size: var(--app-text-md);
   line-height: 1.55;
   color: var(--td-text-color-secondary);
-}
-
-.password-popup-form {
-  :deep(.t-form__item) {
-    margin-bottom: 14px;
-
-    &:last-child {
-      margin-bottom: 4px;
-    }
-  }
-}
-
-.password-popup-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-</style>
-
-<style lang="less">
-/* t-popup 挂到 body，需全局样式；z-index 需高于设置全屏遮罩（2000）。 */
-.user-profile-password-popup-overlay {
-  z-index: 3050 !important;
-
-}
-
-:root[theme-mode='dark'] .user-profile-password-popup-overlay .t-popup__content {
-  background: rgba(36, 36, 36, 0.92) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
-  box-shadow:
-    0 0 0 0.5px rgba(255, 255, 255, 0.05),
-    0 2px 4px rgba(0, 0, 0, 0.12),
-    0 8px 32px rgba(0, 0, 0, 0.28) !important;
 }
 </style>

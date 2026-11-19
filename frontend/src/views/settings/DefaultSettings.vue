@@ -2,19 +2,9 @@
   <div class="default-settings">
     <div class="section-header">
       <h2>{{ t('defaultSettings.title') }}</h2>
-      <p class="section-description">{{ t('defaultSettings.description') }}</p>
+      <p class="section-description">{{ t(canEdit ? 'defaultSettings.autoSave' : 'defaultSettings.readOnly') }}</p>
     </div>
 
-    <div class="intro">
-      <t-icon name="info-circle" class="intro-icon" />
-      <div>
-        <p class="intro-title">{{ t('defaultSettings.introTitle') }}</p>
-        <p class="intro-desc">{{ t('defaultSettings.introDescription') }}</p>
-        <p v-if="!canEdit" class="intro-desc readonly">{{ t('defaultSettings.readOnly') }}</p>
-      </div>
-    </div>
-
-    <h3 class="group-title">{{ t('defaultSettings.modelGroup') }}</h3>
     <t-alert v-if="settingsLoadFailed" theme="error" :message="t('defaultSettings.loadFailed')">
       <template #operation>
         <t-button variant="text" @click="loadSettings">{{ t('common.retry') }}</t-button>
@@ -23,23 +13,35 @@
     <div class="settings-group">
       <div v-for="slot in modelSlots" :key="slot.field" class="setting-row">
         <div class="setting-info">
-          <label>{{ t(`defaultSettings.slots.${slot.key}.label`) }}</label>
+          <label :id="`${labelsId}-${slot.field}`">{{ t(`defaultSettings.slots.${slot.key}.label`) }}</label>
           <p class="desc">{{ t(`defaultSettings.slots.${slot.key}.description`) }}</p>
-          <p v-if="settingsLoaded" class="desc hint" :class="{ warn: effective[slot.field].stale || effective[slot.field].source === 'none' }">
+          <p v-if="settingsLoaded && effective[slot.field].source !== 'workspace'" class="desc hint"
+            :class="{ warn: effective[slot.field].stale || effective[slot.field].source === 'none' }">
             {{ effectiveHint(slot, effective[slot.field]) }}
           </p>
         </div>
-        <div class="setting-control model-control">
+        <div class="setting-control">
           <ModelSelector
+            v-if="!settingsLoaded || effective[slot.field].source !== 'none'"
+            role="group"
+            :aria-labelledby="`${labelsId}-${slot.field}`"
             :model-type="slot.type"
             :selected-model-id="settings[slot.field]"
             :disabled="!canEdit || saving || !settingsLoaded"
             :all-models="models"
             :clearable="true"
-            :placeholder="slotPlaceholder(slot)"
+            :placeholder="t('model.selectModelPlaceholder')"
             @update:selected-model-id="(id: string) => onModelChange(slot.field, id)"
             @add-model="openModels(slot.type)"
           />
+          <t-button v-else-if="canEdit" variant="outline" :disabled="saving"
+            :aria-label="`${t('modelSettings.actions.addModel')} · ${t(`defaultSettings.slots.${slot.key}.label`)}`"
+            @click="openModels(slot.type)">
+            <template #icon><t-icon name="add" aria-hidden="true" /></template>
+            {{ t('modelSettings.actions.addModel') }}
+          </t-button>
+          <p v-if="saveFeedback?.field === slot.field" class="save-feedback" role="status"
+            :class="saveFeedback.state">{{ feedbackText }}</p>
         </div>
       </div>
     </div>
@@ -53,7 +55,7 @@
             <p class="desc">{{ t('defaultSettings.webSearch.description') }}</p>
             <p v-if="!webSearchDefaultId" class="desc hint warn">{{ t('defaultSettings.webSearch.unset') }}</p>
           </div>
-          <div class="setting-control model-control">
+        <div class="setting-control">
             <t-select
               :value="webSearchDefaultId"
               :options="webSearchOptions"
@@ -64,6 +66,8 @@
               style="width: 100%"
               @change="onWebSearchChange"
             />
+            <p v-if="saveFeedback?.field === 'webSearch'" class="save-feedback" role="status"
+              :class="saveFeedback.state">{{ feedbackText }}</p>
           </div>
         </div>
       </div>
@@ -72,8 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { computed, onMounted, reactive, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ModelSelector from '@/components/ModelSelector.vue'
 import type { ModelConfig } from '@/api/model'
@@ -118,7 +121,14 @@ const chatResources = useChatResourcesStore()
 const deploymentCapabilities = useDeploymentCapabilitiesStore()
 
 const canEdit = computed(() => authStore.hasRole('admin'))
-const saving = ref(false)
+const labelsId = useId()
+const saveFeedback = ref<{ field: ModelField | 'webSearch'; state: 'saving' | 'saved' | 'error'; message?: string }>()
+const saving = computed(() => saveFeedback.value?.state === 'saving')
+const feedbackText = computed(() => {
+  const state = saveFeedback.value
+  if (state?.state === 'error') return t('defaultSettings.toasts.saveFailed', { message: state.message || '' })
+  return t(state?.state === 'saved' ? 'defaultSettings.toasts.saveSuccess' : 'defaultSettings.saving')
+})
 const settingsLoaded = ref(false)
 const settingsLoadFailed = ref(false)
 
@@ -166,11 +176,6 @@ const effectiveHint = (slot: ModelSlot, state: EffectiveDefault<ModelConfig>) =>
   }
 }
 
-const slotPlaceholder = (slot: ModelSlot) =>
-  slot.field === 'utility_model_id'
-    ? t('defaultSettings.followChatPlaceholder')
-    : t('defaultSettings.unsetPlaceholder')
-
 const loadSettings = async () => {
   settingsLoaded.value = false
   settingsLoadFailed.value = false
@@ -191,19 +196,17 @@ const onModelChange = async (field: ModelField, id: string) => {
   if (!canEdit.value || !settingsLoaded.value || saving.value || settings[field] === (id || '')) return
   const previous = settings[field]
   settings[field] = id || ''
-  saving.value = true
+  saveFeedback.value = { field, state: 'saving' }
   try {
     await updateTenantDefaultSettings({ ...settings })
     // Refresh every picker. A failed refresh must not undo an already saved choice.
     await chatResources.ensureModels(true).catch((error) => {
       console.error('Failed to refresh models after saving defaults:', error)
     })
-    MessagePlugin.success(t('defaultSettings.toasts.saveSuccess'))
+    saveFeedback.value = { field, state: 'saved' }
   } catch (error: any) {
     settings[field] = previous
-    MessagePlugin.error(t('defaultSettings.toasts.saveFailed', { message: error?.message || '' }))
-  } finally {
-    saving.value = false
+    saveFeedback.value = { field, state: 'error', message: error?.message }
   }
 }
 
@@ -235,7 +238,7 @@ const onWebSearchChange = async (value: unknown) => {
   const id = typeof value === 'string' ? value : ''
   const current = webSearchDefaultId.value
   if (!canEdit.value || saving.value || webSearchLoading.value || id === current) return
-  saving.value = true
+  saveFeedback.value = { field: 'webSearch', state: 'saving' }
   try {
     if (id) {
       await patchWebSearchProvider(id, { is_default: true })
@@ -246,11 +249,9 @@ const onWebSearchChange = async (value: unknown) => {
       provider.is_default = provider.id === id
     }
     await loadWebSearchProviders()
-    MessagePlugin.success(t('defaultSettings.toasts.saveSuccess'))
+    saveFeedback.value = { field: 'webSearch', state: 'saved' }
   } catch (error: any) {
-    MessagePlugin.error(t('defaultSettings.toasts.saveFailed', { message: error?.message || '' }))
-  } finally {
-    saving.value = false
+    saveFeedback.value = { field: 'webSearch', state: 'error', message: error?.message }
   }
 }
 
@@ -274,45 +275,11 @@ onMounted(() => {
 
 .default-settings {
   width: 100%;
+  container-type: inline-size;
 }
 
 .section-header {
   .settings-section-header();
-}
-
-.intro {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 14px 16px;
-  margin-bottom: 8px;
-  border-radius: var(--app-radius-md);
-  background: var(--td-bg-color-secondarycontainer);
-}
-
-.intro-icon {
-  color: var(--td-brand-color);
-  margin-top: 2px;
-  flex-shrink: 0;
-}
-
-.intro-title {
-  margin: 0 0 4px 0;
-  font-size: var(--app-text-base);
-  font-weight: 500;
-  color: var(--td-text-color-primary);
-}
-
-.intro-desc {
-  margin: 0;
-  font-size: var(--app-text-md);
-  line-height: 1.6;
-  color: var(--td-text-color-secondary);
-
-  &.readonly {
-    margin-top: 6px;
-    color: var(--td-warning-color);
-  }
 }
 
 .group-title {
@@ -346,9 +313,26 @@ onMounted(() => {
 
 .setting-control {
   .setting-control();
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 45%;
 }
 
-.model-control {
-  min-width: 280px;
+.save-feedback {
+  margin: 0;
+  font-size: var(--app-text-sm);
+  color: var(--td-text-color-secondary);
+
+  &.error {
+    color: var(--td-error-color);
+  }
+}
+
+@container (max-width: 520px) {
+  .stacked-setting-rows();
+  .setting-control {
+    max-width: 100%;
+    align-items: flex-start;
+  }
 }
 </style>

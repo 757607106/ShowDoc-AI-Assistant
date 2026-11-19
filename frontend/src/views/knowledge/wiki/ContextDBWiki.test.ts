@@ -5,7 +5,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
-import { createRenderer, createSSRApp, nextTick, reactive } from 'vue'
+import { createRenderer, createSSRApp, defineComponent, h, nextTick, reactive } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import ts from 'typescript'
 import { renderDocumentPreviewMarkdown } from '../../../utils/documentPreviewMarkdown.ts'
@@ -25,6 +25,12 @@ async function fixture(options: { directory?: boolean; props?: any; api?: Record
   const calls: { name: string; args: any[] }[] = [], warnings: string[] = [], successes: string[] = []
   const guards: (() => boolean)[] = [], updateGuards: ((to: any, from: any) => boolean)[] = []
   const route = reactive({ query: (options.directory ? {} : { wikiPageId: 'page-a', tab: 'wiki', retained: 'yes' }) as Record<string, string>, fullPath: '/wiki' })
+  const history: string[] = []
+  function navigate(method: string, location: any) {
+    if (updateGuards.some(guard => !guard({ fullPath: '/next' }, { fullPath: route.fullPath }))) return
+    history.push(method)
+    route.query = location.query
+  }
   let remote = page()
   const defaults: Record<string, (...args: any[]) => Promise<any>> = {
     getWikiPage: async () => remote,
@@ -55,10 +61,7 @@ async function fixture(options: { directory?: boolean; props?: any; api?: Record
       if (name === 'vue') return require(name)
       if (name === 'vue-router') return {
         useRoute: () => route,
-        useRouter: () => ({ replace: async (location: any) => {
-          if (updateGuards.some(guard => !guard({ fullPath: '/next' }, { fullPath: route.fullPath }))) return
-          route.query = location.query
-        } }),
+        useRouter: () => ({ replace: async (location: any) => navigate('replace', location), push: async (location: any) => navigate('push', location) }),
         onBeforeRouteLeave: (guard: () => boolean) => guards.push(guard),
         onBeforeRouteUpdate: (guard: (to: any, from: any) => boolean) => updateGuards.push(guard),
       }
@@ -70,6 +73,7 @@ async function fixture(options: { directory?: boolean; props?: any; api?: Record
       if (name === '@/utils/wikiLineDiff') return require('../../../utils/wikiLineDiff.ts')
       if (name === '@/utils/platformPresentation') return require('../../../utils/platformPresentation.ts')
       if (name === 'tdesign-vue-next') return { MessagePlugin: { warning: (message: string) => warnings.push(message), success: (message: string) => successes.push(message), error() {}, info() {} } }
+      if (name === '../components/knowledgeTabNavigation') return require('../components/knowledgeTabNavigation.ts')
       if (name.endsWith('.vue')) return { default: {} }
       throw new Error(`Unexpected dependency: ${name}`)
     },
@@ -82,7 +86,7 @@ async function fixture(options: { directory?: boolean; props?: any; api?: Record
   const app = renderer.createApp(exports.default, { kbId: 'kb-a', canEdit: true, ...options.props })
   const vm: any = app.mount({})
   await flush()
-  return { vm, calls, warnings, successes, route, guards, updateGuards, windowEvents, remote: (next: any) => { remote = next }, close: () => app.unmount() }
+  return { vm, calls, warnings, successes, route, history, guards, updateGuards, windowEvents, remote: (next: any) => { remote = next }, close: () => app.unmount() }
 }
 
 test('directory reads only the current level, preserves opaque cursors and loads children lazily', async () => {
@@ -116,6 +120,7 @@ test('Wiki directory renders readable summary titles and ordinary directory name
     runInNewContext(ts.transpileModule(compiled.code, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports, require })
     const app = createSSRApp({ render: () => exports.render({ ...f.vm.$props, ...f.vm }, []) })
     for (const name of ['t-icon', 't-dropdown', 't-button', 't-loading', 'ContextDBWikiDirectory']) app.component(name, { template: '<span><slot /></span>' })
+    app.component('KnowledgeActionMenu', defineComponent({ inheritAttrs: false, props: { label: String }, setup: props => () => h('button', { 'aria-label': props.label }) }))
     const html = (await renderToString(app)).replace(/<!--[\s\S]*?-->/g, '')
     assert.match(html, /<span>采购单\.md - Summary<\/span>/)
     assert.match(html, /aria-label="更多 采购单\.md - Summary"/)
@@ -142,6 +147,7 @@ test('page navigation preserves the space route query and unsaved drafts block e
     assert.equal(f.route.query.wikiPageId, 'page-b')
     assert.equal(f.route.query.retained, 'yes')
     assert.equal(f.route.query.tab, 'wiki')
+    assert.deepEqual(f.history, ['push'])
   } finally { f.close() }
 })
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import KnowledgeOverlay from '../components/KnowledgeOverlay.vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
@@ -12,6 +13,8 @@ import ContextDBSourceResources from '@/components/ContextDBSourceResources.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ContextDBWikiDirectory from './ContextDBWikiDirectory.vue'
 import ContextDBWikiRevisions from './ContextDBWikiRevisions.vue'
+import KnowledgeActionMenu from '../components/KnowledgeActionMenu.vue'
+import { navigateKnowledgeTabs } from '../components/knowledgeTabNavigation'
 import { diffWikiLines } from '@/utils/wikiLineDiff'
 import { getDocument } from '@/api/contextdb'
 import { documentDisplayName } from '@/utils/contextdbDocumentName'
@@ -22,6 +25,8 @@ import { contextdbDateTime as dateTime } from '@/utils/platformPresentation'
 const props = defineProps<{ kbId: string; canEdit?: boolean }>()
 const emit = defineEmits<{ 'open-source-doc': [id: string]; 'page-change': [id: string] }>()
 const route = useRoute(), router = useRouter()
+const tabId = useId()
+const reading = ref<HTMLElement | null>(null), navigationOpen = ref(false)
 const internalTab = ref(route.query.wikiTab === 'compile' ? 'compile' : 'read'), query = ref(''), searchResults = ref<WikiPage[] | null>(null)
 const searching = ref(false), searchError = ref(''), page = ref<WikiPage | null>(null)
 const loading = ref(false), error = ref(''), intro = ref(''), groups = ref<WikiIndexGroup[]>([])
@@ -34,6 +39,7 @@ const latest = ref<WikiPage | null>(null), conflict = ref(false), verifying = re
 const submitted = ref(false), saveNotice = ref(''), revisionsVisible = ref(false)
 let pageRequest = 0, searchRequest = 0, indexRequest = 0, comparisonRequest = 0, referenceRequest = 0
 let disposed = false
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 const activePageId = computed(() => typeof route.query.wikiPageId === 'string' ? route.query.wikiPageId : '')
 const legacyReference = computed(() => !activePageId.value && typeof route.query.slug === 'string' ? route.query.slug : '')
 const isDirectory = computed(() => page.value?.page_type === 'category')
@@ -81,16 +87,20 @@ function readingContent(content: string) {
 function onContentClick(event: MouseEvent) {
   const anchor = (event.target as HTMLElement).closest('a')
   const href = anchor?.getAttribute('href') || ''
-  if (href.startsWith('#wiki-reference-')) { event.preventDefault(); void openReference(decodeURIComponent(href.slice(16))) }
+  if (href.startsWith('#wiki-reference-')) {
+    event.preventDefault()
+    try { void openReference(decodeURIComponent(href.slice(16))) }
+    catch { MessagePlugin.error('无法打开此页面链接') }
+  }
 }
-async function openReference(reference: string) {
+async function openReference(reference: string, replace = false) {
   if (!permitNavigation()) return
   const token = ++referenceRequest, kb = props.kbId, id = activePageId.value, request = pageRequest
-  if (/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(reference)) { await openPage(reference); return }
+  if (/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(reference)) { await openPage(reference, replace); return }
   try {
     const target = await getWikiPageByReference(kb, reference)
     if (disposed || token !== referenceRequest || kb !== props.kbId || id !== activePageId.value || request !== pageRequest) return
-    await openPage(target.page_id)
+    await openPage(target.page_id, replace)
   } catch (e: any) {
     if (!disposed && token === referenceRequest && kb === props.kbId && id === activePageId.value && request === pageRequest) MessagePlugin.error(e.message || '页面链接无法读取')
   }
@@ -108,17 +118,23 @@ function beforeUnload(event: BeforeUnloadEvent) {
   if (editing.value || saving.value || verifying.value || action.value) { event.preventDefault(); event.returnValue = '' }
 }
 onMounted(() => window.addEventListener('beforeunload', beforeUnload))
-onBeforeUnmount(() => { disposed = true; pageRequest++; indexRequest++; searchRequest++; comparisonRequest++; referenceRequest++; window.removeEventListener('beforeunload', beforeUnload) })
-async function openPage(id = '') {
+onBeforeUnmount(() => { disposed = true; clearTimeout(searchTimer); pageRequest++; indexRequest++; searchRequest++; comparisonRequest++; referenceRequest++; window.removeEventListener('beforeunload', beforeUnload) })
+async function openPage(id = '', replace = false) {
   if (!permitNavigation()) return
   referenceRequest++
   internalTab.value = 'read'
-  if (id === activePageId.value) { await loadPage(); return }
-  const next = { ...route.query }
-  delete next.slug
-  next.wikiTab = 'read'
-  if (id) next.wikiPageId = id; else delete next.wikiPageId
-  await router.replace({ query: next })
+  navigationOpen.value = false
+  if (id === activePageId.value && !legacyReference.value) {
+    await loadPage()
+  } else {
+    const next = { ...route.query }
+    delete next.slug
+    next.wikiTab = 'read'
+    if (id) next.wikiPageId = id; else delete next.wikiPageId
+    await (replace ? router.replace({ query: next }) : router.push({ query: next }))
+  }
+  await nextTick()
+  reading.value?.focus({ preventScroll: true })
 }
 async function switchTab(next: string) {
   if (!permitNavigation()) return
@@ -157,6 +173,7 @@ async function loadGroup(group: WikiIndexGroup) {
   finally { if (token === indexRequest) groupLoading.value = '' }
 }
 async function loadPage() {
+  if (reading.value) reading.value.scrollTop = 0
   comparisonRequest++; referenceRequest++; latest.value = null
   const token = ++pageRequest, kb = props.kbId, id = activePageId.value
   page.value = null; error.value = ''; directoryItems.value = []; directoryCursor.value = null; directoryLoading.value = false
@@ -184,7 +201,16 @@ async function loadDirectory(append = false, token = pageRequest) {
   } catch (e: any) { if (token === pageRequest) error.value = e.message || '子目录读取失败' }
   finally { if (token === pageRequest) directoryLoading.value = false }
 }
+function scheduleSearch() {
+  clearTimeout(searchTimer)
+  searchRequest++
+  searchError.value = ''
+  searchResults.value = null
+  searching.value = !!query.value.trim()
+  if (searching.value) searchTimer = setTimeout(() => { void search() }, 250)
+}
 async function search() {
+  clearTimeout(searchTimer)
   const token = ++searchRequest, kb = props.kbId, value = query.value.trim()
   searchError.value = ''; searching.value = !!value
   if (!value) { searchResults.value = null; return }
@@ -204,6 +230,11 @@ function cancelEditing() {
   if (saving.value || verifying.value) return
   comparisonRequest++; referenceRequest++
   editing.value = false; draft.value = ''; conflict.value = false; latest.value = null; submitted.value = false; saveNotice.value = ''
+}
+function requestCancelEditing() {
+  if (saving.value || verifying.value) return
+  if (draft.value !== (page.value?.content || '') && !window.confirm('放弃当前正文草稿？')) return
+  cancelEditing()
 }
 async function compareLatest() {
   if (!page.value || !editing.value) return
@@ -253,7 +284,7 @@ async function save() {
     if (e.status === 409 || e.errorCode === 4033 || e.code === 4033) {
       conflict.value = true; saveNotice.value = '页面已发生变化，草稿已保留。读取最新正文并手动合并后再提交。'
       await compareLatest()
-    } else MessagePlugin.error(e.message || '保存失败，草稿已保留')
+    } else saveNotice.value = e.message || '保存失败，草稿已保留。请重试。'
   } finally { saving.value = false }
 }
 
@@ -315,15 +346,16 @@ async function submitAction() {
     actionBusy.value = false
     if (selectedAction === 'create-page' || selectedAction === 'create-directory') {
       if (result.page_id) await openPage(result.page_id)
-    } else if ((selectedAction === 'delete' || selectedAction === 'archive') && source?.page_id === activePageId.value) await openPage('')
+    } else if ((selectedAction === 'delete' || selectedAction === 'archive') && source?.page_id === activePageId.value) await openPage('', true)
     else await loadPage()
   } catch (e: any) { actionError.value = e.message || '操作失败，请重新核对当前页面' }
   finally { actionBusy.value = false }
 }
 watch(() => [props.kbId, activePageId.value], () => { void loadPage() }, { immediate: true })
-watch(() => [props.kbId, legacyReference.value], () => { if (legacyReference.value) void openReference(legacyReference.value) }, { immediate: true })
+watch(() => [props.kbId, legacyReference.value], () => { if (legacyReference.value) void openReference(legacyReference.value, true) }, { immediate: true })
 watch(() => route.query.wikiTab, value => { internalTab.value = value === 'compile' ? 'compile' : 'read' })
 watch(() => props.kbId, () => {
+  clearTimeout(searchTimer); searching.value = false; navigationOpen.value = false
   query.value = ''; searchResults.value = null; searchError.value = ''; searchRequest++
   editing.value = false; draft.value = ''; submitted.value = false; conflict.value = false; saveNotice.value = ''
   treeRevision.value++; void loadIndex()
@@ -332,37 +364,48 @@ watch(() => props.kbId, () => {
 
 <template>
   <section class="contextdb-wiki">
-    <nav class="wiki-workspace-tabs" aria-label="Wiki 工作区">
-      <button type="button" :class="{active:internalTab==='read'}" @click="switchTab('read')">阅读</button>
-      <button type="button" :class="{active:internalTab==='compile'}" :disabled="editing" @click="switchTab('compile')">编译进度</button>
-    </nav>
-    <div v-if="internalTab==='compile'" class="compile-area"><slot name="compile"><EmptyState title="暂无编译进度" /></slot></div>
-    <div v-show="internalTab==='read'" class="wiki-workspace">
-      <aside class="wiki-navigation" aria-label="Wiki 页面导航">
+    <div class="wiki-workspace-tabs" role="tablist" aria-label="Wiki 工作区" @keydown="navigateKnowledgeTabs">
+      <button :id="tabId+'-read'" type="button" role="tab" :aria-selected="internalTab==='read'" :aria-controls="tabId+'-reading'" :tabindex="internalTab==='read'?0:-1" @click="switchTab('read')">阅读</button>
+      <button :id="tabId+'-compile'" type="button" role="tab" :aria-selected="internalTab==='compile'" :aria-controls="tabId+'-progress'" :tabindex="internalTab==='compile'?0:-1" :disabled="editing" @click="switchTab('compile')">编译进度</button>
+    </div>
+    <div v-if="internalTab==='compile'" :id="tabId+'-progress'" class="compile-area" role="tabpanel" :aria-labelledby="tabId+'-compile'">
+      <slot name="compile"><EmptyState title="暂无编译进度" /></slot>
+    </div>
+    <div v-show="internalTab==='read'" :id="tabId+'-reading'" class="wiki-workspace" role="tabpanel" :aria-labelledby="tabId+'-read'">
+      <t-button class="wiki-navigation-toggle" variant="outline" :aria-expanded="navigationOpen" :aria-controls="tabId+'-directory'" @click="navigationOpen=!navigationOpen">
+        <t-icon name="catalog" />{{ navigationOpen ? '收起目录与搜索' : '目录与搜索' }}
+      </t-button>
+      <aside :id="tabId+'-directory'" class="wiki-navigation" :class="{ 'is-open': navigationOpen }" aria-label="Wiki 页面导航">
         <div class="wiki-nav-top">
-          <t-input v-model="query" clearable aria-label="搜索页面" placeholder="搜索标题或正文" :loading="searching" @enter="search" @change="search"><template #prefix-icon><t-icon name="search" /></template></t-input>
+          <label class="wiki-field-label"><span class="wiki-visually-hidden">搜索 Wiki 标题或正文</span><t-input v-model="query" clearable placeholder="搜索标题或正文" :loading="searching" @enter="search" @change="scheduleSearch"><template #prefix-icon><t-icon name="search" /></template></t-input></label>
         </div>
         <div class="wiki-nav-scroll">
-          <div v-if="searchResults!==null" class="search-results">
-            <p class="navigation-label">搜索结果 · {{searchResults.length}} 项</p><p class="navigation-hint">最多返回 50 项，更多主题请浏览索引。</p>
-            <p v-if="searchError" class="error-message" role="alert">{{searchError}}</p>
+          <div v-if="query.trim()" class="search-results" :aria-busy="searching">
+            <p class="navigation-label" role="status">{{ searching ? '正在搜索…' : `搜索结果 · ${searchResults?.length || 0} 项` }}</p><p v-if="searchResults?.length===50" class="navigation-hint">最多返回 50 项，可缩小搜索范围或浏览索引。</p>
+            <div v-if="searchError" class="error-message" role="alert">{{searchError}} <t-button size="small" variant="text" @click="search">重试</t-button></div>
             <button v-for="item in searchResults" :key="item.page_id" class="search-result" :class="{selected:item.page_id===activePageId}" @click="openPage(item.page_id)"><strong>{{item.display_title||item.title||'未命名页面'}}</strong><span>{{summaryText((item as any).match_snippet||item.summary)}}</span></button>
-            <EmptyState v-if="!searching&&!searchError&&!searchResults.length" compact title="没有找到相关页面" />
-            <t-button size="small" variant="text" @click="query='';search()">返回目录</t-button>
+            <EmptyState v-if="!searching&&!searchError&&!searchResults?.length" compact title="没有找到相关页面" />
+            <t-button size="small" variant="text" @click="query='';search()">清除搜索</t-button>
           </div>
           <template v-else>
             <button class="wiki-home" :class="{selected:!activePageId}" @click="openPage()"><t-icon name="catalog" />索引</button>
-            <div class="directory-heading"><h3><t-icon name="folder" />目录</h3><t-button size="small" variant="text" shape="square" aria-label="刷新" @click="refreshDirectory"><t-icon name="refresh" /></t-button><t-dropdown v-if="canEdit" :options="[{content:'新建页',value:'create-page'},{content:'新建目录',value:'create-directory'}]" @click="(item: any)=>openAction(item.value as Action)"><t-button size="small" variant="text" shape="square" :disabled="editing||busyPage" aria-label="新建页 / 新建目录"><t-icon name="more" /></t-button></t-dropdown></div>
+            <div class="directory-heading"><h3><t-icon name="folder" />目录</h3><t-button size="small" variant="text" shape="square" aria-label="刷新" @click="refreshDirectory"><t-icon name="refresh" /></t-button><KnowledgeActionMenu v-if="canEdit" icon-only label="新建页或目录" :disabled="editing||busyPage" :options="[{content:'新建页',value:'create-page'},{content:'新建目录',value:'create-directory'}]" @select="(value: string) => openAction(value as Action, null)" /></div>
             <ContextDBWikiDirectory :key="`${kbId}:${treeRevision}`" :kb-id="kbId" :selected-id="activePageId" :can-edit="canEdit&&!editing" @select="item=>openPage(item.page_id)" @action="(next,item)=>openAction(next,item)" />
           </template>
         </div>
       </aside>
-      <main class="wiki-reading" @click="onContentClick">
+      <main ref="reading" class="wiki-reading" tabindex="-1" aria-label="Wiki 正文与索引" :aria-busy="loading || indexLoading" @click="onContentClick">
         <t-alert v-if="error" theme="error" :message="error"><template #operation><t-button variant="text" @click="loadPage">重试读取</t-button></template></t-alert>
         <div v-if="loading" class="reading-loading"><t-loading text="正在读取页面" /></div>
         <article v-else-if="page" class="wiki-article">
-          <header class="article-header"><div><div class="article-eyebrow">{{page.page_type}}</div><h2>{{page.display_title||page.title||'未命名页面'}}</h2><p v-if="page.updated_at" class="article-updated">更新时间 {{dateTime(page.updated_at)}}</p></div>
-            <div class="article-actions"><t-button v-if="canEdit" variant="outline" :disabled="!canChange" @click="openAction('rename')">重命名</t-button><t-button v-if="canEdit&&!isDirectory" variant="outline" :disabled="!canChange||!page.published" @click="startEditing"><t-icon name="edit" />编辑正文</t-button><t-button v-if="!isDirectory" variant="outline" @click="revisionsVisible=true">版本历史</t-button><t-button v-if="canEdit" variant="outline" :disabled="!canChange" @click="openAction('delete')">删除</t-button></div>
+          <header class="article-header"><div><div class="article-eyebrow">{{typeNames[page.page_type] || page.page_type}}</div><h2>{{page.display_title||page.title||'未命名页面'}}</h2><p v-if="page.updated_at" class="article-updated">更新时间 {{dateTime(page.updated_at)}}</p></div>
+            <div class="article-actions">
+              <t-button v-if="canEdit&&!isDirectory" :disabled="!canChange||!page.published" @click="startEditing"><t-icon name="edit" />编辑正文</t-button>
+              <t-button v-if="!isDirectory" variant="outline" @click="revisionsVisible=true">版本历史</t-button>
+              <KnowledgeActionMenu v-if="canEdit" label="当前页面更多操作" :disabled="!canChange"
+                :options="[{content:'重命名',value:'rename'},{content:'移动',value:'move'},...(!isDirectory?[{content:'归档',value:'archive'}]:[]),{content:'删除',value:'delete',theme:'error'}]"
+                @select="(value: string) => openAction(value as Action)" />
+            </div>
           </header>
           <p v-if="!isDirectory" class="article-published">{{busyPage?'编译中':page.published?'已发布，可供检索':'暂无正式正文'}}</p>
           <t-alert v-if="busyPage" theme="info" message="页面正在编译，完成后可重新读取并编辑。" />
@@ -378,53 +421,67 @@ watch(() => props.kbId, () => {
           <t-alert v-if="indexError" theme="error" :message="indexError"><template #operation><t-button variant="text" @click="loadIndex">重新读取</t-button></template></t-alert>
           <DocMarkdown v-if="intro" :content="intro" />
           <t-loading v-if="indexLoading" text="正在读取索引" />
-          <nav v-if="groups.length" class="index-group-tabs" role="tablist" aria-label="索引类型"><button v-for="group in groups" :key="group.type" type="button" role="tab" :aria-selected="indexGroup?.type===group.type" @click="activeGroup=group.type">{{typeNames[group.type]||group.type}} <span>{{group.total}}</span></button></nav>
-          <section v-if="indexGroup" class="index-group"><div class="index-links"><button v-for="item in indexGroup.items" :key="item.page_id" type="button" class="index-entry" @click="openPage(item.page_id)">{{item.display_title||item.title||'未命名页面'}}</button></div><t-button v-if="indexGroup.next_cursor" size="small" variant="text" :loading="groupLoading===indexGroup.type" @click="loadGroup(indexGroup)">加载更多</t-button></section>
+          <nav v-if="groups.length" class="index-group-tabs" role="tablist" aria-label="索引类型" @keydown="navigateKnowledgeTabs"><button v-for="group in groups" :id="`${tabId}-index-${group.type}`" :key="group.type" type="button" role="tab" :aria-selected="indexGroup?.type===group.type" :aria-controls="tabId+'-index-results'" :tabindex="indexGroup?.type===group.type?0:-1" @click="activeGroup=group.type">{{typeNames[group.type]||group.type}} <span>{{group.total}}</span></button></nav>
+          <section v-if="indexGroup" :id="tabId+'-index-results'" class="index-group" role="tabpanel" :aria-labelledby="`${tabId}-index-${indexGroup.type}`"><div class="index-links"><button v-for="item in indexGroup.items" :key="item.page_id" type="button" class="index-entry" @click="openPage(item.page_id)">{{item.display_title||item.title||'未命名页面'}}</button></div><t-button v-if="indexGroup.next_cursor" size="small" variant="text" :loading="groupLoading===indexGroup.type" @click="loadGroup(indexGroup)">加载更多</t-button></section>
           <EmptyState v-if="!indexLoading&&!indexError&&!groups.some(group=>group.items.length)" icon="book-open" title="暂无 Wiki 页面" />
         </article>
       </main>
     </div>
     <ContextDBWikiRevisions :kb-id="kbId" :page-id="page?.page_id||''" :page-title="page?.display_title||page?.title||''" v-model:visible="revisionsVisible" />
-    <t-drawer :visible="editing" header="编辑正文" size="min(880px, 96vw)" :close-on-overlay-click="false" :close-btn="!saving&&!verifying" @update:visible="(value:boolean)=>{if(!value)cancelEditing()}">
+    <KnowledgeOverlay drawer :visible="editing" :inert="!editing" header="编辑正文" size="min(880px, 96vw)" :close-on-overlay-click="false" :close-btn="!saving&&!verifying" :close-on-esc-keydown="!saving&&!verifying" @update:visible="(value:boolean)=>{if(!value)requestCancelEditing()}">
       <div class="wiki-editor">
         <label class="wiki-field-label"><span class="editor-label">正文（Markdown）</span><t-textarea v-model="draft" name="wiki_content" :readonly="saving||verifying||submitted" :autosize="false" /></label>
         <p class="editor-hint">若提交期间他人已编辑，系统会阻止覆盖。请重新加载最新页面后重试；保存后进入验证流程。</p>
-        <t-alert v-if="saveNotice" theme="info" :message="saveNotice" />
+        <t-alert v-if="saveNotice" role="status" theme="info" :message="saveNotice" />
         <div v-if="conflict||submitted" class="merge-actions"><t-button size="small" variant="outline" @click="compareLatest">读取最新版本并比较</t-button><t-button v-if="latest" size="small" :disabled="latest.run_state==='pending'" @click="useLatestBase">保留草稿，采用最新版本继续合并</t-button><t-button size="small" variant="text" @click="revisionsVisible=true">版本历史</t-button></div>
         <section v-if="latest" class="conflict-comparison"><p>正式正文 v{{latest.version}} → 当前草稿。请在上方编辑器手动合并后提交。</p><p v-if="!latest.published" class="navigation-hint">当前页面没有可读正式正文，以下以空正文比较。</p><pre><span v-for="(line,i) in conflictLines" :key="i" :class="line.type">{{line.type==='add'?'+':line.type==='del'?'-':' '}}{{line.text}}{{'\n'}}</span></pre></section>
       </div>
-      <template #footer><div class="editor-footer"><t-button variant="outline" :disabled="saving||verifying" @click="cancelEditing">取消</t-button><t-button :loading="saving||verifying" :disabled="conflict||(!submitted&&busyPage)" @click="submitted?verifySaved():save()">保存并验证</t-button></div></template>
-    </t-drawer>
-    <t-drawer :visible="action==='create-page'" header="新建 Wiki 页面" size="min(880px, 96vw)" :close-on-overlay-click="false" :close-btn="!actionBusy" @update:visible="(value:boolean)=>{if(!value&&!actionBusy)action=''}">
-      <t-form class="wiki-create-form" label-align="top"><t-form-item label="标题" required><t-input v-model="actionTitle" :maxlength="120" :disabled="actionBusy" /></t-form-item><t-form-item label="页面类型"><t-select v-model="actionType" :disabled="actionBusy" :options="[{label:'实体',value:'entity'},{label:'概念',value:'concept'}]" /></t-form-item><t-form-item label="正文（Markdown）" required><t-textarea v-model="actionContent" name="wiki_create_content" :readonly="actionBusy" :autosize="{minRows:16,maxRows:28}" /></t-form-item></t-form>
-      <p class="editor-hint">若提交期间他人已编辑，系统会阻止覆盖。请重新加载最新页面后重试；保存后进入验证流程。</p><t-alert v-if="actionError" theme="error" :message="actionError" />
-      <template #footer><div class="editor-footer"><t-button variant="outline" :disabled="actionBusy" @click="action=''">取消</t-button><t-button :loading="actionBusy" :disabled="!actionTitle.trim()||!actionContent.trim()" @click="submitAction">保存并验证</t-button></div></template>
-    </t-drawer>
-    <t-dialog :visible="!!action&&action!=='create-page'" :header="actionLabel" :confirm-btn="{content:action==='create-directory'?'确认':actionLabel,loading:actionBusy,disabled:['create-directory','rename'].includes(action)&&!actionTitle.trim(),theme:action==='delete'?'danger':'primary'}" :close-on-overlay-click="!actionBusy" :close-btn="!actionBusy" :cancel-btn="{disabled:actionBusy}" @close="!actionBusy&&(action='')" @cancel="!actionBusy&&(action='')" @confirm="submitAction">
+      <template #footer><div class="editor-footer"><t-button variant="outline" :disabled="saving||verifying" @click="requestCancelEditing">取消</t-button><t-button :loading="saving||verifying" :disabled="conflict||(!submitted&&busyPage)" @click="submitted?verifySaved():save()">{{ submitted ? '核对发布状态' : '保存并验证' }}</t-button></div></template>
+    </KnowledgeOverlay>
+    <KnowledgeOverlay drawer :visible="action==='create-page'" :inert="action!=='create-page'" header="新建 Wiki 页面" size="min(880px, 96vw)" :close-on-overlay-click="false" :close-btn="!actionBusy" :close-on-esc-keydown="!actionBusy" @update:visible="(value:boolean)=>{if(!value&&!actionBusy)action=''}">
+      <t-form class="wiki-create-form" label-align="top"><t-form-item label="标题" required><t-input v-model="actionTitle" aria-label="Wiki 标题" :maxlength="120" :disabled="actionBusy" /></t-form-item><t-form-item label="页面类型"><t-select v-model="actionType" :disabled="actionBusy" :options="[{label:'实体',value:'entity'},{label:'概念',value:'concept'}]" /></t-form-item><t-form-item label="正文（Markdown）" required><t-textarea v-model="actionContent" name="wiki_create_content" aria-label="Wiki 正文" :readonly="actionBusy" :autosize="{minRows:8,maxRows:18}" /></t-form-item></t-form>
+      <p class="editor-hint">目标目录：{{ targetDirectory?.display_title || targetDirectory?.title || '根目录' }}。</p><t-alert v-if="actionError" role="alert" theme="error" :message="actionError" />
+      <template #footer><div class="editor-footer"><t-button variant="outline" :disabled="actionBusy" @click="action=''">取消</t-button><t-button :loading="actionBusy" :disabled="!actionTitle.trim()||!actionContent.trim()" @click="submitAction">创建页面</t-button></div></template>
+    </KnowledgeOverlay>
+    <KnowledgeOverlay :visible="!!action&&action!=='create-page'" :header="actionLabel" :confirm-btn="{content:action==='create-directory'?'创建目录':actionLabel,loading:actionBusy,disabled:['create-directory','rename'].includes(action)&&!actionTitle.trim(),theme:action==='delete'?'danger':'primary'}" :close-on-overlay-click="!actionBusy" :close-btn="!actionBusy" :close-on-esc-keydown="!actionBusy" :cancel-btn="{disabled:actionBusy}" @close="!actionBusy&&(action='')" @cancel="!actionBusy&&(action='')" @confirm="submitAction">
       <t-alert v-if="actionError" theme="error" :message="actionError" />
-      <t-form label-align="top"><t-form-item v-if="['create-directory','rename'].includes(action)" label="标题" required><t-input v-model="actionTitle" :maxlength="120" :disabled="actionBusy" /></t-form-item><t-form-item v-if="action==='move'" label="目标目录"><div class="directory-picker"><button type="button" class="wiki-home" :class="{selected:!targetDirectory}" @click="targetDirectory=null"><t-icon name="folder" />根目录</button><ContextDBWikiDirectory :key="`${kbId}:${action}:${treeRevision}`" :kb-id="kbId" :selected-id="targetDirectory?.page_id" directories-only :blocked-id="actionSource?.page_id" @select="targetDirectory=$event" /></div></t-form-item></t-form>
+      <t-form label-align="top"><t-form-item v-if="['create-directory','rename'].includes(action)" label="标题" required><t-input v-model="actionTitle" aria-label="Wiki 标题" :maxlength="120" :disabled="actionBusy" /></t-form-item><t-form-item v-if="action==='move'" label="目标目录"><div class="directory-picker"><button type="button" class="wiki-home" :class="{selected:!targetDirectory}" @click="targetDirectory=null"><t-icon name="folder" />根目录</button><ContextDBWikiDirectory :key="`${kbId}:${action}:${treeRevision}`" :kb-id="kbId" :selected-id="targetDirectory?.page_id" directories-only :blocked-id="actionSource?.page_id" @select="targetDirectory=$event" /></div></t-form-item></t-form>
+      <p v-if="action==='archive'||action==='delete'" class="operation-target">当前{{ actionSource?.page_type==='category'?'目录':'页面' }}：{{ actionSource?.display_title || actionSource?.title }}</p>
       <p v-if="action==='archive'">归档后正式正文退出检索，历史记录保留。</p><p v-if="action==='delete'">{{actionSource?.page_type==='category'?'仅可删除没有直接子项的空目录。':'删除会清理修订和旧证据，并阻止自动编译恢复同一页。此操作不可恢复。'}}</p>
-    </t-dialog>
+    </KnowledgeOverlay>
   </section>
 </template>
 
 <style scoped lang="less">
-.contextdb-wiki{display:flex;flex-direction:column;min-height:0;height:100%;color:var(--td-text-color-primary);font-family:var(--app-font-family);font-size:var(--app-text-base)}
+.contextdb-wiki{display:flex;flex-direction:column;min-height:0;height:100%;container-type:inline-size;color:var(--td-text-color-primary);font-family:var(--app-font-family);font-size:var(--app-text-base)}
 .wiki-workspace-tabs{display:flex;gap:24px;flex:none;border-bottom:1px solid var(--td-component-stroke);background:var(--td-bg-color-container)}
-.wiki-workspace-tabs button{border:0;border-bottom:1px solid transparent;background:none;color:var(--td-text-color-secondary);padding:11px 0 16px;font:inherit;font-size:var(--app-text-base);line-height:20px;cursor:pointer}.wiki-workspace-tabs button.active{border-bottom-color:var(--app-selection-border);color:var(--app-selection-text);font-weight:500}.wiki-workspace-tabs button:disabled{opacity:.5;cursor:default}
+.wiki-workspace-tabs button{border:0;border-bottom:1px solid transparent;background:none;color:var(--td-text-color-secondary);padding:11px 0 16px;font:inherit;font-size:var(--app-text-base);line-height:20px;cursor:pointer}.wiki-workspace-tabs button[aria-selected=true]{border-bottom-color:var(--app-selection-border);color:var(--app-selection-text);font-weight:500}.wiki-workspace-tabs button:disabled{opacity:.5;cursor:default}
 .wiki-workspace{display:flex;flex:1;min-height:0;gap:16px;padding-top:12px;background:var(--td-bg-color-container)}
 .wiki-navigation{display:flex;flex-direction:column;width:280px;min-width:230px;flex:none;border:1px solid var(--td-component-stroke);border-radius:var(--app-space-4);overflow:hidden}
 .wiki-nav-top{padding:12px 16px 8px}.wiki-nav-top :deep(.t-input){height:36px;border-radius:9px;font-size:var(--app-text-base)}.wiki-nav-scroll{padding:0 12px 24px;overflow:auto;flex:1}
 .directory-heading{display:flex;align-items:center;gap:4px;margin:4px 0 12px;padding:0 8px}.directory-heading h3{display:flex;align-items:center;gap:8px;font-size:var(--app-text-base);font-weight:600;flex:1;margin:6px 0}.directory-heading :deep(.t-button){width:28px;height:28px;color:var(--td-text-color-secondary)}
 .navigation-label{font-size:var(--app-text-sm);font-weight:500;color:var(--td-text-color-secondary);margin:12px 8px 8px}.navigation-hint{font-size:var(--app-text-sm);line-height:1.7;color:var(--td-text-color-secondary)}
 .wiki-home{display:flex;gap:9px;align-items:center;padding:11px 12px;width:100%;text-align:left;border:0;border-radius:var(--app-radius-xs);background:none;color:var(--td-text-color-secondary);font:inherit;font-size:var(--app-text-base);line-height:18px;cursor:pointer}.wiki-home.selected,.search-result.selected{background:var(--app-selection-bg);color:var(--app-selection-text)}
-.wiki-reading{overflow:auto;flex:1;min-width:0;padding:24px;border:1px solid var(--td-component-stroke);border-radius:var(--app-space-4)}.wiki-article,.wiki-index{width:100%;margin:0}.page-content{max-width:720px;margin:24px auto 0}.reading-loading{display:flex;justify-content:center;padding:100px 0}
+.wiki-reading{overflow:auto;flex:1;min-width:0;padding:24px;border:1px solid var(--td-component-stroke);border-radius:var(--app-space-4)}.wiki-article,.wiki-index{width:100%;max-width:760px;margin:0 auto}.page-content{margin-top:20px}.reading-loading{display:flex;justify-content:center;padding:100px 0}
 .article-header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:12px}.article-eyebrow{font-size:var(--app-text-sm);color:var(--td-text-color-placeholder);line-height:18px}.wiki-article h2,.wiki-index>h2{font-size:var(--app-text-3xl);line-height:28px;font-weight:600;margin:4px 0 12px}.wiki-index>h2{margin:0 0 28px}.article-updated{font-size:var(--app-text-sm);line-height:18px;color:var(--td-text-color-placeholder);margin:0}.article-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.article-actions :deep(.t-button){height:32px;font-size:var(--app-text-base);border-radius:var(--app-radius-md)}.article-published{font-size:var(--app-text-sm);line-height:20px;color:var(--td-text-color-placeholder);margin:0 0 20px}
 .wiki-article :deep(.t-alert),.wiki-index :deep(.t-alert){margin-bottom:18px}.wiki-article :deep(.doc-markdown-toggle),.wiki-index :deep(.doc-markdown-toggle){display:none}.wiki-article :deep(.doc-markdown-body),.wiki-index :deep(.doc-markdown-body){font-size:var(--app-text-base);line-height:1.75;overflow-wrap:anywhere}.wiki-article :deep(.doc-markdown-body h1),.wiki-index :deep(.doc-markdown-body h1){font-size:var(--app-text-3xl);line-height:28px;margin:0 0 16px;font-weight:600}.wiki-article :deep(.doc-markdown-body h2){font-size:var(--app-text-2xl);font-weight:600;margin:24px 0 12px;border:0;padding:0}.wiki-article :deep(.doc-markdown-body h3){font-size:var(--app-text-xl);font-weight:600}.wiki-article :deep(.doc-markdown-body pre){padding:16px;font-family:var(--app-font-family-mono)}.wiki-article :deep(.doc-markdown-body code),.wiki-index :deep(.doc-markdown-body code){font-family:var(--app-font-family-mono)}.wiki-article :deep(.doc-markdown-body :is(h4,h5,h6)),.wiki-index :deep(.doc-markdown-body :is(h2,h3,h4,h5,h6)){font-weight:600}
 .search-result{display:flex;flex-direction:column;gap:5px;width:100%;padding:12px 10px;border:0;border-bottom:1px solid var(--td-component-stroke);background:none;text-align:left;color:inherit;cursor:pointer}.search-result strong{font-size:var(--app-text-base);font-weight:600}.search-result span{font-size:var(--app-text-md);color:var(--td-text-color-secondary);line-height:1.6;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.error-message{font-size:var(--app-text-sm);color:var(--td-error-color)}
 .index-group-tabs{display:flex;gap:24px;border-top:1px solid var(--td-component-stroke);border-bottom:1px solid var(--td-component-stroke);margin-top:16px}.index-group-tabs button{padding:24px 0 16px;border:0;border-bottom:1px solid transparent;background:none;font:inherit;color:var(--td-text-color-secondary);cursor:pointer}.index-group-tabs button[aria-selected=true]{border-bottom-color:var(--app-selection-border);color:var(--app-selection-text);font-weight:500}.index-group-tabs span{margin-left:6px;font-weight:400}
-.index-links{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px 8px;max-width:520px;padding:34px 10px}.index-entry,.related-link{border:0;background:none;color:var(--td-brand-color);font:inherit;font-size:var(--app-text-base);line-height:18px;padding:0;cursor:pointer}.index-entry{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.index-entry:hover,.related-link:hover{text-decoration:underline}.index-group :deep(.t-button){margin-top:8px}
+.index-links{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:12px 20px;padding:20px 0}.index-entry,.related-link{border:0;background:none;color:var(--td-brand-color);font:inherit;font-size:var(--app-text-base);line-height:18px;padding:0;cursor:pointer}.index-entry{text-align:left;overflow-wrap:anywhere;min-height:28px}.index-entry:hover,.related-link:hover{text-decoration:underline}.index-group :deep(.t-button){margin-top:8px}
 .directory-card{display:flex;align-items:center;gap:12px;width:100%;padding:14px 12px;border:0;border-bottom:1px solid var(--td-component-stroke);background:none;font:inherit;text-align:left;color:inherit;cursor:pointer}.directory-card>span{flex:1}.directory-card:hover{background:var(--td-bg-color-container-hover)}.directory-picker{width:100%;max-height:280px;overflow:auto;border:1px solid var(--td-component-stroke);border-radius:var(--app-radius-sm);padding:8px}
-.article-footer{border-top:1px solid var(--td-component-stroke);margin-top:32px;padding-top:8px}.article-footer section{margin-top:20px}.article-footer h3{font-size:var(--app-text-base);font-weight:600;color:var(--td-text-color-secondary);display:flex;gap:10px}.article-footer h3>span{color:var(--td-text-color-placeholder);font-weight:400}.related-link{padding:4px 14px 4px 0}.wiki-editor{display:flex;flex-direction:column;gap:12px;height:100%;min-height:420px}.editor-label{display:block;margin-bottom:8px;font-size:var(--app-text-base);line-height:20px}.editor-hint{font-size:var(--app-text-md);line-height:20px;color:var(--td-text-color-placeholder);margin:0}.editor-footer{display:flex;justify-content:flex-start;gap:8px}.wiki-create-form :deep(.t-form__item){margin-bottom:20px}.wiki-create-form :deep(.t-form__label){font-size:var(--app-text-base)}.wiki-field-label{display:block;width:100%}.wiki-editor>.wiki-field-label{display:flex;flex-direction:column;flex:1;min-height:280px}.wiki-editor :deep(.t-textarea){display:flex;flex:1}.wiki-editor :deep(textarea){flex:1;min-height:280px;resize:none;font: var(--app-text-base)/1.6 var(--app-font-family-mono)}.wiki-create-form :deep(textarea){font: var(--app-text-base)/1.6 var(--app-font-family-mono)}.merge-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.conflict-comparison{margin-top:20px;font-size:var(--app-text-md)}.conflict-comparison pre{font-family:var(--app-font-family-mono);font-size:var(--app-text-base);white-space:pre-wrap;overflow:auto;max-height:360px;background:var(--td-bg-color-secondarycontainer);padding:14px;line-height:1.7}.conflict-comparison .add{color:var(--td-success-color)}.conflict-comparison .del{color:var(--td-error-color)}.compile-area{flex:1;min-height:0;overflow:auto}
-@media(max-width:1000px){.wiki-navigation{width:240px}.article-header{align-items:flex-start;flex-direction:column}.article-actions{justify-content:flex-start}}@media(max-width:700px){.wiki-workspace{flex-direction:column}.wiki-navigation{width:auto;min-width:0;max-height:260px}.wiki-reading{padding:20px 16px}}
+.article-footer{border-top:1px solid var(--td-component-stroke);margin-top:32px;padding-top:8px}.article-footer section{margin-top:20px}.article-footer h3{font-size:var(--app-text-base);font-weight:600;color:var(--td-text-color-secondary);display:flex;gap:10px}.article-footer h3>span{color:var(--td-text-color-placeholder);font-weight:400}.related-link{padding:4px 14px 4px 0}.wiki-editor{display:flex;flex-direction:column;gap:12px;height:100%;min-height:420px}.editor-label{display:block;margin-bottom:8px;font-size:var(--app-text-base);line-height:20px}.editor-hint{font-size:var(--app-text-md);line-height:20px;color:var(--td-text-color-placeholder);margin:0}.editor-footer{display:flex;flex-wrap:wrap;justify-content:flex-start;gap:8px}.wiki-create-form :deep(.t-form__item){margin-bottom:20px}.wiki-create-form :deep(.t-form__label){font-size:var(--app-text-base)}.wiki-field-label{display:block;width:100%}.wiki-editor>.wiki-field-label{display:flex;flex-direction:column;flex:1;min-height:280px}.wiki-editor :deep(.t-textarea){display:flex;flex:1}.wiki-editor :deep(textarea){flex:1;min-height:280px;resize:none;font: var(--app-text-base)/1.6 var(--app-font-family-mono)}.wiki-create-form :deep(textarea){font: var(--app-text-base)/1.6 var(--app-font-family-mono)}.merge-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.conflict-comparison{margin-top:20px;font-size:var(--app-text-md)}.conflict-comparison pre{font-family:var(--app-font-family-mono);font-size:var(--app-text-base);white-space:pre-wrap;overflow:auto;max-height:360px;background:var(--td-bg-color-secondarycontainer);padding:14px;line-height:1.7}.conflict-comparison .add{color:var(--td-success-color)}.conflict-comparison .del{color:var(--td-error-color)}.compile-area{flex:1;min-height:0;overflow:auto}
+@media(max-width:1000px){.wiki-navigation{width:240px}.article-header{align-items:flex-start;flex-direction:column}.article-actions{justify-content:flex-start}}
+.wiki-navigation-toggle { display: none; }
+.wiki-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.compile-area { flex: 1; min-height: 0; overflow: auto; }
+.operation-target { overflow-wrap: anywhere; }
+@container (max-width: 700px) {
+  .wiki-workspace { flex-direction: column; gap: 8px; }
+  .wiki-navigation-toggle { display: inline-flex; align-self: flex-start; }
+  .wiki-navigation { width: auto; min-width: 0; max-height: min(240px, 38vh); }
+  .wiki-navigation:not(.is-open) { display: none; }
+  .wiki-reading { min-height: 0; padding: 16px; }
+  .article-header { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .article-actions { justify-content: flex-start; }
+}
 </style>

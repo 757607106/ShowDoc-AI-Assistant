@@ -45,6 +45,7 @@ async function fixture(name: 'Compile' | 'Issues', overrides: Record<string, any
       if (name === '@/api/contextdbWiki' || name === '@/api/contextdb') return api
       if (name === '@/utils/platformPresentation') return { dateTime: (v: unknown) => v || '—', contextdbDateTime: (v: unknown) => v || '—' }
       if (name === '@/utils/contextdbDocumentName') return require('../../../utils/contextdbDocumentName.ts')
+      if (name.endsWith('.vue')) return { default: {} }
       throw new Error(`Unexpected dependency: ${name}`)
     },
   })

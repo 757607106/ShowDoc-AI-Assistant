@@ -81,6 +81,23 @@
   gap: 8px;
 }
 
+.stacked-setting-rows() {
+  .setting-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .setting-info {
+    max-width: 100%;
+  }
+
+  .setting-control {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+  }
+}
+
 // 改即存设置项的行内反馈（替代 toast）
 .setting-save-state() {
   display: inline-flex;

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import KnowledgeOverlay from '../components/KnowledgeOverlay.vue'
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { listWikiCompileRuns, controlWikiCompileRuns, getWikiEvent } from '@/api/contextdbWiki'
@@ -13,6 +14,18 @@ const editable = computed(() => props.canEdit ?? auth.hasRole('contributor'))
 const rows = ref<any[]>([]), summary = ref<Record<string, any>>({}), cursor = ref(''), status = ref('')
 const loading = ref(false), busy = ref(false), paused = ref(false), error = ref(''), notice = ref('')
 const event = ref<any>(null), eventError = ref('')
+type CompileAction = 'pause' | 'resume' | 'recompile_affected' | 'retry_failed'
+const confirming = ref<{ action: CompileAction; row?: any } | null>(null)
+const actionLabels = { pause: '暂停新编译', resume: '恢复新编译', recompile_affected: '重新编译', retry_failed: '重试失败来源' }
+const actionDescription = computed(() => {
+  switch (confirming.value?.action) {
+    case 'pause': return '暂停后将停止接收新编译，在途任务会继续执行。'
+    case 'resume': return '恢复后可接收新编译。暂停期间登记的文件需要单独重新编译。'
+    case 'recompile_affected': return `重新编译“${documentDisplayName(confirming.value.row) || '所选来源'}”？完成后可在阅读页核对正式正文。`
+    case 'retry_failed': return '重新提交当前知识库中可重试的编译来源。'
+    default: return ''
+  }
+})
 const states: Record<string, string> = {
   compiled: '已编译', pending: '等待编译', waiting_budget: '等待重试',
   blocked_oversize: '超过容量限制', revoked: '已撤销',
@@ -81,7 +94,7 @@ async function refresh() {
   for (const [id, name] of documentNames) if (!name) documentNames.delete(id)
   await checkEvent(true); await load()
 }
-async function control(action: 'pause' | 'resume' | 'recompile_affected' | 'retry_failed', row?: any) {
+async function control(action: CompileAction, row?: any) {
   if (!editable.value || busy.value) return
   const kb = props.kbId
   busy.value = true; error.value = ''; eventError.value = ''; notice.value = ''
@@ -94,8 +107,15 @@ async function control(action: 'pause' | 'resume' | 'recompile_affected' | 'retr
   } catch (e: any) { if (alive && kb === props.kbId) error.value = e.message || '编译操作未完成' }
   finally { if (alive && kb === props.kbId) busy.value = false }
 }
+function confirmControl() {
+  if (!confirming.value) return
+  const { action, row } = confirming.value
+  confirming.value = null
+  void control(action, row)
+}
 function visibilityChanged() { if (document.visibilityState === 'hidden') stopPolling(); else { pollStarted = Date.now(); schedulePolling() } }
 watch(() => props.kbId, () => {
+  confirming.value = null
   request++; stopPolling(); rows.value = []; cursor.value = ''; summary.value = {}; event.value = null; eventError.value = ''; notice.value = ''; busy.value = false
   pollStarted = Date.now(); if (active) void load()
 })
@@ -117,36 +137,46 @@ onUnmounted(() => { alive = false; active = false; request++; stopPolling(); doc
         <strong>{{ item.value }}</strong><span>{{ item.label }}</span>
       </t-card>
     </div>
-    <div class="compile-control"><span>新编译入口：{{ paused ? '已暂停' : '已允许' }}</span><t-space v-if="editable"><t-button variant="outline" :loading="busy" @click="control(paused ? 'resume' : 'pause')">{{ paused ? '恢复新编译' : '暂停新编译' }}</t-button><t-button variant="outline" :disabled="paused || busy || !retryAvailable" @click="control('retry_failed')">重试失败</t-button></t-space></div>
+    <div class="compile-control"><span>新编译入口：{{ paused ? '已暂停' : '已允许' }}</span><t-space v-if="editable" break-line><t-button variant="outline" :loading="busy" @click="confirming={action:paused?'resume':'pause'}">{{ paused ? '恢复新编译' : '暂停新编译' }}</t-button><t-button variant="outline" :disabled="paused || busy || !retryAvailable" @click="confirming={action:'retry_failed'}">重试失败</t-button></t-space></div>
     <p class="hint">这个开关不取消在途任务，也不会自动补跑暂停期间登记的文件。</p>
     <t-alert theme="info" message="文件已编译，不代表所有知识页面已发布。" />
-    <t-alert v-if="error" theme="error" :message="error" />
-    <t-alert v-if="notice" theme="info" :message="notice" />
+    <t-alert v-if="error" role="alert" theme="error" :message="error"><template #operation><t-button variant="text" @click="refresh">刷新核对</t-button></template></t-alert>
+    <t-alert v-if="notice" role="status" theme="info" :message="notice" />
     <t-alert v-if="eventError" theme="warning" :message="eventError" />
     <div class="toolbar"><t-select v-model="status" aria-label="编译状态" :options="[{ value: '', label: '全部状态' }, ...Object.entries(states).map(([value, label]) => ({ value, label }))]" /><t-button variant="text" shape="square" aria-label="刷新进度" :loading="loading" @click="refresh"><t-icon name="refresh" /></t-button></div>
-    <t-table row-key="document_id" :data="rows" :loading="loading" :columns="[{ colKey: 'source', title: '文档级来源引用', width:'26%' }, { colKey: 'run_state', title: '编译状态', width:'14%' }, { colKey: 'updated_at', title: '更新时间', width:'28%' }, { colKey: 'actions', title: '操作', width:'32%' }]">
-      <template #source="{ row }">{{ documentDisplayName(row) || row.title || row.document_id }}</template>
-      <template #run_state="{ row }"><t-tag variant="light" :theme="row.run_state === 'compiled' ? 'success' : 'default'">{{ states[row.run_state] || '状态待确认' }}</t-tag></template>
-      <template #updated_at="{ row }">{{ dateTime(row.updated_at || row.compiled_at || row.last_compiled_at) }}</template>
-      <template #actions="{ row }">
-        <t-space break-line>
-          <t-button variant="text" theme="primary" @click="emit('open-source-doc', row.document_id)">打开来源文件</t-button>
-          <t-dropdown v-if="editable" :options="[{content:'重新编译',value:'recompile_affected',disabled:paused || busy || ['revoked', 'blocked_oversize'].includes(row.run_state)}]" @click="control('recompile_affected', row)"><t-button variant="outline">更多<t-icon name="chevron-down" /></t-button></t-dropdown>
-        </t-space>
+    <t-table row-key="document_id" :data="rows" :loading="loading" :columns="[{ colKey: 'source', title: '编译来源' }, { colKey: 'actions', title: '操作', width:112 }]">
+      <template #source="{ row }">
+        <button type="button" class="source-name" @click="emit('open-source-doc', row.document_id)">{{ documentDisplayName(row) || row.title || '打开来源文件' }}</button>
+        <div class="source-meta">
+          <t-tag size="small" variant="light" :theme="row.run_state === 'compiled' ? 'success' : 'default'">{{ states[row.run_state] || '状态待确认' }}</t-tag>
+          <span>{{ dateTime(row.updated_at || row.compiled_at || row.last_compiled_at) }}</span>
+        </div>
       </template>
+      <template #actions="{ row }">
+        <t-button v-if="editable" size="small" variant="text" :disabled="paused || busy || ['revoked', 'blocked_oversize'].includes(row.run_state)" @click="confirming={action:'recompile_affected', row}">重新编译</t-button>
+      </template>
+      <template #empty>{{ status ? '当前状态暂无来源' : '暂无编译来源' }}</template>
     </t-table>
+    <KnowledgeOverlay :visible="!!confirming" :header="confirming ? actionLabels[confirming.action] : ''"
+      :confirm-btn="{content:confirming ? actionLabels[confirming.action] : '确认'}"
+      @update:visible="(value: boolean) => { if(!value) confirming=null }" @confirm="confirmControl">
+      <p>{{ actionDescription }}</p>
+    </KnowledgeOverlay>
     <t-button v-if="cursor" variant="outline" :loading="loading" @click="load(true)">加载更多来源</t-button>
   </section>
 </template>
 
 <style scoped lang="less">
 .wiki-compile { display:flex; flex-direction:column; gap:12px; padding:12px 0 24px; overflow:auto; min-height:0; font-family:var(--app-font-family); font-size:var(--app-text-base); }
-.summary { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; margin-bottom:4px; }
+.summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr)); gap:12px; margin-bottom:4px; }
 .summary-card { border-radius:var(--app-space-4); box-shadow:none; }.summary-card :deep(.t-card__body){display:flex;flex-direction:column;gap:12px;padding:18px 16px;}
 .summary-card strong{font-size:var(--app-text-4xl);line-height:28px;font-weight:600;color:var(--td-text-color-primary)}.summary-card span{color:var(--td-text-color-placeholder);font-size:var(--app-text-sm);line-height:18px}
 .compile-control {display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 16px;border:1px solid var(--td-component-stroke);border-radius:var(--app-space-4);background:var(--td-bg-color-secondarycontainer)}
 .toolbar { display:flex; align-items:center; gap:10px; }.toolbar :deep(.t-select__wrap){width:144px}.toolbar :deep(.t-button){width:32px;height:32px}
+.source-name { border: 0; padding: 0; color: var(--td-brand-color); background: transparent; font: inherit; text-align: start; overflow-wrap: anywhere; cursor: pointer; }
+.source-name:hover { text-decoration: underline; }
+.source-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 6px; color: var(--td-text-color-secondary); font-size: var(--app-text-sm); }
 .hint { margin:-10px 0 0; color:var(--td-text-color-placeholder); font-size:var(--app-text-sm);line-height:20px; }
 .wiki-compile :deep(.t-alert){padding:10px 14px;border-radius:var(--app-radius-lg);font-size:var(--app-text-md)}.wiki-compile :deep(.t-table){border-radius:var(--app-space-4) 16px 0 0;overflow:hidden}.wiki-compile :deep(.t-table th){height:60px;background:var(--td-bg-color-secondarycontainer);font-size:var(--app-text-base);font-weight:400}.wiki-compile :deep(.t-table td){height:80px;font-size:var(--app-text-base)}.wiki-compile :deep(.t-button){font-size:var(--app-text-base)}
-@media(max-width:900px){.summary{grid-template-columns:repeat(3,minmax(0,1fr))}.compile-control{align-items:flex-start;flex-direction:column}}
+@media(max-width:900px){.compile-control{align-items:flex-start;flex-direction:column}}
 </style>

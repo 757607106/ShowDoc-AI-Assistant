@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { listWikiPages, type WikiPage } from '@/api/contextdbWiki'
+import KnowledgeActionMenu from '../components/KnowledgeActionMenu.vue'
 
 const props = withDefaults(defineProps<{
   kbId: string
@@ -54,12 +55,14 @@ watch(() => [props.kbId, props.parentId, props.directoriesOnly], () => {
           <t-icon :name="expanded.has(item.page_id) ? 'chevron-down' : 'chevron-right'" />
         </button>
         <span v-else class="tree-spacer" />
-        <button class="tree-label" type="button" :disabled="item.page_id === blockedId" @click="emit('select', item)">
+        <button class="tree-label" type="button" :disabled="item.page_id === blockedId" :aria-current="item.page_id === selectedId ? 'page' : undefined" @click="emit('select', item)">
           <span>{{ item.display_title || item.title || (item.page_type === 'category' ? '未命名目录' : '未命名页面') }}</span>
         </button>
-        <span v-if="item.page_type!=='category'&&item.published" class="tree-status">正式</span>
-        <span v-else-if="item.run_state==='pending'" class="tree-status">编译中</span>
-        <t-dropdown v-if="canEdit" :options="[{content:'重命名',value:'rename'},{content:'移动',value:'move'},...(item.page_type!=='category'?[{content:'归档',value:'archive'}]:[]),{content:'删除',value:'delete'}]" @click="(option:any)=>emit('action',option.value as Action,item)"><t-button variant="text" shape="square" size="small" :disabled="item.run_state==='pending'" :aria-label="`更多 ${item.display_title||item.title}`"><t-icon name="more" /></t-button></t-dropdown>
+        <span v-if="item.run_state==='pending'" class="tree-status">编译中</span>
+        <span v-else-if="item.page_type!=='category'&&item.published" class="tree-status">正式</span>
+        <KnowledgeActionMenu v-if="canEdit" icon-only :disabled="item.run_state==='pending'" :label="`更多 ${item.display_title||item.title||'未命名条目'}`"
+          :options="[{content:'重命名',value:'rename'},{content:'移动',value:'move'},...(item.page_type!=='category'?[{content:'归档',value:'archive'}]:[]),{content:'删除',value:'delete',theme:'error'}]"
+          @select="(value: string) => emit('action', value as Action, item)" />
       </div>
       <div v-if="item.page_type === 'category' && expanded.has(item.page_id)" class="tree-children">
         <ContextDBWikiDirectory :kb-id="kbId" :parent-id="item.page_id" :selected-id="selectedId"

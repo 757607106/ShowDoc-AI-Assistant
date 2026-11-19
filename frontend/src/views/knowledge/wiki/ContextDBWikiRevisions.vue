@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import KnowledgeOverlay from '../components/KnowledgeOverlay.vue'
 import { computed, ref, watch } from 'vue'
 import { listWikiRevisions, getWikiRevisionDiff, type WikiRevision, type WikiRevisionDiff } from '@/api/contextdbWiki'
 import { contextdbDateTime as dateTime, stateLabel } from '@/utils/platformPresentation'
@@ -52,7 +53,7 @@ watch(target, () => void compare())
 </script>
 
 <template>
-  <t-drawer :visible="visible" header="版本历史" size="min(1120px, 96vw)" :footer="false" :close-btn="true" @update:visible="(value: boolean) => emit('update:visible', value)">
+  <KnowledgeOverlay drawer :visible="visible" header="版本历史" size="min(1120px, 96vw)" :close-btn="true" @update:visible="(value: boolean) => emit('update:visible', value)">
     <div class="revision-history">
       <h2 v-if="pageTitle" class="history-page-title">{{pageTitle}}</h2>
       <t-alert v-if="listError" theme="error" :message="listError"><template #operation><t-button variant="text" @click="load(retryAppend)">重试读取版本</t-button></template></t-alert>
@@ -76,7 +77,8 @@ watch(target, () => void compare())
         </section>
       </div>
     </div>
-  </t-drawer>
+    <template #footer><t-button variant="outline" @click="emit('update:visible', false)">关闭</t-button></template>
+  </KnowledgeOverlay>
 </template>
 
 <style scoped lang="less">

@@ -125,8 +125,8 @@
           </div>
         </section>
 
-        <section v-if="isChat" class="setting-drawer__section">
-          <h4 class="setting-drawer__section-title">{{ $t('modelSettings.debug.parameters') }}</h4>
+        <details v-if="isChat" class="setting-drawer__section debug-parameters">
+          <summary>{{ $t('modelSettings.debug.parameters') }}</summary>
           <div class="parameter-grid">
             <div class="form-item">
               <label class="form-label">Temperature</label>
@@ -168,7 +168,7 @@
               </template>
             </p>
           </div>
-        </section>
+        </details>
 
         <section v-if="result || history.length > 0" class="setting-drawer__section">
           <h4 class="setting-drawer__section-title">{{ $t('modelSettings.debug.groupResult') }}</h4>
@@ -585,6 +585,14 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped lang="less">
+.debug-parameters summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.debug-parameters[open] summary {
+  margin-bottom: 12px;
+}
 .form-item {
   margin-bottom: 0;
 }

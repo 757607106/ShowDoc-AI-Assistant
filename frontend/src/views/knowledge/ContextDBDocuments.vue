@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import KnowledgeOverlay from './components/KnowledgeOverlay.vue'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import type { PrimaryTableCol } from 'tdesign-vue-next'
 import { getDocument, nativeAPI, uploadDocumentFile, updateDocumentMetadata, retryDocument } from '@/api/contextdb'
 import api from '@/api/backend'
 import { batchDownloadKnowledge, getKnowledgeDetailsCon } from '@/api/knowledge-base'
@@ -8,10 +10,11 @@ import DocMarkdown from '@/components/DocMarkdown.vue'
 import { chunkAttachments } from '@/utils/contextdbResources'
 import PanelResizeHandle from '@/components/PanelResizeHandle.vue'
 import ContextDBMetadata from './ContextDBMetadata.vue'
+import KnowledgeActionMenu from './components/KnowledgeActionMenu.vue'
 import { formatFileSize, getFileIcon } from '@/utils/files'
 import { documentDisplayName, documentDownloadName } from '@/utils/contextdbDocumentName'
 
-const props=defineProps<{kbId:string;canEdit:boolean;wikiEnabled?:boolean;graphEnabled?:boolean;reviewEnabled?:boolean;documentId?:string;folderId?:string;baseName?:string;syncLocation?:boolean}>()
+const props=defineProps<{kbId:string;canEdit:boolean;wikiEnabled?:boolean;graphEnabled?:boolean;reviewEnabled?:boolean;documentId?:string;folderId?:string;baseName?:string;syncLocation?:boolean;showImport?:boolean}>()
 const emit = defineEmits<{ navigate: [folderId: string, documentId?: string] }>()
 const rows=ref<any[]>([]),tree=ref<any[]>([]),breadcrumbs=ref<any[]>([]),parent=ref(''),rootId=ref(''),page=ref(1),pageSize=ref(20),total=ref(0),loading=ref(false),error=ref(''),selected=ref<string[]>([])
 const sortBy=ref('created_at'),sortOrder=ref('desc'),width=ref(260);let startWidth=260,request=0,previewRequest=0,uploadRequest=0,chunkRequest=0,writeEpoch=0,metadataRequest=0
@@ -19,7 +22,12 @@ const preview=ref<any>(null),previewLoading=ref(false),previewError=ref(''),prev
 const nodeDialog=ref(''),node=ref<any>(null),nodeName=ref(''),target=ref(''),folderOptions=ref<any[]>([]),saving=ref(false)
 const removing=ref<any[]>([]),recursiveDelete=ref(false),metadata=ref<any>(null),metadataText=ref(''),mutating=ref(false)
 const uploadOpen=ref(false),files=ref<File[]>([]),uploading=ref(false),review=ref(false),fileInput=ref<HTMLInputElement|null>(null)
+const fileIssues = ref<string[]>([])
 const selection=computed(()=>rows.value.filter(row=>selected.value.includes(row.node_id)))
+const downloadCount = computed(() => selection.value.filter(row => row.document_id).length)
+const deleteNames = computed(() => removing.value.slice(0, 3).map(title).join('、'))
+const writeInProgress = computed(() => uploading.value || saving.value || mutating.value)
+defineExpose({ writeInProgress })
 const statusLabels:Record<string,string>={succeeded:'成功',failed:'失败',pending:'等待处理',uploading:'上传中',processing:'处理中',ai_reviewing:'评审中',pending_review:'待人工评审',deleting:'删除中',deleted:'已删除',building:'处理中',skipped:'已跳过',disabled:'未启用',compiled:'已编译'}
 const state=(value:any)=>value?statusLabels[String(value).toLowerCase()]||String(value):'-'
 const time=(value:any)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'-'
@@ -59,6 +67,33 @@ async function open(row:any){
   finally{if(token===previewRequest)previewLoading.value=false}
 }
 const documentMain = ref<HTMLElement | null>(null)
+const mainWidth = ref(Infinity)
+const desktopColumns = computed<PrimaryTableCol[]>(() => [
+  { colKey: 'selection', type: 'multiple', width: 44 },
+  { colKey: 'name', title: '文件名称', width: Math.min(310, Math.max(200, Math.round(mainWidth.value * 0.24))) },
+  { colKey: 'metadata', title: '元数据', minWidth: 160 },
+  { colKey: 'ingest_status', title: '入库状态', width: 112 },
+  ...(props.wikiEnabled ? [{ colKey: 'wiki_status', title: 'Wiki 状态', width: 104 }] : []),
+  ...(props.graphEnabled ? [{ colKey: 'graph_status', title: '图谱状态', width: 104 }] : []),
+  { colKey: 'size_bytes', title: '大小', width: 84 },
+  { colKey: 'updated_at', title: '更新时间', width: 164 },
+  { colKey: 'actions', title: '操作', width: 128, align: 'right' },
+])
+const compact = computed(() => mainWidth.value < desktopColumns.value.reduce((sum, column) => sum + Number(column.width ?? column.minWidth), 0))
+const columns = computed<PrimaryTableCol[]>(() => compact.value ? [
+  { colKey: 'selection', type: 'multiple', width: 36 },
+  { colKey: 'name', title: '文件名称' },
+  { colKey: 'compact_status', title: '状态', width: 110 },
+  { colKey: 'actions', title: '操作', width: 68, align: 'right' },
+] : desktopColumns.value)
+watch(documentMain, (main, _, onCleanup) => {
+  if (!main || typeof ResizeObserver === 'undefined') return
+  const observer = new ResizeObserver(([entry]) => {
+    if (entry) mainWidth.value = entry.contentRect.width
+  })
+  observer.observe(main)
+  onCleanup(() => observer.disconnect())
+})
 let openedFromTable = ''
 let pendingFile: { row: any; fromTable: boolean } | undefined
 async function openFile(row: any, fromTable = false) {
@@ -105,8 +140,17 @@ async function loadChunks(){
   finally{if(token===chunkRequest&&previewToken===previewRequest)chunkLoading.value=false}
 }
 watch(previewMode,value=>{if(value==='chunks')void loadChunks()})
-function menu(row:any){return [{content:'进入下级',value:'enter'},...(props.canEdit?[{content:'新建子目录',value:'folder'},{content:'重命名',value:'rename'},{content:'移动到…',value:'move'},{content:'删除',value:'delete',theme:'error' as const}]:[]),...(props.canEdit&&row.ingest_status==='failed'?[{content:'重试',value:'retry'}]:[])]}
-async function act(row:any,value:string){if(value==='enter')return enterNode(row.node_id);if(!props.canEdit)return;if(value==='delete'){removing.value=[row];recursiveDelete.value=false;return}if(value==='retry'){try{await retryDocument(row.document_id||row.id);await refresh()}catch(e:any){error.value=e.message}return}await editNode(value,row)}
+function menu(row: any) {
+  const isFile = row.node_type === 'file'
+  return [
+    { content: isFile ? '预览' : '进入下级', value: 'enter' },
+    ...(isFile && compact.value ? [{ content: '元数据', value: 'metadata' }] : []),
+    ...(props.canEdit && !isFile ? [{ content: '新建子目录', value: 'folder' }] : []),
+    ...(props.canEdit ? [{ content: '重命名', value: 'rename' }, { content: '移动到…', value: 'move' }, { content: '删除', value: 'delete', theme: 'error' }] : []),
+    ...(props.canEdit && row.ingest_status === 'failed' ? [{ content: '重试', value: 'retry' }] : []),
+  ]
+}
+async function act(row:any,value:string,fromTable=false){if(value==='enter')return row.node_type==='file'?openFile(row,fromTable):enterNode(row.node_id);if(value==='metadata')return editMetadata(row);if(!props.canEdit)return;if(value==='delete'){removing.value=[row];recursiveDelete.value=false;return}if(value==='retry'){try{await retryDocument(row.document_id||row.id);await refresh()}catch(e:any){error.value=e.message}return}await editNode(value,row)}
 async function editNode(kind:string,row?:any){
   if(!props.canEdit||saving.value)return
   node.value=row||null;nodeDialog.value=kind;nodeName.value=kind==='rename'?title(row):'';target.value='';error.value='';folderOptions.value=[]
@@ -168,9 +212,17 @@ async function saveMetadata(){
   try{const value=JSON.parse(metadataText.value);if(!value||Array.isArray(value)||typeof value!=='object')throw new Error('元数据必须是 JSON 对象');await updateDocumentMetadata(current.document_id||current.id,value);if(epoch!==writeEpoch||metadata.value!==current)return;metadata.value=null;await refresh()}
   catch(e:any){if(epoch===writeEpoch)error.value=e.message}finally{if(epoch===writeEpoch)saving.value=false}
 }
-function add(){if(!props.canEdit)return;files.value=[];review.value=!!props.reviewEnabled;uploadOpen.value=true;error.value=''}
-function chooseFiles(event:Event){const input=event.target as HTMLInputElement;files.value=[...files.value,...Array.from(input.files||[])];input.value=''}
-function dropped(event:DragEvent){if(!uploading.value)files.value=[...files.value,...Array.from(event.dataTransfer?.files||[])]}
+function add(){if(!props.canEdit)return;files.value=[];fileIssues.value=[];review.value=!!props.reviewEnabled;uploadOpen.value=true;error.value=''}
+function appendFiles(incoming: File[]) {
+  if (uploading.value || !props.canEdit) return
+  fileIssues.value = []
+  for (const file of incoming) {
+    if (!file.size || file.size > 2 * 1024 * 1024) fileIssues.value.push(file.name)
+    else files.value.push(file)
+  }
+}
+function chooseFiles(event:Event){const input=event.target as HTMLInputElement;appendFiles(Array.from(input.files||[]));input.value=''}
+function dropped(event:DragEvent){appendFiles(Array.from(event.dataTransfer?.files||[]))}
 async function upload(){
   if(!props.canEdit||uploading.value||!files.value.length)return
   if(files.value.some(file=>!file.size||file.size>2*1024*1024)){error.value='所有格式统一限制单文件为 1 B 至 2 MB，超过限制无法上传。';return}
@@ -183,6 +235,7 @@ async function downloadSelected(){try{const ids=selection.value.filter(row=>row.
 watch(()=>[props.kbId,props.folderId] as const,([kb,folder],previous)=>{
   request++;uploadRequest++;writeEpoch++;metadataRequest++;chunkRequest++
   saving.value=false;mutating.value=false;uploading.value=false;rows.value=[];breadcrumbs.value=[];total.value=0
+  fileIssues.value=[]
   parent.value=folder||'';page.value=1;removing.value=[];nodeDialog.value='';metadata.value=null;uploadOpen.value=false
   if(kb!==previous?.[0]||!props.syncLocation){tree.value=[];rootId.value='';void refresh()}
   else void load()
@@ -198,32 +251,57 @@ watch(()=>[props.kbId,props.folderId,props.documentId] as const,([kb,folder,id],
 onUnmounted(()=>{request++;previewRequest++;uploadRequest++;chunkRequest++;writeEpoch++;metadataRequest++})
 </script>
 <template>
-  <section class="document-workspace"><aside class="document-tree" :style="{width:width+'px'}"><button class="tree-home" :class="{active:!parent&&!preview}" @click="enterNode()"><t-icon name="view-module" size="var(--app-text-xl)" />主页</button><div class="tree-heading"><span><t-icon name="view-list" />目录</span><t-dropdown v-if="canEdit" :options="[{content:'新建目录',value:'folder'}]" @click="editNode('folder')"><t-button variant="text" shape="square" aria-label="目录 更多操作"><t-icon name="more" /></t-button></t-dropdown></div>
-    <t-tree :data="tree" :keys="{value:'node_id',label:'label',children:'children'}" :load="loadChildren" activable :expand-on-click-node="false" @click="({node}:any)=>node.data.node_type==='file'?openFile(node.data):enterNode(node.value)"><template #icon="{node}"><t-icon :name="node.data.node_type==='file'?getFileIcon(node.label):'folder'" /></template><template #operations="{node}"><t-dropdown :options="menu(node.data)" @click="(item:any)=>act(node.data,item.value)"><t-button variant="text" shape="square" :aria-label="'更多操作 '+node.label" @click.stop><t-icon name="more" /></t-button></t-dropdown></template></t-tree>
+  <section class="document-workspace"><aside class="document-tree" :style="{width:width+'px'}"><button class="tree-home" :class="{active:!parent&&!preview}" @click="enterNode()"><t-icon name="view-module" size="var(--app-text-xl)" />主页</button><div class="tree-heading"><span><t-icon name="view-list" />目录</span><KnowledgeActionMenu v-if="canEdit" label="目录 更多操作" :options="[{content:'新建目录',value:'folder'}]" icon-only @select="editNode('folder')" /></div>
+    <t-tree :data="tree" :keys="{value:'node_id',label:'label',children:'children'}" :load="loadChildren" activable :expand-on-click-node="false" @click="({node}:any)=>node.data.node_type==='file'?openFile(node.data):enterNode(node.value)"><template #icon="{node}"><t-icon :name="node.data.node_type==='file'?getFileIcon(node.label):'folder'" /></template><template #operations="{node}"><KnowledgeActionMenu :options="menu(node.data)" :label="'更多操作 '+node.label" icon-only @select="act(node.data, $event)" /></template></t-tree>
     <PanelResizeHandle edge="right" label="拖拽调整文档列表宽度" :value="width" :min="200" :max="480" @start="startWidth=width" @resize="delta=>width=Math.max(200,Math.min(480,startWidth+delta))" />
-  </aside><main ref="documentMain" class="document-main"><t-alert v-if="error || previewError" theme="error" :message="previewError || error" close />
+  </aside><main ref="documentMain" class="document-main"><t-alert v-if="(error || previewError) && !nodeDialog && !removing.length && !metadata && !uploadOpen" role="alert" theme="error" :message="previewError || error" close />
     <template v-if="!preview && !(syncLocation && documentId)"><t-breadcrumb class="document-location">
       <t-breadcrumb-item><button type="button" class="document-text-button" @click="enterNode()">主页</button></t-breadcrumb-item>
       <t-breadcrumb-item v-for="crumb in breadcrumbs.filter(item=>item.node_type!=='root')" :key="crumb.node_id">
         <button type="button" class="document-text-button" @click="enterNode(crumb.node_id)">{{crumb.display_name}}</button>
       </t-breadcrumb-item>
     </t-breadcrumb>
-      <div class="document-toolbar"><t-select v-model="sortBy" aria-label="排序" :options="[{value:'created_at',label:'创建时间'},{value:'updated_at',label:'更新时间'}]" @change="page=1;load()" /><t-button variant="outline" aria-label="排序方向" @click="sortOrder=sortOrder==='asc'?'desc':'asc';page=1;load()"><t-icon :name="sortOrder==='asc'?'arrow-up':'arrow-down'" /></t-button><div class="toolbar-actions"><t-button v-if="canEdit" variant="outline" @click="editNode('folder')">新建目录</t-button><t-button v-if="canEdit" @click="add"><t-icon name="upload" />上传文件</t-button><t-button variant="outline" :loading="loading" @click="refresh"><t-icon name="refresh" />刷新</t-button></div></div>
-      <div v-if="selected.length" class="selection-actions"><span>已选择 {{selected.length}} 项</span><t-button variant="text" @click="downloadSelected">下载</t-button><t-button v-if="canEdit" variant="text" :disabled="selected.length>50" @click="editNode('move',selection)">移动到…</t-button><t-button v-if="canEdit" variant="text" theme="danger" :disabled="selected.length>50" @click="removing=[...selection];recursiveDelete=false">删除</t-button></div>
-      <t-table row-key="node_id" :data="rows" :loading="loading" :selected-row-keys="selected" @select-change="(keys:(string|number)[])=>selected=keys.map(String)" :columns="[{colKey:'selection',type:'multiple' as const,width:44},{colKey:'name',title:'文件名称',minWidth:200},{colKey:'metadata',title:'元数据',width:150},{colKey:'ingest_status',title:'入库状态',width:100},...(wikiEnabled?[{colKey:'wiki_status',title:'WIKI 状态',width:100}]:[]),...(graphEnabled?[{colKey:'graph_status',title:'图谱状态',width:100}]:[]),{colKey:'size_bytes',title:'文件大小',width:100},{colKey:'updated_at',title:'最后一次更新时间',width:170},{colKey:'actions',title:'操作',width:160}]">
+      <div class="document-toolbar"><t-select v-model="sortBy" aria-label="排序" :options="[{value:'created_at',label:'创建时间'},{value:'updated_at',label:'更新时间'}]" @change="page=1;load()" /><t-button variant="outline" :aria-label="sortOrder==='asc'?'当前升序，切换为降序':'当前降序，切换为升序'" @click="sortOrder=sortOrder==='asc'?'desc':'asc';page=1;load()"><t-icon :name="sortOrder==='asc'?'arrow-up':'arrow-down'" /></t-button><div class="toolbar-actions"><t-button v-if="canEdit" variant="outline" @click="editNode('folder')">新建目录</t-button><t-button v-if="canEdit" @click="add"><t-icon name="upload" />上传文件</t-button><router-link v-if="showImport" :to="{ path: '/platform/collect', query: { kb_id: kbId } }" custom v-slot="{ href, navigate }"><t-button tag="a" :href="href" variant="outline" aria-label="从外部数据源导入" @click="navigate">外部导入</t-button></router-link><t-button variant="outline" :loading="loading" @click="refresh"><t-icon name="refresh" />刷新</t-button></div></div>
+      <div v-if="selected.length" class="selection-actions"><span>已选择 {{selected.length}} 项</span><t-button variant="text" :disabled="!downloadCount" @click="downloadSelected">下载文件（{{ downloadCount }}）</t-button><t-button v-if="canEdit" variant="text" :disabled="selected.length>50" @click="editNode('move',selection)">移动到…</t-button><t-button v-if="canEdit" variant="text" theme="danger" :disabled="selected.length>50" @click="removing=[...selection];recursiveDelete=false">删除</t-button></div>
+      <t-table row-key="node_id" class="document-table" :class="{ 'document-table-compact': compact }" :data="rows" :loading="loading"
+        :selected-row-keys="selected" @select-change="(keys:(string|number)[])=>selected=keys.map(String)" :columns="columns">
         <template #name="{row}">
-          <button type="button" class="document-text-button document-file-open" :data-node-open="row.node_id"
+          <button type="button" class="document-text-button document-file-open" :data-node-open="row.node_id" :title="title(row)"
             @click="row.node_type==='file'?openFile(row, true):enterNode(row.node_id)">
-            <t-icon :name="row.node_type==='file'?getFileIcon(title(row)):'folder'" aria-hidden="true" />{{title(row)}}
+            <t-icon :name="row.node_type==='file'?getFileIcon(title(row)):'folder'" aria-hidden="true" /><span>{{ title(row) }}</span>
           </button>
-        </template><template #metadata="{row}"><span v-if="!Object.keys(row.metadata||{}).length">-</span><t-link v-else @click="editMetadata(row)">{{Object.entries(row.metadata).slice(0,2).map(([key,value])=>key+' '+value).join(' ')}}</t-link></template><template #ingest_status="{row}"><span :class="{'status-success':row.ingest_status==='succeeded','status-failure':row.ingest_status==='failed'}">{{state(row.ingest_status)}}</span></template><template #wiki_status="{row}">{{state(row.wiki_status)}}</template><template #graph_status="{row}"><span :class="{'status-success':row.graph_status==='succeeded'}">{{state(row.graph_status)}}</span></template><template #size_bytes="{row}">{{formatFileSize(row.size_bytes)||'-'}}</template><template #updated_at="{row}">{{time(row.updated_at)}}</template><template #actions="{row}"><t-space><t-button v-if="row.node_type==='file'" variant="text" @click="editMetadata(row)">元数据</t-button><t-dropdown :options="menu(row)" @click="(item:any)=>act(row,item.value)"><t-button variant="text">更多<t-icon name="chevron-down" /></t-button></t-dropdown></t-space></template>
-      </t-table><div class="document-pagination"><span>当前层共 {{total}} 项</span><t-pagination :current="page" :total="total" :page-size="pageSize" :page-size-options="[20,50,100]" :total-content="false" @current-change="(value:number)=>{page=value;load()}" @page-size-change="(value:number)=>{pageSize=value;page=1;load()}" /></div>
+        </template>
+        <template #metadata="{row}">
+          <button v-if="Object.keys(row.metadata||{}).length" type="button" class="metadata-preview document-text-button" :aria-label="'查看元数据 '+title(row)" @click="editMetadata(row)">
+            <span v-for="[key,value] in Object.entries(row.metadata).slice(0,2)" :key="key" class="metadata-line" :title="key+'：'+value">
+              <span class="metadata-key">{{ key }}</span><span>{{ value }}</span>
+            </span>
+          </button>
+          <span v-else>—</span>
+        </template>
+        <template #ingest_status="{row}"><span :class="{'status-success':row.ingest_status==='succeeded','status-failure':row.ingest_status==='failed'}">{{state(row.ingest_status)}}</span></template><template #wiki_status="{row}">{{state(row.wiki_status)}}</template><template #graph_status="{row}"><span :class="{'status-success':row.graph_status==='succeeded'}">{{state(row.graph_status)}}</span></template><template #size_bytes="{row}">{{formatFileSize(row.size_bytes)||'-'}}</template><template #updated_at="{row}">{{time(row.updated_at)}}</template>
+        <template #empty><div class="document-empty"><span>此目录暂无文件</span><t-button v-if="canEdit" variant="text" theme="primary" @click="add">上传文件</t-button></div></template>
+        <template #compact_status="{row}">
+          <div v-if="row.node_type==='file'" class="compact-status">
+            <span>入库 <strong :class="{'status-success':row.ingest_status==='succeeded','status-failure':row.ingest_status==='failed'}">{{ state(row.ingest_status) }}</strong></span>
+            <span v-if="wikiEnabled">Wiki <strong>{{ state(row.wiki_status) }}</strong></span>
+            <span v-if="graphEnabled">图谱 <strong :class="{'status-success':row.graph_status==='succeeded'}">{{ state(row.graph_status) }}</strong></span>
+          </div>
+          <span v-else>—</span>
+        </template>
+        <template #actions="{row}"><div class="document-row-actions">
+          <t-button v-if="!compact && row.node_type==='file'" size="small" variant="text" @click="editMetadata(row)">元数据</t-button>
+          <KnowledgeActionMenu :options="menu(row)" :label="'更多操作 '+title(row)" @select="act(row, $event, true)" />
+        </div></template>
+      </t-table><div class="document-pagination"><span>当前层共 {{total}} 项</span><t-pagination v-if="total > 20" :current="page" :total="total" :page-size="pageSize" :page-size-options="[20,50,100]" :total-content="false" :show-page-number="total > pageSize" :show-previous-and-next-btn="total > pageSize" @current-change="(value:number)=>{page=value;load()}" @page-size-change="(value:number)=>{pageSize=value;page=1;load()}" /></div>
     </template><template v-else><div class="preview-heading"><t-button variant="text" shape="square" aria-label="返回文件列表" @click="closePreview"><t-icon name="chevron-left" /></t-button><h2>{{preview ? title(preview) : '文件预览'}}</h2><t-space v-if="preview"><t-button variant="outline" @click="editMetadata(preview)">元数据</t-button><t-button v-if="canEdit&&preview.node_id" variant="outline" @click="removing=[preview];recursiveDelete=false">删除</t-button><t-button variant="outline" @click="download(preview)">下载原文</t-button><t-button variant="outline" @click="open(preview)">刷新</t-button></t-space></div><t-loading v-if="!preview && previewLoading" text="正在加载文件" /><template v-if="preview"><p class="preview-status">入库状态：{{state(preview.ingest_status)}} <span v-if="wikiEnabled">WIKI 状态：{{state(preview.wiki_status)}}</span><span v-if="graphEnabled">图谱状态：{{state(preview.graph_status)}}</span>文件大小：{{formatFileSize(preview.size_bytes)||'-'}}　最后一次更新时间：{{time(preview.updated_at)}}</p><t-radio-group v-model="previewMode" variant="default-filled"><t-radio-button value="original">原文</t-radio-button><t-radio-button value="chunks">Chunks</t-radio-button></t-radio-group><ContextDBSourcePreview v-if="previewMode==='original'" :key="`${preview.id}:${preview.current_snapshot_id || preview.updated_at || ''}`" :document-id="preview.id" :kb-id="kbId" :title="title(preview)" /><t-loading v-else :loading="chunkLoading"><section v-for="chunk in chunks" :key="chunk.id" class="document-chunk"><DocMarkdown :content="chunk.content||''" :source-name="preview.name" :source-display-name="title(preview)" :attachments="chunkAttachments([chunk], preview.id)" :kb-id="kbId" /></section><t-pagination :current="chunkPage" :total="chunkTotal" :page-size="25" :show-page-size="false" @current-change="(value:number)=>{chunkPage=value;loadChunks()}" /></t-loading></template></template>
   </main>
-  <t-dialog dialog-class-name="contextdb-overlay" :visible="!!nodeDialog" :header="nodeDialog==='rename'?'重命名':nodeDialog==='move'?'移动到…':'新建目录'" :confirm-btn="{content:'确定',loading:saving}" :close-on-overlay-click="!saving" @update:visible="(value:boolean)=>{if(!value&&!saving)nodeDialog=''}" @confirm="saveNode"><t-input v-if="nodeDialog!=='move'" v-model="nodeName" :maxlength="512" placeholder="名称" @enter="saveNode" /><t-cascader v-else v-model="target" :options="folderOptions" :keys="{value:'node_id',label:'display_name',children:'children'}" :load="loadChildren" check-strictly placeholder="选择目标目录" /><t-alert v-if="error" theme="error" :message="error" /></t-dialog>
-  <t-dialog dialog-class-name="contextdb-overlay" :visible="!!removing.length" header="删除" :confirm-btn="{content:'确定',theme:'danger',loading:mutating}" :close-on-overlay-click="!mutating" @update:visible="(value:boolean)=>{if(!value&&!mutating)removing=[]}" @confirm="remove"><p>确定删除所选的 {{removing.length}} 项吗？</p><t-checkbox v-model="recursiveDelete">同时删除子目录及其中的文件</t-checkbox><t-alert v-if="error" theme="error" :message="error" /></t-dialog>
+  <KnowledgeOverlay dialog-class-name="contextdb-overlay" :visible="!!nodeDialog" :header="nodeDialog==='rename'?'重命名':nodeDialog==='move'?'移动到…':'新建目录'"  :confirm-btn="{content:nodeDialog==='rename'?'保存名称':nodeDialog==='move'?'移动':'创建目录',loading:saving}"
+    :cancel-btn="{disabled:saving}" :close-on-overlay-click="!saving" :close-on-esc-keydown="!saving" :close-btn="!saving" @update:visible="(value:boolean)=>{if(!value&&!saving)nodeDialog=''}" @confirm="saveNode"><t-input v-if="nodeDialog!=='move'" v-model="nodeName" :maxlength="512" placeholder="请输入名称" aria-label="名称" @enter="saveNode" /><t-cascader v-else v-model="target" :options="folderOptions" :keys="{value:'node_id',label:'display_name',children:'children'}" :load="loadChildren" check-strictly placeholder="选择目标目录" /><t-alert v-if="error" role="alert" theme="error" :message="error" /></KnowledgeOverlay>
+  <KnowledgeOverlay dialog-class-name="contextdb-overlay" :visible="!!removing.length" header="删除所选内容" :confirm-btn="{content:'删除',theme:'danger',loading:mutating}" :cancel-btn="{disabled:mutating}"
+    :close-on-overlay-click="!mutating" :close-on-esc-keydown="!mutating" :close-btn="!mutating" @update:visible="(value:boolean)=>{if(!value&&!mutating)removing=[]}" @confirm="remove"><p class="delete-targets">即将删除 {{ removing.length }} 项，包括 {{ deleteNames }}<span v-if="removing.length > 3">等</span>。此操作无法撤销。</p><t-checkbox v-if="removing.some(item => item.node_type==='folder')" v-model="recursiveDelete" :disabled="mutating">同时删除子目录及其中的文件</t-checkbox><t-alert v-if="error" role="alert" theme="error" :message="error" /></KnowledgeOverlay>
   <ContextDBMetadata :document="metadata" :visible="!!metadata" :can-edit="canEdit" :saving="saving" :error="error" v-model:text="metadataText" @save="saveMetadata" @close="closeMetadata" />
-  <t-dialog dialog-class-name="contextdb-overlay" v-model:visible="uploadOpen" header="上传文件" width="720px" :close-on-overlay-click="!uploading" :close-btn="!uploading" :cancel-btn="{content:'取消',disabled:uploading}" :confirm-btn="{content:'确定',loading:uploading,disabled:!files.length}" @confirm="upload"><p>当前位置：{{baseName}}<span v-for="crumb in breadcrumbs.filter(item=>item.node_type!=='root')" :key="crumb.node_id"> / {{crumb.display_name}}</span></p><input ref="fileInput" type="file" multiple hidden aria-label="选择上传文件" @change="chooseFiles" /><button class="file-drop" type="button" :disabled="uploading" @click="fileInput?.click()" @dragover.prevent @drop.prevent="dropped"><t-icon name="upload" size="32px" /><strong>点击选择或将文件拖到这里</strong><span>支持文本、Office、表格、网页、EPUB 与常见代码文件格式</span></button><p>所有格式统一限制单文件为 1 B 至 2 MB，超过限制无法上传。</p><div v-for="(file,index) in files" :key="index" class="upload-file"><span>{{file.name}}　{{formatFileSize(file.size)}}</span><t-button variant="text" :disabled="uploading" @click="files.splice(index,1)">删除</t-button></div><t-checkbox v-model="review" :disabled="uploading">上传后进行知识评审</t-checkbox><t-alert v-if="error" theme="error" :message="error" /></t-dialog>
+  <KnowledgeOverlay dialog-class-name="contextdb-overlay" v-model:visible="uploadOpen" header="上传文件" width="720px" :close-on-overlay-click="!uploading" :close-on-esc-keydown="!uploading" :close-btn="!uploading" :cancel-btn="{content:'取消',disabled:uploading}" :confirm-btn="{content:'上传 '+files.length+' 个文件',loading:uploading,disabled:!files.length}" @confirm="upload"><p>当前位置：{{baseName}}<span v-for="crumb in breadcrumbs.filter(item=>item.node_type!=='root')" :key="crumb.node_id"> / {{crumb.display_name}}</span></p><input ref="fileInput" type="file" multiple hidden aria-label="选择上传文件" @change="chooseFiles" /><button class="file-drop" type="button" :disabled="uploading" @click="fileInput?.click()" @dragover.prevent @drop.prevent="dropped"><t-icon name="upload" size="32px" /><strong>点击选择或将文件拖到这里</strong><span>支持文本、Office、表格、网页、EPUB 与常见代码文件格式</span></button><p>单个文件需在 1 B 至 2 MB 之间。</p><t-alert v-if="fileIssues.length" role="alert" theme="warning" :message="`以下文件大小超出限制，未加入队列：${fileIssues.join('、')}`" /><p v-if="uploading" role="status">正在上传 {{ files[0]?.name }}，剩余 {{ files.length }} 个文件</p><div v-for="(file,index) in files" :key="index" class="upload-file"><span>{{file.name}}　{{formatFileSize(file.size)}}</span><t-button variant="text" :disabled="uploading" :aria-label="'移除待上传文件 '+file.name" @click="files.splice(index,1)">移除</t-button></div><t-checkbox v-model="review" :disabled="uploading">上传后进行知识评审</t-checkbox><t-alert v-if="error" role="alert" theme="error" :message="error" /></KnowledgeOverlay>
   </section>
 </template>
 <style scoped lang="less">
@@ -248,8 +326,29 @@ onUnmounted(()=>{request++;previewRequest++;uploadRequest++;chunkRequest++;write
   gap: 2px;
   color: var(--td-brand-color);
 }
+.document-empty { display: grid; justify-items: center; gap: 8px; padding: 16px; }
+.delete-targets, .upload-file span { overflow-wrap: anywhere; }
+.selection-actions { flex-wrap: wrap; }
+.document-file-open :deep(.t-icon) { flex: none; }
+.document-table :deep(th), .document-table :deep(td) { padding-inline: 12px; }
+.document-table :deep(td) { height: 56px; padding-block: 8px; }
+.document-table-compact :deep(th), .document-table-compact :deep(td) { padding-inline: 6px; }
+.document-table-compact :deep(td:last-child) { padding-inline: 4px; }
+.document-file-open { max-width: 100%; }
+.document-file-open span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.document-table-compact .document-file-open span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; overflow-wrap: anywhere; }
+.metadata-preview { display: grid; width: 100%; min-width: 0; gap: 3px; }
+.metadata-line { display: flex; min-width: 0; gap: 6px; line-height: 18px; }
+.metadata-line > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.metadata-key { flex: 0 1 auto; max-width: 42%; color: var(--td-text-color-secondary); }
+.metadata-line > span+span { min-width: 0; }
+.document-row-actions { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
+.document-toolbar .toolbar-actions { padding-inline-end: 12px; }
+@media (max-width: 900px) { .document-toolbar .toolbar-actions { padding-inline-end: 0; } }
+.compact-status { display: grid; gap: 2px; font-size: var(--app-text-sm); line-height: 1.5; color: var(--td-text-color-secondary); }
+.compact-status strong { font-weight: 500; overflow-wrap: anywhere; }
 
-.document-workspace{display:flex;flex:1;min-height:440px;overflow:hidden;border:1px solid var(--td-component-stroke);border-radius:var(--app-radius-lg) var(--app-radius-lg) 0 0}.document-tree{flex:none;position:relative;padding:16px 10px;box-sizing:border-box;border-right:1px solid var(--td-component-stroke);background:var(--td-bg-color-sidebar);overflow-y:auto;overflow-x:hidden;min-width:200px}.tree-home{width:100%;height:36px;display:flex;align-items:center;gap:4px;padding:0 12px;border:0;border-radius:var(--app-radius-md);font:inherit;font-size:var(--app-text-base);background:transparent;cursor:pointer;color:var(--td-text-color-primary)}.tree-home.active{background:var(--app-selection-bg);color:var(--app-selection-text)}.tree-heading{display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:8px 12px}.tree-heading>span{display:flex;align-items:center;gap:10px}.document-tree :deep(.t-tree__label){font-size:var(--app-text-base);overflow:hidden;text-overflow:ellipsis}.document-tree :deep(.t-tree__item){height:36px;min-width:0;padding-left:calc(12px + var(--td-comp-margin-xxl)*var(--level))}.document-tree :deep(.panel-resize-handle__grip){display:none}.document-main{flex:1;min-width:0;padding:16px 20px;overflow:auto}.document-location{margin-bottom:16px}.document-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:16px}.document-toolbar>.t-select__wrap{width:144px}.toolbar-actions{margin-left:auto;display:flex;gap:8px}.document-pagination{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:16px;font-size:var(--app-text-md);color:var(--td-text-color-secondary)}.document-pagination>span{flex:none;white-space:nowrap}.document-pagination :deep(.t-pagination){justify-content:flex-end}.document-main :deep(.t-table td){height:64px}.document-main :deep(.t-table__header th){height:44px}.selection-actions{display:flex;align-items:center;gap:12px;margin-bottom:16px}.status-success{color:var(--td-success-color)}.status-failure{color:var(--td-error-color)}.preview-heading{display:flex;align-items:center;gap:8px}.preview-heading h2{flex:1;margin:0;font-size:var(--app-text-3xl);font-weight:600}.preview-status{display:flex;gap:24px;flex-wrap:wrap;font-size:var(--app-text-md);color:var(--td-text-color-secondary);margin:20px 0}.document-chunk{padding:16px;border-bottom:1px solid var(--td-component-stroke)}.document-main :deep(.doc-markdown-toggle){display:none}.file-drop{display:flex;align-items:center;flex-direction:column;justify-content:center;gap:12px;padding:32px;width:100%;border:1px dashed var(--td-component-stroke);border-radius:var(--app-radius-lg);background:var(--td-bg-color-secondarycontainer);font:inherit;cursor:pointer}.file-drop span{font-size:var(--app-text-md);color:var(--td-text-color-secondary)}.upload-file{display:flex;align-items:center;justify-content:space-between}.document-main>.t-alert{margin-bottom:12px}@media(max-width:900px){.document-tree{display:none}.document-main{padding:16px 10px}.document-toolbar{flex-wrap:wrap}.toolbar-actions{margin-left:0}.preview-heading{flex-wrap:wrap}}
+.document-workspace{display:flex;flex:1;min-height:440px;overflow:hidden;border:1px solid var(--td-component-stroke);border-radius:var(--app-radius-lg) var(--app-radius-lg) 0 0}.document-tree{flex:none;position:relative;padding:16px 10px;box-sizing:border-box;border-right:1px solid var(--td-component-stroke);background:var(--td-bg-color-sidebar);overflow-y:auto;overflow-x:hidden;min-width:200px}.tree-home{width:100%;height:36px;display:flex;align-items:center;gap:4px;padding:0 12px;border:0;border-radius:var(--app-radius-md);font:inherit;font-size:var(--app-text-base);background:transparent;cursor:pointer;color:var(--td-text-color-primary)}.tree-home.active{background:var(--app-selection-bg);color:var(--app-selection-text)}.tree-heading{display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:8px 12px}.tree-heading>span{display:flex;align-items:center;gap:10px}.document-tree :deep(.t-tree__label){font-size:var(--app-text-base);overflow:hidden;text-overflow:ellipsis}.document-tree :deep(.t-tree__item){height:36px;min-width:0;padding-left:calc(12px + var(--td-comp-margin-xxl)*var(--level))}.document-tree :deep(.panel-resize-handle__grip){display:none}.document-main{flex:1;min-width:0;padding:16px 20px;overflow:auto}.document-location{margin-bottom:16px}.document-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:16px}.document-toolbar>.t-select__wrap{width:144px}.toolbar-actions{margin-left:auto;display:flex;gap:8px}.document-pagination{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:16px;font-size:var(--app-text-md);color:var(--td-text-color-secondary)}.document-pagination>span{flex:none;white-space:nowrap}.document-pagination :deep(.t-pagination){justify-content:flex-end}.document-main :deep(.t-table__header th){height:44px}.selection-actions{display:flex;align-items:center;gap:12px;margin-bottom:16px}.status-success{color:var(--td-success-color)}.status-failure{color:var(--td-error-color)}.preview-heading{display:flex;align-items:center;gap:8px}.preview-heading h2{flex:1;margin:0;font-size:var(--app-text-3xl);font-weight:600}.preview-status{display:flex;gap:24px;flex-wrap:wrap;font-size:var(--app-text-md);color:var(--td-text-color-secondary);margin:20px 0}.document-chunk{padding:16px;border-bottom:1px solid var(--td-component-stroke)}.document-main :deep(.doc-markdown-toggle){display:none}.file-drop{display:flex;align-items:center;flex-direction:column;justify-content:center;gap:12px;padding:32px;width:100%;border:1px dashed var(--td-component-stroke);border-radius:var(--app-radius-lg);background:var(--td-bg-color-secondarycontainer);font:inherit;cursor:pointer}.file-drop span{font-size:var(--app-text-md);color:var(--td-text-color-secondary)}.upload-file{display:flex;align-items:center;justify-content:space-between}.document-main>.t-alert{margin-bottom:12px}@media(max-width:900px){.document-tree{display:none}.document-main{padding:16px 10px}.document-toolbar{flex-wrap:wrap}.toolbar-actions{margin-left:0}.preview-heading{flex-wrap:wrap}}
 .document-toolbar,.toolbar-actions,.document-pagination { flex-wrap: wrap; }
 .document-pagination :deep(.t-pagination) { width: auto; }
 .document-pagination :deep(.t-pagination),.preview-heading :deep(.t-space) { max-width: 100%; flex-wrap: wrap; }

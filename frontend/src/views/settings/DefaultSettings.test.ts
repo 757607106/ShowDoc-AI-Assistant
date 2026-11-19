@@ -25,7 +25,6 @@ function setup(t: TestContext, read = async () => ({ data: { ...initial } }), ad
   })
   const { vm } = f.component(new URL('./DefaultSettings.vue', import.meta.url), {
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
-    'tdesign-vue-next': { MessagePlugin: { success() {}, error() {} } },
     '@/api/default-settings': api,
     '@/api/web-search-provider': api,
     '@/stores/auth': { useAuthStore: () => ({ hasRole: () => admin }) },
@@ -98,6 +97,22 @@ test('does not roll back a saved setting when model refresh fails', async t => {
   await vm.onModelChange('chat_model_id', 'new-chat')
   assert.equal(api.updateTenantDefaultSettings.mock.callCount(), 1)
   assert.equal(vm.settings.chat_model_id, 'new-chat')
+  assert.equal(vm.saveFeedback.state, 'saved')
+})
+
+test('a failed change rolls back only that row and exposes its save status', async t => {
+  const { vm, api } = setup(t)
+  await flush()
+  let reject!: (error: Error) => void
+  api.updateTenantDefaultSettings.mock.mockImplementation(() => new Promise((_, fail) => { reject = fail }))
+  const saving = vm.onModelChange('chat_model_id', 'new-chat')
+  assert.equal(vm.saveFeedback.field, 'chat_model_id')
+  assert.equal(vm.saveFeedback.state, 'saving')
+  reject(new Error('offline'))
+  await saving
+  assert.equal(vm.saveFeedback.state, 'error')
+  assert.equal(vm.saveFeedback.message, 'offline')
+  assert.deepEqual({ ...vm.settings }, initial)
 })
 
 test('saving and clearing web search updates the state consumed by chat', async t => {

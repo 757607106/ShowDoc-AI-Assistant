@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import KnowledgeOverlay from './components/KnowledgeOverlay.vue'
 import { computed, ref, watch } from 'vue'
 import { formatFileSize } from '@/utils/files'
 import { documentDisplayName } from '@/utils/contextdbDocumentName'
@@ -117,7 +118,11 @@ function close() {
   if (props.saving) return
   emit('update:visible', false); emit('close')
 }
-const fileName = computed(() => props.document?.file_name || documentDisplayName(props.document) || props.document?.display_name || props.document?.name || '')
+function requestClose() {
+  if (editing.value && dirty.value && !props.saving && !window.confirm('放弃未保存的元数据修改？')) return
+  close()
+}
+const fileName = computed(() => documentDisplayName(props.document) || props.document?.file_name || props.document?.name || '')
 const details = computed(() => [
   ['文件ID', props.document?.document_id || props.document?.id || '-'],
   ['文件类型', props.document?.source_type || '-'],
@@ -136,30 +141,48 @@ watch(() => props.text, value => {
 </script>
 
 <template>
-  <t-drawer :visible="visible" :header="`文件详情 · ${fileName}`" size="min(800px, 96vw)" :close-btn="!saving" :close-on-overlay-click="false" @update:visible="(value:boolean)=>{if(!value)close()}">
+  <KnowledgeOverlay drawer :visible="visible" :inert="!visible" :header="`文件详情 · ${fileName}`" size="min(800px, 96vw)" :close-btn="!saving" :close-on-overlay-click="false" :close-on-esc-keydown="!saving" @update:visible="(value:boolean)=>{if(!value)requestClose()}">
     <div class="file-details">
-      <dl class="details-grid"><div v-for="([label,value]) in details" :key="label"><dt>{{label}}</dt><dd>{{value}}</dd></div></dl>
+      <details class="file-facts"><summary>文件信息</summary><dl class="details-grid"><div v-for="([label,value]) in details" :key="label"><dt>{{label}}</dt><dd>{{value}}</dd></div></dl></details>
       <section class="metadata-section">
-        <div class="metadata-heading"><h3>元数据</h3><div class="metadata-views"><t-button variant="text" shape="square" aria-label="表格视图" :class="{selected:view==='table'}" :disabled="saving" @click="setView('table')"><t-icon name="table" /></t-button><t-button variant="text" shape="square" aria-label="代码视图" :class="{selected:view==='json'}" :disabled="saving" @click="setView('json')"><t-icon name="code" /></t-button><t-button v-if="editing" variant="text" :disabled="!canEdit||saving||!dirty" @click="resetFields">重置</t-button></div></div>
+        <div class="metadata-heading"><h3>元数据</h3><div class="metadata-views"><t-button variant="text" shape="square" aria-label="表格视图" :aria-pressed="view==='table'" :class="{selected:view==='table'}" :disabled="saving" @click="setView('table')"><t-icon name="table" /></t-button><t-button variant="text" shape="square" aria-label="代码视图" :aria-pressed="view==='json'" :class="{selected:view==='json'}" :disabled="saving" @click="setView('json')"><t-icon name="code" /></t-button><t-button v-if="editing" variant="text" :disabled="!canEdit||saving||!dirty" @click="resetFields">重置</t-button></div></div>
         <p v-if="editing" class="metadata-hint">保存将使用当前全部字段替换该文件的元数据。未改动的字段会保留，已删除的字段将被移除。</p>
         <t-textarea v-if="view==='json'" :model-value="draftText" :readonly="!editing||!canEdit||saving" :autosize="{minRows:12,maxRows:24}" aria-label="JSON 元数据" @change="updateJson" />
-        <t-table v-else-if="fields.length||editing" empty="草稿中没有字段。保存后将清空这份文件的元数据。" row-key="id" :data="fields" :columns="editing?[{colKey:'key',title:'键',width:170},{colKey:'type',title:'数据类型',width:150},{colKey:'value',title:'值'},{colKey:'actions',title:'操作',width:60}]:[{colKey:'key',title:'键',width:190},{colKey:'value',title:'值'}]">
-          <template #key="{row}"><t-input v-if="editing" v-model="row.key" :disabled="!canEdit||saving" :maxlength="64" aria-label="键" @change="syncFields" /><span v-else>{{row.key}}</span></template>
-          <template #type="{row}"><t-select v-model="row.type" :disabled="!canEdit||saving" :options="types" aria-label="数据类型" @change="syncFields" /></template>
-          <template #value="{row}"><template v-if="editing"><t-select v-if="row.type==='boolean'" v-model="row.value" :disabled="!canEdit||saving" :options="[{label:'true',value:'true'},{label:'false',value:'false'}]" aria-label="值" @change="syncFields" /><t-input v-else v-model="row.value" :disabled="!canEdit||saving" aria-label="值" @change="syncFields" /></template><span v-else class="metadata-value">{{row.value}}</span></template>
-          <template #actions="{rowIndex}"><t-button theme="danger" variant="text" shape="square" aria-label="删除字段" :disabled="!canEdit||saving" @click="removeField(rowIndex)"><t-icon name="delete" /></t-button></template>
+        <template v-else-if="editing">
+          <fieldset v-for="(row,index) in fields" :key="row.id" class="metadata-field">
+            <legend>字段 {{ index + 1 }}</legend>
+            <label><span>键</span><t-input v-model="row.key" :disabled="!canEdit||saving" :maxlength="64" @change="syncFields" /></label>
+            <label><span>数据类型</span><t-select v-model="row.type" :disabled="!canEdit||saving" :options="types" @change="syncFields" /></label>
+            <label class="metadata-field-value"><span>值</span>
+              <t-select v-if="row.type==='boolean'" v-model="row.value" :disabled="!canEdit||saving" :options="[{label:'true',value:'true'},{label:'false',value:'false'}]" @change="syncFields" />
+              <t-input v-else v-model="row.value" :disabled="!canEdit||saving" @change="syncFields" />
+            </label>
+            <t-button theme="danger" variant="text" :disabled="!canEdit||saving" :aria-label="'删除字段 '+(row.key||index+1)" @click="removeField(index)">删除</t-button>
+          </fieldset>
+          <p v-if="!fields.length" class="metadata-empty">草稿中没有字段。保存后将清空这份文件的元数据。</p>
+        </template>
+        <t-table v-else-if="fields.length" row-key="id" :data="fields" :columns="[{colKey:'key',title:'键',width:'36%'},{colKey:'value',title:'值'}]">
+          <template #key="{row}"><span class="metadata-value">{{ row.key }}</span></template>
+          <template #value="{row}"><span class="metadata-value">{{ row.value }}</span></template>
         </t-table>
         <p v-else class="metadata-empty">尚未设置元数据。可添加字段，为文件分类和筛选。</p>
         <div class="metadata-tools"><span v-if="!editing">共 {{fields.length}} 个字段</span><t-space v-if="editing"><t-button variant="outline" :disabled="!canEdit||saving||fields.length>=32" @click="addField">新增字段</t-button><t-button variant="text" :disabled="!canEdit||saving||!fields.length" @click="clearFields">清空全部字段</t-button></t-space></div>
         <p v-if="editing" class="metadata-hint metadata-limits">最多 32 个字段；键名最多 64 个字符，单值最多 4096 个字符，数组最多 100 项。支持字符串、数字、布尔值及其数组。</p>
-        <t-alert v-if="editing&&validationError" theme="error" :message="validationError" /><t-alert v-if="error" theme="error" :message="error" />
+        <t-alert v-if="editing&&validationError" role="alert" theme="error" :message="validationError" /><t-alert v-if="error" role="alert" theme="error" :message="error" />
       </section>
     </div>
-    <template #footer><div class="metadata-footer"><template v-if="editing"><span class="metadata-change-count">新增 {{changes.added}}　修改 {{changes.modified}}　删除 {{changes.deleted}}</span><t-button variant="outline" :disabled="saving" @click="cancelEditing">取消</t-button><t-button :loading="saving" :disabled="!canEdit||!dirty||!!validationError" @click="save">保存全部修改</t-button></template><template v-else><t-button v-if="canEdit" :disabled="saving" @click="startEditing">编辑元数据</t-button><t-button variant="outline" :disabled="saving" @click="close">关闭</t-button></template></div></template>
-  </t-drawer>
+    <template #footer><div class="metadata-footer"><template v-if="editing"><span class="metadata-change-count">新增 {{changes.added}}　修改 {{changes.modified}}　删除 {{changes.deleted}}</span><t-button variant="outline" :disabled="saving" @click="cancelEditing">取消</t-button><t-button :loading="saving" :disabled="!canEdit||!dirty||!!validationError" @click="save">保存全部修改</t-button></template><template v-else><t-button v-if="canEdit" :disabled="saving" @click="startEditing">编辑元数据</t-button><t-button variant="outline" :disabled="saving" @click="requestClose">关闭</t-button></template></div></template>
+  </KnowledgeOverlay>
 </template>
 
 <style scoped lang="less">
+ .file-facts { margin-bottom: 16px; }
+.file-facts summary { padding: 8px 0; cursor: pointer; color: var(--td-text-color-secondary); }
+.file-facts dl { margin: 8px 0 16px; }
+.metadata-field { display: grid; grid-template-columns: minmax(0,1fr) minmax(108px,.7fr) minmax(0,1.4fr) auto; align-items: end; gap: 8px 12px; min-width: 0; margin: 0 0 12px; padding: 8px 12px 12px; border: 1px solid var(--td-component-stroke); border-radius: var(--app-radius-md); }
+.metadata-field label { display: grid; gap: 4px; min-width: 0; }
+.metadata-field label > span, .metadata-field legend { font-size: var(--app-text-sm); color: var(--td-text-color-secondary); }
+@media (max-width:600px) { .metadata-field { grid-template-columns: repeat(2,minmax(0,1fr)); } .metadata-field-value { grid-column: 1/-1; } .metadata-field > button { justify-self: start; } }
 .file-details{font-family:var(--app-font-family);font-size:var(--app-text-base)}.details-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 32px;margin:0 0 28px}.details-grid>div{display:flex;flex-direction:column;gap:8px;min-width:0}.details-grid dt{color:var(--td-text-color-placeholder);line-height:20px}.details-grid dd{margin:0;color:var(--td-text-color-primary);line-height:20px;overflow-wrap:anywhere}.metadata-section{border-top:1px solid var(--td-component-stroke);padding-top:20px}.metadata-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}.metadata-heading h3{font-size:var(--app-text-xl);line-height:24px;font-weight:600;margin:0}.metadata-views{display:flex;gap:4px}.metadata-views .selected{color:var(--app-selection-text);background:var(--app-selection-bg);border-color:var(--app-selection-border)}.metadata-hint{margin:0 0 16px;font-size:var(--app-text-md);line-height:20px;color:var(--td-text-color-secondary)}.metadata-limits{margin-top:12px}.metadata-empty{font-size:var(--app-text-md);padding:24px 16px;margin:0;border:1px dashed var(--td-component-stroke);border-radius:var(--app-radius-md);color:var(--td-text-color-placeholder);line-height:20px}.metadata-value{white-space:pre-wrap;overflow-wrap:anywhere}.metadata-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;color:var(--td-text-color-secondary);font-size:var(--app-text-sm)}.metadata-tools :deep(.t-button){font-size:var(--app-text-base)}.metadata-section :deep(.t-table){border:1px solid var(--td-component-stroke);border-radius:var(--app-radius-md);overflow:hidden}.metadata-section :deep(.t-table th){font-size:var(--app-text-base);font-weight:400;background:var(--td-bg-color-secondarycontainer)}.metadata-section :deep(.t-table td){font-size:var(--app-text-base);vertical-align:top}.metadata-section :deep(.t-alert){margin-top:16px}.metadata-section :deep(.t-input),.metadata-section :deep(.t-textarea__inner){font-size:var(--app-text-base)}.metadata-section :deep(textarea){font-family:var(--app-font-family-mono);line-height:1.7}.metadata-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px}.metadata-footer :deep(.t-button){font-size:var(--app-text-base)}.metadata-change-count{margin-right:auto;font-size:var(--app-text-sm);color:var(--td-text-color-secondary)}
 @media(max-width:600px){.details-grid{grid-template-columns:1fr}.metadata-tools{align-items:flex-start;flex-direction:column}.metadata-footer{flex-wrap:wrap}}
 </style>

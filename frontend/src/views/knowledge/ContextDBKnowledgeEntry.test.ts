@@ -10,10 +10,11 @@ async function setup(t: TestContext, options: { query?: Record<string, string>; 
   const route = vue.reactive({ params: { kbId: 'native-kb' }, query: options.query || {} })
   const helper = f.evaluate(readFileSync(new URL('../../api/contextdb.ts', import.meta.url), 'utf8'), { '@/utils/request': {}, '@/utils/contextdbDocumentName': {} })
   const { vm } = f.component(new URL('./ContextDBKnowledge.vue', import.meta.url), {
-    'vue-router': { useRoute: () => route, useRouter: () => ({
+    'vue-router': { useRoute: () => route, onBeforeRouteLeave() {}, onBeforeRouteUpdate() {}, useRouter: () => ({
       replace: (value: any) => { routes.push(value); if (value.query) route.query = value.query },
       push: (value: any) => { pushed.push(value); routes.push(value); if (value.query) route.query = value.query },
     }) },
+    'tdesign-vue-next': { MessagePlugin: { warning() {} } },
     '@/stores/auth': { useAuthStore: () => ({ hasRole: () => true }) }, '@/stores/ui': { useUIStore: () => ({}) },
     '@/api/contextdb': { ...helper,
       getBase: async (id: string) => { reads.push(id); if (options.failure) throw options.failure; return { data: options.getBase ? await options.getBase(id) : { id, name: 'Knowledge', wiki_enabled: true, ...options.base } } },
@@ -26,17 +27,17 @@ test('native entries keep their exact library ID and default to files for every 
   for (const base of [{ wiki_enabled: true }, { wiki_enabled: false, graph_enabled: true }, { wiki_enabled: false, graph_enabled: false }]) await t.test(JSON.stringify(base), async t => {
     const f = await setup(t, { base }); assert.deepEqual(f.reads, ['native-kb']); assert.equal(f.vm.tab, 'documents')
     assert.equal(f.routes.some(route => route.path?.includes('knowledge-spaces')), false)
-    assert.equal(f.vm.viewTabs.some((tab: any) => tab.key === 'wiki'), base.wiki_enabled)
-    assert.equal(f.vm.viewTabs.some((tab: any) => tab.key === 'graph'), !!base.graph_enabled)
-    assert.equal(f.vm.viewTabs.some((tab: any) => tab.key === 'ontology'), !base.wiki_enabled)
-    assert.equal(f.vm.viewTabs[0].label, '文件'); assert.equal(f.vm.viewTabs.some((tab: any) => tab.key === 'nodes'), false)
+    assert.deepEqual(Array.from(f.vm.viewTabs, (tab: any) => tab.key), ['documents', ...(base.wiki_enabled ? ['wiki'] : []), ...(base.graph_enabled ? ['graph'] : [])])
+    assert.equal(f.vm.viewTabs[0].label, '文件')
   })
 })
-test('legacy directory links open files and history remains compatible only for a Wiki library', async t => {
+test('legacy directory and ontology links open files and history remains compatible only for a Wiki library', async t => {
   for (const [base, query, expected] of [
     [{ wiki_enabled: true }, { tab: 'nodes' }, 'documents'], [{ wiki_enabled: true }, { tab: 'history', wikiPageId: 'page-a' }, 'history'],
     [{ wiki_enabled: false, graph_enabled: true }, { tab: 'history' }, 'documents'], [{ wiki_enabled: false }, { tab: 'wiki' }, 'documents'],
     [{ wiki_enabled: true }, { view: 'wiki' }, 'wiki'],
+    [{ wiki_enabled: false, graph_enabled: true }, { tab: 'ontology' }, 'documents'],
+    [{ wiki_enabled: false, graph_enabled: true }, { view: 'ontology' }, 'documents'],
   ] as const) await t.test(JSON.stringify(query), async t => {
     const f = await setup(t, { base, query }); assert.equal(f.vm.tab, expected)
     assert.equal(f.vm.viewTabs.some((tab: any) => tab.key === 'history'), false)
@@ -55,6 +56,11 @@ test('changing a document deep link within the same library updates the inline p
   assert.equal(f.vm.documentId, 'two'); assert.equal(f.vm.tab, 'documents')
   f.route.query = { tab: 'nodes' }; await flush(); assert.equal(f.vm.tab, 'documents')
   f.route.query = { tab: 'history' }; await flush(); assert.equal(f.vm.tab, 'history')
+})
+test('returning to the library list restores search and sort without detail parameters', async t => {
+  const f = await setup(t, { query: { q: '业务', sort: 'name', tab: 'wiki', wikiPageId: 'page-a' } })
+  f.vm.backToList()
+  assert.deepEqual(plain(f.pushed[0]), { path: '/platform/knowledge-bases', query: { q: '业务', sort: 'name' } })
 })
 test('an unavailable library reports the error while missing write grants leave visible content read-only', async t => {
   await t.test('unavailable', async t => { const f = await setup(t, { failure: new Error('knowledge base not found') }); assert.equal(f.vm.base, null); assert.match(f.vm.error, /not found/) })
@@ -93,7 +99,7 @@ test('view switches remove legacy view and source aliases instead of being force
   assert.equal(f.vm.tab, 'wiki'); assert.equal(f.vm.documentId, '')
   assert.deepEqual(plain(f.route.query), { tab: 'wiki', kept: 'yes' })
   f.vm.openWikiPage('page-new'); await flush()
-  assert.equal(f.vm.tab, 'wiki'); assert.deepEqual(plain(f.route.query), { tab: 'wiki', kept: 'yes', wikiPageId: 'page-new' })
+  assert.equal(f.vm.tab, 'wiki'); assert.deepEqual(plain(f.route.query), { tab: 'wiki', kept: 'yes', wikiTab: 'read', wikiPageId: 'page-new' })
 })
 test('opening a graph source survives the router update and returning to the graph clears its preview target', async t => {
   const f = await setup(t, { base: { wiki_enabled: false, graph_enabled: true }, query: { view: 'graph', kept: 'yes' } })
@@ -114,6 +120,7 @@ test('import directory links select files and view switches clear the directory 
  const f=await setup(t,{query:{tab:'wiki',folder_id:'import-root'}})
  assert.equal(f.vm.tab,'documents');assert.equal(f.vm.folderId,'import-root')
  f.vm.selectTab('wiki');await flush();assert.equal(f.vm.tab,'wiki');assert.equal(f.route.query.folder_id,undefined)
+ f.vm.selectTab('documents');await flush();assert.equal(f.vm.folderId,'import-root')
 })
 
 test('file navigation writes the document and folder and returning clears legacy document aliases', async t => {
@@ -127,4 +134,14 @@ test('file navigation writes the document and folder and returning clears legacy
   f.vm.navigateDocuments('folder-a'); await flush()
   assert.deepEqual(plain(f.route.query), { kept: 'yes', tab: 'documents', folder_id: 'folder-a' })
   assert.equal(f.vm.documentId, ''); assert.equal(f.vm.folderId, 'folder-a'); assert.equal(f.pushed.length, 2)
+})
+
+test('a file write keeps the current view until the operation completes', async t => {
+  const f = await setup(t)
+  f.vm.documentsRef = { writeInProgress: true }
+  f.vm.selectTab('wiki')
+  assert.equal(f.vm.tab, 'documents'); assert.equal(f.routes.length, 0)
+  f.vm.documentsRef = { writeInProgress: false }
+  f.vm.selectTab('wiki'); await flush()
+  assert.equal(f.vm.tab, 'wiki')
 })

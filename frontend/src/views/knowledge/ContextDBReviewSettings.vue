@@ -15,6 +15,7 @@ const settings = ref<ReviewSettings | null>(null), baseline = ref<ReviewSettings
 const loading = ref(false), saving = ref(false), error = ref(''), notice = ref('')
 const disabled = computed(() => !props.canEdit || loading.value || saving.value || settingsKbId.value !== props.kbId)
 const dirty = computed(() => !!settings.value && !!baseline.value && fields.some(key => settings.value![key] !== baseline.value![key]))
+defineExpose({ dirty, saving, load })
 let request = 0
 async function readSettings(kb: string): Promise<ReviewSettings> {
   const { data } = await nativeAPI.get('knowledge/review_settings', { knowledge_base_id: kb })
@@ -72,10 +73,10 @@ onUnmounted(() => { request++ })
       <p>低于自动入库阈值的文件需等待人工审核。</p>
       <p>重写后自动入库：启用后，重写后的文件若评分 ≥ 自动入库阈值，可自动入库。</p>
     </div>
-    <t-alert v-if="error" theme="error" :message="error" />
-    <t-alert v-if="notice" theme="success" :message="notice" />
+    <t-alert v-if="error" role="alert" theme="error" :message="error"><template v-if="!settings" #operation><t-button variant="text" @click="load">重试读取</t-button></template></t-alert>
+    <t-alert v-if="notice" role="status" theme="success" :message="notice" />
     <t-loading :loading="loading">
-      <t-form v-if="settings" label-width="160px" :disabled="disabled" @submit.prevent="save">
+      <t-form v-if="settings" label-align="top" :disabled="disabled" @submit.prevent="save">
         <t-form-item label="启用知识评审">
           <t-switch v-model="settings.review_enabled" aria-label="启用知识评审" :disabled="disabled" />
         </t-form-item>
@@ -86,7 +87,7 @@ onUnmounted(() => { request++ })
           <t-switch v-model="settings.rewrite_enabled" aria-label="启用知识重写" :disabled="disabled" />
         </t-form-item>
         <t-form-item label="自动入库阈值" help="置信度大于或等于该阈值时，文件将自动入库并可被 Agent 召回。">
-          <t-input-number v-model="settings.high_threshold" :min="0" :max="1" :step="0.05" theme="column" />
+          <t-input-number v-model="settings.high_threshold" :min="0" :max="1" :step="0.05" theme="column" :input-props="{ 'aria-label': '自动入库阈值' }" />
         </t-form-item>
         <t-form-item><t-button v-if="canEdit" :disabled="disabled || !dirty" :loading="saving" @click="save">保存配置</t-button></t-form-item>
       </t-form>

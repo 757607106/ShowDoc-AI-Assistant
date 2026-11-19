@@ -1,10 +1,10 @@
 <template>
   <Teleport to="body">
     <Transition name="settings-modal-shell">
-      <div v-if="visible" class="settings-modal-shell settings-overlay" :class="overlayClass" :style="{ zIndex }"
+      <div v-if="visible" class="settings-modal-shell settings-overlay" :class="[overlayClass, { 'has-compact-nav': compactNavLabel }]" :style="{ zIndex }"
         @click.self="emit('close')">
         <div ref="dialog" class="settings-modal" role="dialog" aria-modal="true" :aria-label="title"
-          @keydown.tab="cycleFocus">
+          @keydown.tab="cycleDialogFocus">
           <div v-if="loading" class="editor-initializing" role="status" :aria-label="$t('common.loading')">
             <t-loading size="medium" :text="$t('common.loading')" />
           </div>
@@ -21,7 +21,14 @@
                 <h2 class="sidebar-title">{{ title }}</h2>
                 <slot name="sidebar-header-extra" />
               </div>
-              <nav class="settings-nav" :data-guide="navGuide || undefined">
+              <button v-if="compactNavLabel" ref="compactToggle" class="compact-nav-toggle" type="button"
+                :aria-label="`${compactNavLabel} · ${activeLabel}`" :aria-expanded="compactOpen" :aria-controls="navId"
+                @click="compactOpen = !compactOpen" @keydown.esc="collapseCompactNav">
+                {{ compactNavLabel }}
+                <t-icon :name="compactOpen ? 'chevron-up' : 'chevron-down'" aria-hidden="true" />
+              </button>
+              <nav :id="navId" class="settings-nav" :class="{ 'compact-open': compactOpen }"
+                :data-guide="navGuide || undefined" @keydown.esc="collapseCompactNav">
                 <slot name="nav">
                   <template v-for="group in navGroups" :key="group.key">
                     <div class="nav-group-title">{{ group.label }}</div>
@@ -29,7 +36,7 @@
                       :class="['nav-item', { active: modelValue === item.key }]"
                       :data-guide="navItemGuidePrefix ? `${navItemGuidePrefix}-${item.key}` : undefined"
                       :aria-current="modelValue === item.key ? 'true' : undefined"
-                      @click="emit('update:modelValue', item.key)">
+                      @click="selectNavItem(item.key)">
                       <slot name="nav-icon" :item="item" :active="modelValue === item.key">
                         <t-icon :name="item.icon" class="nav-icon" />
                       </slot>
@@ -60,7 +67,8 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
+import { cycleDialogFocus } from '@/utils/dialogFocus'
 
 /**
  * 全屏"设置类"弹窗壳：遮罩 + 1080×780 面板 + 左侧分组导航 + 右侧内容 + 可选底栏。
@@ -100,6 +108,7 @@ const props = withDefaults(
     overlayClass?: string
     navGuide?: string
     navItemGuidePrefix?: string
+    compactNavLabel?: string
   }>(),
   {
     modelValue: '',
@@ -119,15 +128,36 @@ const emit = defineEmits<{
 
 const dialog = ref<HTMLElement>()
 const closeButton = ref<HTMLButtonElement>()
+const compactToggle = ref<HTMLButtonElement>()
+const compactOpen = ref(false)
+const navId = useId()
+const activeLabel = computed(() => props.navGroups.flatMap(group => group.items)
+  .find(item => item.key === props.modelValue)?.label || props.compactNavLabel)
 let opener: HTMLElement | null = null
+
+function selectNavItem(key: string) {
+  if (key === props.modelValue && compactOpen.value && compactToggle.value?.getClientRects().length) {
+    compactOpen.value = false
+    compactToggle.value.focus()
+  }
+  emit('update:modelValue', key)
+}
+
+function collapseCompactNav(event: KeyboardEvent) {
+  if (!compactOpen.value || !compactToggle.value?.getClientRects().length) return
+  event.stopPropagation()
+  compactOpen.value = false
+  compactToggle.value.focus()
+}
 
 function restoreFocus() {
   if (opener?.isConnected && !opener.closest('[inert]')) opener.focus({ preventScroll: true })
   opener = null
 }
 
-watch([() => props.visible, () => props.modelValue], async ([visible], [wasVisible]) => {
+watch([() => props.visible, () => props.modelValue], async ([visible, value], [wasVisible, previous]) => {
   if (!visible) {
+    compactOpen.value = false
     restoreFocus()
     return
   }
@@ -135,25 +165,15 @@ watch([() => props.visible, () => props.modelValue], async ([visible], [wasVisib
   await nextTick()
   if (!props.visible) return
   if (!wasVisible) closeButton.value?.focus({ preventScroll: true })
+  if (props.compactNavLabel && value !== previous) {
+    const returnToToggle = compactOpen.value && compactToggle.value?.getClientRects().length
+    compactOpen.value = false
+    dialog.value?.querySelector('.settings-body')?.scrollTo(0, 0)
+    if (returnToToggle) compactToggle.value?.focus({ preventScroll: true })
+  }
   dialog.value?.querySelector('.settings-nav .nav-item.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
 }, { immediate: true })
 onBeforeUnmount(restoreFocus)
-
-function cycleFocus(event: KeyboardEvent) {
-  const focusable = Array.from(dialog.value?.querySelectorAll<HTMLElement>(
-    'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"]',
-  ) || []).filter(element =>
-    element.tabIndex >= 0 && !element.matches(':disabled') && !element.closest('[inert]') &&
-    element.getClientRects().length > 0 && getComputedStyle(element).visibility === 'visible',
-  )
-  const first = focusable[0]
-  const last = focusable.at(-1)
-  if (event.shiftKey ? document.activeElement === first : document.activeElement === last) {
-    const target = event.shiftKey ? last : first
-    event.preventDefault()
-    target?.focus()
-  }
-}
 
 function showBadge(item: SettingsModalNavItem): boolean {
   if (item.badge == null || item.badge === '') return false
@@ -177,6 +197,10 @@ function showBadge(item: SettingsModalNavItem): boolean {
 }
 
 .settings-modal-shell {
+  .compact-nav-toggle {
+    display: none;
+  }
+
   .settings-modal {
     position: relative;
     width: 100%;
@@ -530,6 +554,45 @@ function showBadge(item: SettingsModalNavItem): boolean {
     .settings-footer {
       flex-wrap: wrap;
       padding: 12px 16px;
+    }
+  }
+
+  .settings-modal-shell.has-compact-nav {
+    .sidebar-header {
+      display: none;
+    }
+
+    .compact-nav-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 56px;
+      max-width: calc(100% - 56px);
+      padding: 0 16px;
+      border: 0;
+      background: transparent;
+      color: var(--td-text-color-primary);
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .settings-nav {
+      display: none;
+      max-height: min(50dvh, 420px);
+      overflow: auto;
+    }
+
+    .settings-nav.compact-open {
+      display: block;
+    }
+
+    .settings-nav .nav-group-title {
+      padding: 8px 12px 2px;
+    }
+
+    .settings-nav .nav-item {
+      width: 100%;
     }
   }
 }

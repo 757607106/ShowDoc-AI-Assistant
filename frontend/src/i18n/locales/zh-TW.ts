@@ -3855,6 +3855,7 @@ export default {
     }
   },
   modelSettings: {
+    moreActions: '更多操作',
     title: '模型設定',
     description: '管理目前帳號的遠端 AI 模型與 API 設定',
     copySuffix: ' 副本',
@@ -7081,6 +7082,8 @@ export default {
     updatedAt: '你於 {time} 設定'
   },
   defaultSettings: {
+    autoSave: '選擇即儲存',
+    saving: '儲存中',
     loadFailed: '預設設定載入失敗，請重試後再編輯。',
     title: '預設設定',
     description: '集中管理本空間各項功能預設使用的模型和搜尋引擎。',

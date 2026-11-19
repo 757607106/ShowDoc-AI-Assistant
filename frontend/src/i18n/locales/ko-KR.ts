@@ -3853,6 +3853,7 @@ export default {
     }
   },
   modelSettings: {
+    moreActions: '추가 작업',
     title: '모델 설정',
     description: '현재 계정의 원격 AI 모델 및 API 설정을 관리합니다',
     copySuffix: ' 사본',
@@ -7080,6 +7081,8 @@ export default {
     updatedAt: '{time}에 설정함'
   },
   defaultSettings: {
+    autoSave: '선택하면 자동으로 저장됩니다',
+    saving: '저장 중',
     loadFailed: '기본 설정을 불러오지 못했습니다. 편집하기 전에 다시 시도하세요.',
     title: '기본 설정',
     description: '이 워크스페이스의 각 기능이 기본으로 사용하는 모델과 검색 엔진을 한곳에서 관리합니다.',

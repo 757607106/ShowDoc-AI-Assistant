@@ -1,14 +1,20 @@
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import test,{type TestContext} from 'node:test'
+import { reactive } from 'vue'
+import type { LocationQuery } from 'vue-router'
 import {fixture,flush} from '../../test-utils/vueFixture.ts'
 const plain=(value:any)=>JSON.parse(JSON.stringify(value))
 async function setup(t:TestContext,options:{permission?:any;remove?:()=>Promise<any>;list?:()=>Promise<any>}={}){
   const f=fixture(t),calls:any[]=[],routes:any[]=[]
+  const route = reactive<{ query: LocationQuery }>({ query: {} })
   const helper=f.evaluate(readFileSync(new URL('../../api/contextdb.ts',import.meta.url),'utf8'),{'@/utils/request':{},'@/utils/contextdbDocumentName':{}})
   const libraries=Array.from({length:14},(_,i)=>({id:'kb-'+i,name:'业务'+String(i).padStart(2,'0'),wiki_enabled:i%3===0,graph_enabled:i%3===1,review_enabled:i%2===0,document_count:i,updated_at:'2026-11-'+String(i+1).padStart(2,'0')}))
   const {vm}=f.component(new URL('./ContextDBSpaces.vue',import.meta.url),{
-    'vue-router':{useRouter:()=>({push:(value:any)=>routes.push(value)})},
+    'vue-router':{ useRoute: () => route, useRouter: () => ({
+      push: (value: any) => routes.push(value),
+      replace: ({ query }: { query: LocationQuery }) => { route.query = query },
+    }) },
     'tdesign-vue-next':{MessagePlugin:{success(){}}},
     '@/stores/auth':{useAuthStore:()=>({hasRole:()=>true})},
     '@/api/contextdb':{...helper,listBases:options.list||(async()=>({data:libraries})),
@@ -18,16 +24,29 @@ async function setup(t:TestContext,options:{permission?:any;remove?:()=>Promise<
     },
     '@/utils/platformPresentation':{dateTime:(value:any)=>value||''},
   })
-  await flush();return {vm,calls,routes,libraries}
+  await flush();return {vm,calls,routes,libraries,route}
 }
 test('one native library list covers all modes, server data, searching, sorting and pagination',async t=>{
   const f=await setup(t);assert.equal(f.vm.bases.length,14);assert.equal(f.vm.visibleBases.length,12)
+  assert.equal(f.vm.hasMultiplePages, true)
   assert.equal(f.vm.visibleBases[0].id,'kb-13');f.vm.page=2;assert.equal(f.vm.visibleBases.length,2)
   f.vm.order='name';await flush();assert.equal(f.vm.page,1);assert.equal(f.vm.visibleBases[0].name,'业务00')
   f.vm.query='业务03';await flush();assert.equal(f.vm.filtered.length,1)
-  f.vm.open(f.libraries[3],'wiki');assert.deepEqual(plain(f.routes[0]),{path:'/platform/knowledge-bases/kb-3',query:{tab:'wiki'}})
+  assert.equal(f.vm.hasMultiplePages, false)
+  assert.deepEqual(plain(f.route.query), { sort: 'name', q: '业务03' })
+  f.vm.act(f.libraries[3], 'wiki')
+  assert.deepEqual(plain(f.routes[0]), { path: '/platform/knowledge-bases/kb-3', query: { q: '业务03', sort: 'name', tab: 'wiki' } })
   assert.equal(f.vm.menu(f.libraries[0]).some((item:any)=>item.value==='wiki'),true)
   assert.equal(f.vm.menu(f.libraries[1]).some((item:any)=>item.value==='wiki'),false)
+})
+test('list state follows URL changes and defaults for invalid sort or repeated search parameters', async t => {
+  const f = await setup(t)
+  f.route.query = { q: '业务03', sort: 'name' }; await flush()
+  assert.equal(f.vm.order, 'name'); assert.equal(f.vm.visibleBases[0].id, 'kb-3')
+  f.route.query = { q: ['业务03', '业务04'], sort: 'invalid' }; await flush()
+  assert.equal(f.vm.order, 'updated_desc'); assert.equal(f.vm.query, ''); assert.equal(f.vm.filtered.length, 14)
+  f.vm.bases = f.libraries.slice(0, 12)
+  assert.equal(f.vm.hasMultiplePages, false)
 })
 test('rename uses the original cloud ID; a failed nonempty delete never removes or clears documents',async t=>{
   const f=await setup(t,{remove:async()=>{throw new Error('409 knowledge base not empty')}})

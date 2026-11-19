@@ -2743,6 +2743,8 @@ export default {
     updatedAt: 'You set this on {time}'
   },
   defaultSettings: {
+    autoSave: 'Changes save automatically',
+    saving: 'Saving',
     loadFailed: 'Could not load defaults. Retry before editing.',
     title: 'Defaults',
     description: 'Manage the models and search engine this workspace uses by default, in one place.',
@@ -5814,6 +5816,7 @@ export default {
       toolsStale: 'Needs resync'
     },
     modelSettings: {
+      moreActions: 'More actions',
       title: 'Model Settings',
       description: 'Manage remote AI models and API configurations for this workspace',
       typeShort: {

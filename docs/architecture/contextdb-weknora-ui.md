@@ -8,7 +8,7 @@
 
 | 当前文件 | 职责 |
 | --- | --- |
-| [ContextDBKnowledge.vue](../../frontend/src/views/knowledge/ContextDBKnowledge.vue) | 以真实知识库 ID 装配文件、知识 Wiki、知识图谱及官方邀测入口 |
+| [ContextDBKnowledge.vue](../../frontend/src/views/knowledge/ContextDBKnowledge.vue) | 以真实知识库 ID 装配文件、知识 Wiki、知识图谱 |
 | [ContextDBDocuments.vue](../../frontend/src/views/knowledge/ContextDBDocuments.vue) | 官方文件树、排序、预览、元数据、上传和节点操作 |
 | [ContextDBWiki.vue](../../frontend/src/views/knowledge/wiki/ContextDBWiki.vue) | 索引概览、正式正文、搜索、来源、页面链接、编辑与目录/页面整理 |
 | [ContextDBWikiDirectory.vue](../../frontend/src/views/knowledge/wiki/ContextDBWikiDirectory.vue) | 按官方父节点及游标展开目录和主题页；整理操作的目标目录选择 |
@@ -59,8 +59,6 @@ ContextDB 的 Wiki 与 graph 不能在同一库同时开启。创建弹窗默认
 评审策略与重写模板在独立的“策略与模板”页面中切换，写操作要求知识库管理权限。策略只展示启用知识评审、重写文件自动入库、启用知识重写、自动入库阈值四项；没有将 API 中的其他配置扩展成额外可见控件。更新只发送编辑过的字段，并在保存前后回读。接口不提供版本 CAS，保存前检查不能保证消除之后的并发窗口。
 
 重写模板继续使用既有 TDesign 表单和 `DocMarkdown`，新建弹窗包含官方默认三章节、章节级别、撰写指引及左右编辑／预览区域。编辑读取单篇模板详情；只读门禁、跨库迟到响应保护和重复提交保护不依赖按钮是否隐藏。“AI帮写”缺少已确认的 DATA API，不新增模拟接口或另一个 Agent。
-
-本体约束仍属于邀测能力，只保留官方申请入口，不实现未经验证的本体编辑或管理接口。
 
 ## 验证边界
 

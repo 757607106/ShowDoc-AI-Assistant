@@ -27,18 +27,6 @@
         </div>
         <div class="model-header-actions">
           <t-button
-            v-if="authStore.isSystemAdmin"
-            type="button"
-            theme="default"
-            variant="text"
-            size="small"
-            class="model-header-action"
-            @click="uiStore.openSettings('model-catalog')"
-          >
-            <template #icon><t-icon name="control-platform" /></template>
-            {{ $t('modelCatalog.title') }}
-          </t-button>
-          <t-button
             v-if="authStore.hasRole('admin')"
             type="button"
             theme="default"
@@ -57,7 +45,6 @@
           </t-button>
         </div>
       </div>
-      <p class="section-description">{{ $t('modelSettings.description') }}</p>
     </div>
 
     <div class="model-tabbar" data-guide="settings-models">
@@ -92,12 +79,11 @@
             `model-card--${model._modelType}`,
             {
               'model-card--builtin': model.isBuiltin,
-              'model-card--clickable': isModelCardClickable(model),
+              'model-card--clickable': canEditModel(model),
             },
-          ]" :role="isModelCardClickable(model) ? 'button' : undefined"
-            :tabindex="isModelCardClickable(model) ? 0 : undefined"
-            @click="onModelCardClick($event, model._modelType, model)"
-            @keydown.enter="onModelCardClick($event, model._modelType, model)">
+          ]">
+            <button v-if="canEditModel(model)" type="button" class="model-card__edit"
+              :aria-label="`${$t('common.edit')} · ${modelDisplayName(model)}`" @click="editModel(model._modelType, model)" />
             <div class="model-card__badge" :aria-label="typeLabel(model._modelType)">
               <t-icon :name="typeIcon(model._modelType)" size="16px" />
             </div>
@@ -108,36 +94,24 @@
                   :aria-label="$t('modelSettings.builtinTag')">
                   <t-icon :name="authStore.isSystemAdmin ? 'edit-1' : 'lock-on'" />
                 </span>
-                <div v-if="canManageModel(model)" class="model-card__actions" @click.stop>
-                  <t-dropdown :options="getModelOptions(model._modelType, model)" placement="bottom-right" attach="body"
-                    trigger="click"
-                    @click="(data: any) => handleMenuAction({ value: data.value }, model._modelType, model)">
-                    <t-button variant="text" shape="square" size="small" class="model-card__action-btn model-card__more">
-                      <t-icon name="ellipsis" />
-                    </t-button>
-                  </t-dropdown>
-                  <t-popconfirm
-                    v-if="canDeleteModel(model)"
-                    :content="$t('modelSettings.confirmDelete', { name: modelDisplayName(model) })"
-                    :confirm-btn="{ content: $t('common.delete'), theme: 'danger' }"
-                    :cancel-btn="{ content: $t('common.cancel') }"
-                    placement="bottom-right"
-                    @confirm="deleteModel(model._modelType, model.id)"
-                  >
-                    <t-tooltip :content="$t('common.delete')" placement="top">
-                      <t-button
-                        theme="danger"
-                        shape="square"
-                        variant="text"
-                        size="small"
-                        class="model-card__action-btn model-card__delete"
-                        @click.stop
-                      >
-                        <template #icon><t-icon name="delete" /></template>
-                      </t-button>
-                    </t-tooltip>
-                  </t-popconfirm>
-                </div>
+                <t-popup v-if="canManageModelActions(model)" placement="bottom-right" trigger="click" destroy-on-close
+                  :visible="actionModelId === model.id"
+                  @visible-change="(visible: boolean) => setModelActions(model.id, visible)">
+                  <t-button variant="text" shape="square" size="small" class="model-card__more"
+                    :id="`${modelActionsId}-${model.id}-trigger`"
+                    :aria-label="`${$t('modelSettings.moreActions')} · ${modelDisplayName(model)}`" :aria-expanded="actionModelId === model.id"
+                    :aria-controls="actionModelId === model.id ? `${modelActionsId}-${model.id}` : undefined"
+                    @keydown.esc="dismissModelActions" @keydown.tab="enterModelActions">
+                    <t-icon name="ellipsis" aria-hidden="true" />
+                  </t-button>
+                  <template #content>
+                    <div :id="`${modelActionsId}-${model.id}`" class="model-card-menu"
+                      @keydown.esc="dismissModelActions" @keydown.tab="leaveModelActions">
+                      <t-button variant="text" @click="closeModelActions(); copyModel(model._modelType, model.id)">{{ $t('common.copy') }}</t-button>
+                      <t-button variant="text" theme="danger" @click="confirmDeleteModel(model)">{{ $t('common.delete') }}</t-button>
+                    </div>
+                  </template>
+                </t-popup>
               </div>
               <p class="model-card__subtitle">
                 <span class="model-card__vendor">
@@ -310,8 +284,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, watch } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { ref, computed, nextTick, onMounted, useId, watch } from 'vue'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { AddIcon, PlayCircleIcon } from 'tdesign-icons-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -588,25 +562,59 @@ const openAddDialog = () => {
 const canEditModel = (model: any) =>
   model.isBuiltin ? authStore.isSystemAdmin : authStore.hasRole('admin')
 
-const isModelCardClickable = (model: any) => canEditModel(model)
-
-const canManageModel = (model: any) => canEditModel(model)
-
 // Built-in lifecycle remains deployment-managed (YAML / SQL). The UI only
 // exposes configuration and credential editing to SystemAdmin.
-const canDeleteModel = (model: any) =>
+const canManageModelActions = (model: any) =>
   authStore.hasRole('admin') && !model.isBuiltin
 
-const onModelCardClick = (event: Event, type: ModelType, model: any) => {
-  if (!isModelCardClickable(model)) return
-  if (event.type === 'keydown') {
-    const ke = event as KeyboardEvent
-    if (ke.key !== 'Enter' && ke.key !== ' ') return
-    ke.preventDefault()
+const actionModelId = ref('')
+const modelActionsId = useId()
+function setModelActions(id: string, visible: boolean) {
+  if (!visible) {
+    if (actionModelId.value === id) actionModelId.value = ''
+    return
   }
-  const target = event.target as HTMLElement | null
-  if (target?.closest('.model-card__actions')) return
-  editModel(type, model)
+  actionModelId.value = id
+}
+function enterModelActions(event: KeyboardEvent) {
+  if (!actionModelId.value) return
+  if (event.shiftKey) {
+    actionModelId.value = ''
+    return
+  }
+  const button = document.getElementById(`${modelActionsId}-${actionModelId.value}`)?.querySelector('button')
+  if (!button) return
+  event.preventDefault()
+  button.focus({ preventScroll: true })
+}
+function leaveModelActions(event: KeyboardEvent) {
+  const buttons = (event.currentTarget as HTMLElement).querySelectorAll('button')
+  if (document.activeElement !== (event.shiftKey ? buttons[0] : buttons[buttons.length - 1])) return
+  if (event.shiftKey) event.preventDefault()
+  closeModelActions()
+}
+function closeModelActions() {
+  document.getElementById(`${modelActionsId}-${actionModelId.value}-trigger`)?.focus()
+  actionModelId.value = ''
+}
+function dismissModelActions(event: KeyboardEvent) {
+  if (!actionModelId.value) return
+  event.stopPropagation()
+  closeModelActions()
+}
+function confirmDeleteModel(model: any) {
+  closeModelActions()
+  const dialog = DialogPlugin.confirm({
+    header: t('common.delete'),
+    body: t('modelSettings.confirmDelete', { name: modelDisplayName(model) }),
+    theme: 'danger',
+    confirmBtn: { content: t('common.delete'), theme: 'danger' },
+    onConfirm: () => { dialog.destroy(); void deleteModel(model._modelType, model.id) },
+    onClose: () => {
+      dialog.destroy()
+      document.getElementById(`${modelActionsId}-${model.id}-trigger`)?.focus()
+    },
+  })
 }
 
 // 编辑模型
@@ -834,52 +842,6 @@ const openUsageResource = async (
   await router.push(modelUsageResourceRoute(kind, id, bindings))
   if (kind === 'knowledge_base') {
     uiStore.openKBSettings(id, knowledgeBaseSection)
-  }
-}
-
-// 获取模型操作菜单选项
-const getModelOptions = (type: ModelType, model: any) => {
-  const options: any[] = []
-
-  if (model.isBuiltin) {
-    if (authStore.isSystemAdmin) {
-      options.push({
-        content: t('common.edit'),
-        value: `edit-${type}-${model.id}`
-      })
-    }
-    return options
-  }
-
-  // Models are tenant-wide infrastructure (LLM credentials); the
-  // backend gates every mutation behind Admin+ (see RegisterModelRoutes).
-  // Non-Admins get an empty action menu — viewing is fine, but editing,
-  // copying (POST /models/:id/copy), and deleting are not.
-  if (!authStore.hasRole('admin')) {
-    return options
-  }
-
-  options.push({
-    content: t('common.edit'),
-    value: `edit-${type}-${model.id}`
-  })
-
-  options.push({
-    content: t('common.copy'),
-    value: `copy-${type}-${model.id}`
-  })
-
-  return options
-}
-
-// 处理菜单操作
-const handleMenuAction = (data: { value: string }, type: ModelType, model: any) => {
-  const value = data.value
-
-  if (value.indexOf('edit-') === 0) {
-    editModel(type, model)
-  } else if (value.indexOf('copy-') === 0) {
-    copyModel(type, model.id)
   }
 }
 
@@ -1368,22 +1330,24 @@ useAssistantDataChange(() => { void loadModels() }, { areas: ['model'] })
   color: var(--td-text-color-placeholder);
 }
 
-.model-card__actions {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
+.model-card__edit {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
 
-.model-card__action-btn {
-  flex-shrink: 0;
-  padding: 2px;
-  opacity: 0;
-  transition: opacity var(--app-motion-fast) ease;
+  &:focus-visible {
+    outline: 2px solid var(--td-brand-color);
+    outline-offset: 2px;
+  }
 }
 
 .model-card__more {
-  color: var(--td-text-color-placeholder);
+  z-index: 1;
+  flex-shrink: 0;
+  color: var(--td-text-color-secondary);
 
   &:hover,
   &:focus-visible {
@@ -1392,11 +1356,9 @@ useAssistantDataChange(() => { void loadModels() }, { areas: ['model'] })
   }
 }
 
-// Hover / 键盘焦点 时显示操作按钮，避免静态卡片上有"杂物"。
-.model-card:hover .model-card__action-btn,
-.model-card:focus-within .model-card__action-btn,
-.model-card__actions:focus-within .model-card__action-btn {
-  opacity: 1;
+.model-card-menu {
+  display: grid;
+  min-width: 86px;
 }
 
 .empty-state {

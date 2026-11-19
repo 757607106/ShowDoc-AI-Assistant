@@ -84,8 +84,7 @@ def run(*, execute=False, timeout=300, report_path=REPORT):
         'isolation': {'production_store_or_database': False, 'cleanup_by_returned_ids_only': True},
         'fixtures': [], 'checks': [], 'cleanup': [],
         'not_checked': ['Real Wiki conflict resolution requires a naturally occurring conflict.',
-                        'No concurrency/load test or production migration.',
-                        'Ontology invitation-only APIs are outside this acceptance.']}
+                        'No concurrency/load test or production migration.']}
     documents = []
 
     def save():
