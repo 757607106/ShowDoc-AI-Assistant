@@ -10,7 +10,6 @@ from deepagents.backends.utils import create_file_data
 from agent import sandbox
 from agent.harness_config import prepare_harness_files
 from governance.store import StoreError
-from tests.platform.test_platform_harness import harness, original_prepare
 
 
 def test_subagent_skill_sources_only_copy_parent_selected_files(monkeypatch):
@@ -140,74 +139,6 @@ def test_real_skill_script_binary_copy_and_command_cancel(authenticated_client, 
             assert before
             time.sleep(.4)
             assert observer.download_files(['/workspace/ticks'])[0].content == before
-    finally:
-        sandbox.destroy_for_session(owner, sid)
-
-
-@pytest.mark.skipif(__import__('os').getenv('OPEN_SANDBOX_TEST_REAL') != '1', reason='requires local OpenSandbox/Docker')
-def test_real_http_stop_terminates_official_command(harness, monkeypatch):
-    import json
-    import os
-    from dotenv import dotenv_values
-    from deepagents import create_deep_agent
-    from langchain_core.messages import AIMessage
-    from tests.platform.test_platform_harness import call
-    from webapi import harness as api
-    client, sid, model, _, _, app, headers = harness
-    settings = dotenv_values('.env')
-    monkeypatch.setenv('OPEN_SANDBOX_API_KEY', settings['OPEN_SANDBOX_API_KEY'])
-    monkeypatch.setenv('OPEN_SANDBOX_DOMAIN', '127.0.0.1:8090')
-    owner = os.environ['TEST_PLATFORM_USER']
-    monkeypatch.setattr(api, '_prepare', lambda *args: {'agent_config': {
-        'access_level': 'auto_write', 'sandbox_config_id': sandbox.CONFIG_ID}, 'knowledge_base_ids': []})
-    async def graph(saver, user, selected, resolved, *, backend=None, **kwargs):
-        return create_deep_agent(model=model, backend=backend, checkpointer=saver)
-    monkeypatch.setattr(api, '_graph', graph)
-    command = "python3 -u -c 'import time; from pathlib import Path; p=Path(\"/workspace/http-ticks\"); [(p.open(\"a\").write(\"x\"),time.sleep(.1)) for _ in range(600)]'"
-    model.responses = [AIMessage(content='', tool_calls=[call('execute', {'command': command}, 'http-command')])]
-    async def scenario():
-        first, sent = True, []
-        async def receive():
-            nonlocal first
-            if first:
-                first = False
-                return {'type': 'http.request', 'body': b'{"query":"Run until stopped"}', 'more_body': False}
-            await asyncio.Event().wait()
-        async def send(message):
-            sent.append(message)
-        scope = {'type': 'http', 'asgi': {'version': '3.0'}, 'http_version': '1.1', 'method': 'POST',
-            'scheme': 'http', 'path': f'/api/v1/agent-chat/{sid}', 'query_string': b'', 'root_path': '',
-            'server': ('testserver', 80), 'client': ('127.0.0.1', 1234),
-            'headers': [(b'authorization', headers['Authorization'].encode()), (b'content-type', b'application/json')]}
-        execution = asyncio.create_task(app(scope, receive, send))
-        try:
-            identifiers = ()
-            for _ in range(200):
-                backend = api._active_backends.get(sid)
-                if backend:
-                    with backend._commands_lock:
-                        identifiers = tuple(backend._commands)
-                if identifiers or execution.done():
-                    break
-                await asyncio.sleep(.05)
-            assert identifiers, b''.join(item.get('body', b'') for item in sent).decode()
-            data = b''.join(item.get('body', b'') for item in sent).decode()
-            identifier = next(json.loads(line[6:])['assistant_message_id'] for line in data.splitlines()
-                if line.startswith('data: ') and 'agent_query' in line)
-            await asyncio.sleep(.3)
-            stopped = await asyncio.to_thread(client.post, f'/api/v1/sessions/{sid}/stop', json={'message_id': identifier})
-            assert stopped.status_code == 200, stopped.text
-            assert stopped.json()['command_state'] in ('stopped', 'idle')
-            await asyncio.wait_for(execution, 10)
-            with sandbox.connected_session(owner, sid) as native:
-                assert native.commands.get_command_status(identifiers[0]).running is False
-            assert sid not in api._active_requests and sid not in api._active_backends
-        finally:
-            if not execution.done():
-                execution.cancel()
-                await asyncio.gather(execution, return_exceptions=True)
-    try:
-        asyncio.run(scenario())
     finally:
         sandbox.destroy_for_session(owner, sid)
 

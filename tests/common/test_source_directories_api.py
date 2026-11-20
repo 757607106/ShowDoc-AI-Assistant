@@ -68,6 +68,28 @@ def test_showdoc_document_preview_reads_only_a_page_in_the_requested_project(cli
     crawler._post.assert_not_called()
 
 
+def test_tiantong_document_preview_reads_detail_without_listing_directory(client, tmp_path, monkeypatch):
+    from crawlers.tiantong import TiantongCrawler
+
+    crawler = TiantongCrawler(str(tmp_path))
+    crawler.authenticate = Mock()
+    crawler.list_documents = Mock(side_effect=AssertionError('preview must not list the full directory'))
+    response = Mock(
+        raise_for_status=Mock(),
+        json=Mock(return_value={'code': 200, 'data': {
+            'id': 'direct', 'title': '直接预览', 'categoryName': '教程', 'content': '<p>正文</p>'}}),
+    )
+    crawler.session.get = Mock(return_value=response)
+    monkeypatch.setattr(material_module, 'create_crawler', lambda *args, **kwargs: crawler)
+
+    result = client.get('/entries/tiantong/preview?doc_id=direct')
+
+    assert result.status_code == 200
+    assert result.json['title'] == '直接预览' and result.json['content'] == '<p>正文</p>'
+    crawler.list_documents.assert_not_called()
+    crawler.session.get.assert_called_once()
+
+
 def test_web_document_preview_uses_the_fetched_page_base_for_relative_images(client, tmp_path, monkeypatch):
     monkeypatch.setattr(WebCrawler, 'validate_url', staticmethod(lambda value: value))
     requested = 'https://docs.example.test/start'

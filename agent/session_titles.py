@@ -1,7 +1,6 @@
 """Session-title adapter for WeKnora cbdcebab (MIT; frontend/UPSTREAM-LICENSE)."""
 import asyncio
 import json
-import os
 import re
 
 import psycopg

@@ -42,7 +42,7 @@ const showFileReceipt = computed(() => mode.value === 'file' && !!fileReceipt.va
   (taskIds.value.length > 0 || directCount.value > 0 || fileReceipt.value.failed))
 const fileSubmitLabel = computed(() => fileReceipt.value?.failed ? '重试待提交文件' : '上传到知识库')
 const uploadNotice = computed(() => directCount.value
-  ? `${directCount.value} 个文件已直接提交至 ContextDB，可在知识库核对评审与入库状态。` : '')
+  ? `${directCount.value} 个文件已提交到知识库。` : '')
 const receiptTaskId = computed(() => taskIds.value.length === 1 ? taskIds.value[0] : '')
 const receiptLibraryLocation = computed(() => ({name:'knowledgeBaseDetail',params:{kbId:fileReceipt.value?.libraryId || ''}}))
 const directory = ref<{root_name:string;source_key:string;preview_complete?:boolean}|null>(null), rootName = ref('')
@@ -418,11 +418,10 @@ watch(rootName, () => { directoryError.value = '' })
             <t-form-item label="访问令牌"><t-input v-model="userToken" :disabled="launching" type="password" placeholder="公开项目无需填写" autocomplete="off" /></t-form-item></template>
             <t-form-item label="标题关键词"><t-input v-model="keyword" :disabled="launching" clearable /></t-form-item>
           </template>
-          <t-form-item v-if="!directory" ref="previewStatus" label="目录预览">
-            <t-alert v-if="listError" theme="error" :message="listError" />
-            <span v-else class="hint" role="status">{{ listing ? '正在读取目录…' : '读取目录后可确认保存位置和文档范围。' }}</span>
+          <t-form-item v-if="!directory && listError" ref="previewStatus">
+            <t-alert theme="error" :message="listError" />
           </t-form-item>
-          <section v-else ref="previewStatus" class="import-preview" aria-label="目录预览结果">
+          <section v-else-if="directory" ref="previewStatus" class="import-preview" aria-label="目录预览结果">
             <header class="import-preview-heading">
               <h3>目录预览</h3>
               <t-button variant="text" theme="primary" :loading="listing" :disabled="launching || listing" @click="loadPages">{{listing ? '正在重新读取…' : '重新读取目录'}}</t-button>
@@ -442,7 +441,6 @@ watch(rootName, () => { directoryError.value = '' })
             <t-alert v-if="directory.preview_complete === false" theme="info"
               :message="`目录预览尚未完成，已发现 ${pages.length} 份文档。采集全部文档时会继续发现同站页面并保留目录结构。`" />
             <p v-if="directory.preview_complete !== false || selection === 'selected'" class="hint">已选 {{previewPages.length}} 份文档</p>
-            <p v-if="previewPages.length" class="hint">可预览单篇正文，预览不会创建采集任务。</p>
             <t-tree :data="previewTree" expand-all class="import-directory-tree">
               <template #operations="{node}">
                 <t-button v-if="String(node.value).startsWith('page:')" size="small" variant="text" theme="primary"
@@ -473,7 +471,6 @@ watch(rootName, () => { directoryError.value = '' })
               <li v-for="(file, index) in files" :key="index">
                 <span class="file-name">{{file.webkitRelativePath || file.name}}</span>
                 <span class="file-size">{{formatFileSize(file.size)}}</span>
-                <t-tag v-if="file.size > taskUploadLimit" size="small" variant="light">直接提交</t-tag>
                 <t-button size="small" variant="text" :disabled="launching" :aria-label="'移除 '+(file.webkitRelativePath || file.name)" @click="files.splice(index, 1)">移除</t-button>
               </li>
             </ul>

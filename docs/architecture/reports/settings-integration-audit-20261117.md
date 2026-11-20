@@ -121,7 +121,7 @@ WeKnora 固定基线是 `cbdcebabf48c5ee2d6868b370326aa8341703f62`（本地清�
 
 ## 官方和本地证据索引
 
-进一步的逐字段调用链、固定行号和官方服务文件见同次核查明细：[资源与模型](../../output/verification/settings-integration-20261117/resources.md)、[Agent 运行时](../../output/verification/settings-integration-20261117/agent-runtime.md)、[平台与集成](../../output/verification/settings-integration-20261117/admin-integrations.md)。明细中代码位置为仓库相对路径，本文的本地证据链接使用完整路径。
+进一步的逐字段调用链、固定行号和官方服务文件见同次核查明细：[资源与模型](../../../output/verification/settings-integration-20261117/resources.md)、[Agent 运行时](../../../output/verification/settings-integration-20261117/agent-runtime.md)、[平台与集成](../../../output/verification/settings-integration-20261117/admin-integrations.md)。明细中代码位置为仓库相对路径，本文的本地证据链接使用完整路径。
 
 未改业务代码和真实设置。未验证线上供应商、外部 OAuth、真实 Docker 沙箱整链、CLI/Chrome/Claw 客户端兼容、真实 ACL 写入和生产负载；这些限制不能覆盖或消除已复现的契约缺口。
 

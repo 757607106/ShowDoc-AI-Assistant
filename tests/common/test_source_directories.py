@@ -162,6 +162,25 @@ def test_web_adapter_preserves_its_real_categories(tmp_path):
         'root_name': 'docs.example.test', 'path': ['使用教程', '上手']}
 
 
+def test_web_adapter_source_only_coverage_uses_saved_source_content(tmp_path):
+    with patch('crawlers.web.socket.getaddrinfo', return_value=[]):
+        crawler = WebCrawler(str(tmp_path), 'https://club.cmgrasp.com/', crawl_mode='site')
+    crawler.source_only = True
+    document = CrawledDocument('question:1', '问题', '社区问答', '<p>完整正文</p>', '', {}, 'html')
+    crawler.adapter = SimpleNamespace(
+        key='club_cmgrasp', display_name='社区',
+        stats={'question': {'reported_total': 1, 'complete': True}},
+        crawl_documents=lambda *args: [document],
+    )
+
+    summary = crawler.crawl()
+    report = json.loads(Path(summary.coverage_report_file).read_text())
+
+    assert summary.total_documents == 1 and summary.error_count == 0
+    assert report['saved_documents'] == 1
+    assert report['coverage_percent'] == 100.0
+
+
 def test_web_source_capture_still_rejects_challenge_shells(tmp_path):
     with patch('crawlers.web.socket.getaddrinfo', return_value=[]):
         crawler = WebCrawler(str(tmp_path), 'https://docs.example.test/')

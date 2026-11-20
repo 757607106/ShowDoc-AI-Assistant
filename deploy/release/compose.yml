@@ -1,0 +1,172 @@
+name: showdoc-ai-assistant
+
+x-runtime: &runtime
+  GOVERNANCE_DATA_DIR: /data
+  OPEN_SANDBOX_DOMAIN: control:8090
+  OPEN_SANDBOX_API_KEY: ${OPEN_SANDBOX_API_KEY:?}
+  ASYNC_AGENT_RUNTIME_ENABLED: "1"
+  ASYNC_AGENT_RUNTIME_URL: http://agent-runtime:2026
+  ASYNC_AGENT_RUNTIME_SIGNING_KEY: ${ASYNC_AGENT_RUNTIME_SIGNING_KEY:?}
+
+x-app: &app
+  image: showdoc-ai-assistant-app:${RELEASE_REVISION:?}
+  pull_policy: never
+  restart: unless-stopped
+  env_file: .runtime/production/app.env
+  environment: *runtime
+  volumes:
+    - artifacts:/data
+    - skill_bundles:/data/skill-bundles
+  depends_on:
+    postgres:
+      condition: service_healthy
+    agent-runtime:
+      condition: service_healthy
+    control:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:17
+    pull_policy: never
+    restart: unless-stopped
+    env_file: .runtime/production/postgres.env
+    environment:
+      POSTGRES_USER: showdoc
+      POSTGRES_DB: showdoc_knowledge
+      POSTGRES_ASYNC_PASSWORD: ${POSTGRES_ASYNC_PASSWORD:?}
+      POSTGRES_SANDBOX_PASSWORD: ${POSTGRES_SANDBOX_PASSWORD:?}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "showdoc", "-d", "showdoc_knowledge"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  valkey:
+    extends:
+      file: deploy/compose/agent-runtime.yml
+      service: valkey
+    pull_policy: never
+
+  agent-runtime:
+    extends:
+      file: deploy/compose/agent-runtime.yml
+      service: agent-runtime
+    image: showdoc-ai-assistant-agent-runtime:${RELEASE_REVISION:?}
+    build: !reset null
+    pull_policy: never
+    env_file: !reset []
+    environment:
+      <<: *runtime
+      DATABASE_URL: postgresql://showdoc_async_agent_app:${POSTGRES_ASYNC_PASSWORD:?}@postgres:5432/showdoc_async_agent
+      PLATFORM_DATABASE_URL: ${PLATFORM_DATABASE_URL:-${DATABASE_URL:?}}
+      AGENT_DATABASE_URL: ${AGENT_DATABASE_URL:?}
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?}
+      SYSTEM_AES_KEY: ${SYSTEM_AES_KEY:?}
+      CONTEXTDB_BASE_URL:
+      CONTEXTDB_MCP_URL:
+      AGENT_MAIN_MODEL:
+      AGENT_SUB_MODEL:
+      BAILIAN_API_KEY:
+      DASHSCOPE_API_KEY:
+      DASHSCOPE_API_URL:
+      QWEN_API_KEY:
+      AGENT_BAILIAN_BASE_URL:
+      OPEN_SANDBOX_PROTOCOL:
+      OPEN_SANDBOX_IMAGE:
+    volumes: !override
+      - skill_bundles:/data/skill-bundles:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      control:
+        condition: service_healthy
+
+  control:
+    extends:
+      file: deploy/compose/opensandbox.yml
+      service: control
+    network_mode: !reset null
+    pull_policy: never
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    labels:
+      io.showdoc-ai-assistant.sandbox-config: ${SANDBOX_CONFIG_REVISION:?}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json, urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3))['database']"
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "governance.worker"]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "from governance.store import Store; assert Store().worker_alive()"
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  web:
+    image: showdoc-ai-assistant-web:${RELEASE_REVISION:?}
+    pull_policy: never
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        template=/etc/nginx/templates/default.conf.template
+        if ! grep -Fq 'location ~ ^/(entries|tasks|task_status|download|showdoc)/' "$$template"; then
+          sed -i '/^server {/a\    location ~ ^/(entries|tasks|task_status|download|showdoc)/ {\
+                proxy_pass $${APP_SCHEME}://$${APP_HOST}:$${APP_PORT};\
+                include /etc/nginx/api-proxy.conf;\
+            }' "$$template"
+        fi
+        exec /docker-entrypoint.sh
+    environment:
+      APP_PORT: "8000"
+    ports:
+      - "${SHOWDOC_HTTP_BIND:-127.0.0.1}:${SHOWDOC_HTTP_PORT:-18080}:80"
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/health"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+
+volumes:
+  postgres:
+  artifacts:
+  skill_bundles:
+  valkey_data:
+  sandbox_control_data:
+
+configs:
+  opensandbox_config:
+    file: .runtime/production/opensandbox.toml

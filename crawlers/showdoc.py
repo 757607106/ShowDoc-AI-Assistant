@@ -55,6 +55,7 @@ class ShowDocCrawler(BaseCrawler):
         self.timeout = timeout
         self.project_name = ""
         self._item_info = None
+        self.session = requests.Session()
         super().__init__(
             save_dir,
             progress_callback=progress_callback,
@@ -122,7 +123,7 @@ class ShowDocCrawler(BaseCrawler):
         payload = {"s": api_path, **(extra or {})}
         if self.user_token:
             payload["user_token"] = self.user_token
-        response = requests.post(
+        response = self.session.post(
             f"{self.base_url}?s={api_path}", data=payload, timeout=self.timeout
         )
         response.raise_for_status()

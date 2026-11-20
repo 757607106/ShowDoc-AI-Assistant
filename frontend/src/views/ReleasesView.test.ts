@@ -77,12 +77,12 @@ test('historical resubmission requires confirmation and cannot dispatch twice wh
 })
 
 test('read-only users cannot resubmit and a rejected download remains visible in snapshot details', async t => {
-  const f = await setup(t, { writable: false, download: async () => { throw new Error('资料包不可用') } })
+  const f = await setup(t, { writable: false, download: async () => { throw new Error('HTTP 404 /api/releases/old/download') } })
   f.vm.openDetails(f.vm.releases[0]); await f.vm.activate('old')
   assert.deepEqual(f.writes, []); assert.equal(f.confirmations(), 0)
   await f.vm.download('old')
   assert.deepEqual(f.downloads, [{ url: '/api/releases/old/download', name: 'old.zip' }])
-  assert.equal(f.vm.detailError, '资料包不可用'); assert.equal(f.vm.downloading, '')
+  assert.equal(f.vm.detailError, '暂时无法下载资料包。'); assert.equal(f.vm.downloading, '')
 })
 
 test('history and document-state failures are independent', async t => {

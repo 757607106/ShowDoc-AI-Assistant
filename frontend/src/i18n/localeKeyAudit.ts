@@ -70,6 +70,9 @@ const TM_KEY_PATTERNS = [
 const EXTRA_PREFIXES = [
   // Operation labels use IDs supplied by the backend catalog at runtime.
   'agentStream.operations.names.',
+  // Risk badges are keyed by the backend catalog risk value (riskLabel builds
+  // `agentStream.operations.risk.${risk}` before calling t/te).
+  'agentStream.operations.risk.',
   'system.globalSettings.listConfirm.',
   'system.globalSettings.keyLabels.',
   'system.globalSettings.keyDescriptions.',
@@ -139,6 +142,9 @@ export const CRITICAL_LOCALE_KEYS = [
   'inviteRegister.emailPlaceholder',
   'knowledgeList.sections.tenantOthers',
   'agent.sections.tenantOthers',
+  // Pair contract asserted by the installer command progress audit test; only
+  // the Running key is referenced statically.
+  'settings.sandbox.installCommandWaiting',
 ] as const
 
 function addPrefix(usage: I18nUsage, prefix: string): void {

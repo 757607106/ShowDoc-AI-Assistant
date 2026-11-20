@@ -413,6 +413,9 @@ class WebCrawler(BaseCrawler):
                         continue
                     seen_pages.add(normalized)
                     page_urls.append(normalized)
+                    if self.max_pages and len(page_urls) >= self.max_pages:
+                        sitemap_queue.clear()
+                        break
         finally:
             session.close()
 
@@ -509,7 +512,8 @@ class WebCrawler(BaseCrawler):
                     for result_index, result in enumerate(results):
                         count += 1
                         result_url = getattr(result, "url", "")
-                        depth = depths.get(result_url, 0)
+                        requested_depth = batch[result_index][1] if result_index < len(batch) else 0
+                        depth = depths.get(result_url, requested_depth)
                         metadata = getattr(result, "metadata", None) or {}
                         metadata["depth"] = depth
                         payload = {"url": result_url, "success": bool(getattr(result, "success", False)),
@@ -723,6 +727,7 @@ class WebCrawler(BaseCrawler):
                 query = [(k, v) for k, v in urllib.parse.parse_qsl(parts.query) if k != plan.page_key]
                 key = (plan.method, parts.netloc, parts.path, tuple(query),
                        json.dumps({k: v for k, v in plan.body.items() if k != plan.page_key}, sort_keys=True))
+                report_identity = hashlib.sha256(repr(key).encode("utf-8")).hexdigest()
                 if key in self._visited_api_plans:
                     continue
                 self._visited_api_plans.add(key)
@@ -741,7 +746,7 @@ class WebCrawler(BaseCrawler):
                 except (requests.RequestException, ValueError, TypeError) as error:
                     reports.append(
                         {
-                            "endpoint": plan.url,
+                            "endpoint": plan.url, "plan_key": report_identity,
                             "reported_total": plan.total,
                             "records_fetched": 0,
                             "documents_created": 0,
@@ -766,11 +771,11 @@ class WebCrawler(BaseCrawler):
                         document.metadata["conversion_error"] = str(exc)
                         self._journal_source(document)
                         documents.append(document)
-                        reports.append({"endpoint": plan.url, "document_id": document.id,
+                        reports.append({"endpoint": plan.url, "plan_key": report_identity, "document_id": document.id,
                                         "complete": False, "stop_reason": f"conversion_failed: {exc}"})
                 reports.append(
                     {
-                        "endpoint": plan.url,
+                        "endpoint": plan.url, "plan_key": report_identity,
                         "reported_total": plan.total,
                         "records_fetched": len(pagination.records),
                         "documents_created": saved,
@@ -783,9 +788,12 @@ class WebCrawler(BaseCrawler):
             session.close()
         for report in reports:
             report["page_url"] = getattr(result, "url", self.url)
-        endpoints = {report["endpoint"] for report in reports}
+        report_keys = {report.get("plan_key", report["endpoint"]) for report in reports}
         existing_reports = self.discovery_details.setdefault("api_endpoints", [])
-        self.discovery_details["api_endpoints"] = [report for report in existing_reports if report["endpoint"] not in endpoints] + reports
+        self.discovery_details["api_endpoints"] = [
+            report for report in existing_reports
+            if report.get("plan_key", report["endpoint"]) not in report_keys
+        ] + reports
         return documents
 
     def _document_from_result(self, result, fallback_url, fallback_title=None):
@@ -911,13 +919,18 @@ class WebCrawler(BaseCrawler):
             selected_count
             or (min(reported_total, self.max_pages) if self.max_pages else reported_total)
         )
+        saved_documents = sum(
+            not doc.metadata.get("fetch_error") and not doc.metadata.get("resource_errors")
+            and bool((doc.content if self.source_only else doc.markdown).strip())
+            for doc in converted
+        )
         site_coverage = (
-            round(min(100.0, sum(bool(doc.markdown) for doc in converted) / reported_total * 100), 2)
+            round(min(100.0, saved_documents / reported_total * 100), 2)
             if reported_total
             else None
         )
         scope_completion = (
-            round(min(100.0, sum(bool(doc.markdown) for doc in converted) / requested_total * 100), 2)
+            round(min(100.0, saved_documents / requested_total * 100), 2)
             if requested_total
             else None
         )
@@ -929,7 +942,7 @@ class WebCrawler(BaseCrawler):
             "adapter_name": self.adapter.display_name,
             "reported_documents": reported_total,
             "requested_documents": requested_total,
-            "saved_documents": sum(bool(doc.markdown) for doc in converted),
+            "saved_documents": saved_documents,
             "coverage_percent": site_coverage,
             "requested_scope_completion_percent": scope_completion,
             "max_pages": self.max_pages,
@@ -939,9 +952,13 @@ class WebCrawler(BaseCrawler):
                 "问答正文包含公开回答分页",
             ],
         }
-        summary = self._save(converted, assess_documents(converted))
+        summary = self._save(converted, None if self.source_only else assess_documents(converted))
         if scope_completion is not None and scope_completion < 100:
             summary.error_count += 1
+        elif not selected_count and not self.max_pages:
+            summary.error_count += sum(
+                not stats.get("complete", False) for stats in self.adapter.stats.values()
+            )
         report_path = self._write_crawl_report(report)
         summary.discovery_strategy = f"adapter:{self.adapter.key}"
         summary.coverage_score = site_coverage

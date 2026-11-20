@@ -3,14 +3,13 @@
 治理沿用原则:评审队列、评审动作都是 ContextDB 原生能力,本层只做
 HTTP 代理与形状适配,不复制任何状态到本地。
 """
-import os
 import tempfile
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
-from integrations.contextdb import ContextDBClient, ContextDBError
-from governance.store import Store, StoreError
+from integrations.contextdb import ContextDBError
+from governance.store import StoreError
 from governance.knowledge_names import KnowledgeNames
 
 knowledge_bp = Blueprint('knowledge', __name__)

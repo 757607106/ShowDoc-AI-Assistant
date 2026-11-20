@@ -40,6 +40,7 @@ class TiantongCrawler(BaseCrawler):
         self.page_size = page_size
         self.timeout = timeout
         self._items = {}
+        self.session = requests.Session()
         super().__init__(
             save_dir,
             progress_callback=progress_callback,
@@ -51,7 +52,7 @@ class TiantongCrawler(BaseCrawler):
         page = 1
         seen = set()
         while True:
-            response = requests.get(
+            response = self.session.get(
                 api_url,
                 params={"page": page, "pageSize": self.page_size},
                 timeout=self.timeout,
@@ -107,22 +108,18 @@ class TiantongCrawler(BaseCrawler):
 
     def fetch_document(self, stub):
         item = self._items.get(stub.id)
-        if item is None:
-            raise RuntimeError(f"文档 {stub.id} 不在已抓取的列表缓存中")
-        item = dict(item)
+        detail_loaded = item is None
+        item = dict(item or {})
         fetch_error = None
-        content_source = "list"
+        content_source = "detail" if detail_loaded else "list"
 
-        # The list endpoint normally includes the full HTML, but some records
-        # are returned as metadata-only rows.  Fetch the detail resource before
-        # classifying such a row as an empty document.
-        if not self._content_value(item):
+        if detail_loaded or not self._content_value(item):
             try:
                 detail_url = (
                     f"{self.site_base_url}/api/knowledge/"
                     f"{urllib.parse.quote(str(stub.id), safe='')}"
                 )
-                response = requests.get(detail_url, timeout=self.timeout)
+                response = self.session.get(detail_url, timeout=self.timeout)
                 response.raise_for_status()
                 payload = response.json()
                 if payload.get("code") != 200:
@@ -130,6 +127,7 @@ class TiantongCrawler(BaseCrawler):
                 detail = payload.get("data") or {}
                 if isinstance(detail, dict):
                     item.update(detail)
+                    self._items[stub.id] = dict(item)
                     content_source = "detail"
             except Exception as exc:
                 fetch_error = f"详情获取失败: {exc}"
@@ -142,8 +140,8 @@ class TiantongCrawler(BaseCrawler):
             metadata["fetch_error"] = fetch_error
         return CrawledDocument(
             id=stub.id,
-            title=stub.title,
-            category=stub.category,
+            title=(item.get("title") or stub.title).strip(),
+            category=(item.get("categoryName") or stub.category).strip(),
             content=content,
             updated_at=(
                 item.get("updatedAt") or item.get("createdAt") or "未知"
@@ -194,10 +192,11 @@ class TiantongCrawler(BaseCrawler):
             return raw
         try:
             parsed = json.loads(raw)
-        except (TypeError, ValueError):
-            print(f"⚠️ 附件字段解析失败，保留原始值: {str(raw)[:100]!r}")
-            return []
-        return parsed if isinstance(parsed, list) else []
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"附件字段不是有效 JSON: {str(raw)[:100]!r}") from exc
+        if not isinstance(parsed, list):
+            raise ValueError("附件字段必须是列表")
+        return parsed
 
     def _download_attachment(self, attachment):
         file_id = attachment.get("fileId")
@@ -208,8 +207,9 @@ class TiantongCrawler(BaseCrawler):
             print(f"⚠️ 附件缺少 fileId，跳过下载: {name}")
             return None
 
+        partial_path = None
         try:
-            token_response = requests.get(
+            token_response = self.session.get(
                 f"{self.site_base_url}/api/upload/{file_id}/token",
                 timeout=self.timeout,
             )
@@ -225,17 +225,34 @@ class TiantongCrawler(BaseCrawler):
 
             if not download_url.startswith(("http://", "https://")):
                 download_url = f"{self.site_base_url}{download_url}"
-            file_response = requests.get(download_url, timeout=60)
-            file_response.raise_for_status()
-
+            max_bytes = int(os.getenv("TIANTONG_MAX_ATTACHMENT_BYTES", str(100 * 1024 * 1024)))
             attachments_dir = os.path.join(self.asset_dir, "attachments")
             os.makedirs(attachments_dir, exist_ok=True)
             filename = f"{clean_filename(str(file_id))}_{name}"
             file_path = os.path.join(attachments_dir, filename)
-            with open(file_path, "wb") as output_file:
-                output_file.write(file_response.content)
+            partial_path = file_path + '.part'
+            with self.session.get(download_url, timeout=60, stream=True) as file_response:
+                file_response.raise_for_status()
+                declared_size = int(file_response.headers.get("Content-Length") or 0)
+                if declared_size > max_bytes:
+                    raise ValueError(f"附件大小 {declared_size} 超过上限 {max_bytes}")
+                downloaded = 0
+                with open(partial_path, "wb") as output_file:
+                    for chunk in file_response.iter_content(1024 * 1024):
+                        if not chunk:
+                            continue
+                        downloaded += len(chunk)
+                        if downloaded > max_bytes:
+                            raise ValueError(f"附件超过大小上限 {max_bytes}")
+                        output_file.write(chunk)
+            os.replace(partial_path, file_path)
             print(f"📎 附件已下载: {filename}")
             return f"assets/attachments/{filename}"
         except Exception as exc:
+            if partial_path:
+                try:
+                    os.unlink(partial_path)
+                except FileNotFoundError:
+                    pass
             print(f"⚠️ 附件下载失败 ({name}): {exc}")
             return None

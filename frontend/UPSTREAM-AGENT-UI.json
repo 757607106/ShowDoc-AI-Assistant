@@ -1079,6 +1079,36 @@
       "status": "retired",
       "reason": "Renamed to src/views/createChat/createChat.vue to correct the upstream creat spelling; content moves with reviewed identifier renames and is tracked as a local source.",
       "reference": "docs/architecture/reports/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/css/channel-panel-list.less": {
+      "status": "retired",
+      "reason": "The channel panel list stylesheet has no importer since the legacy WeKnora channel sidebar was replaced by the native knowledge views.",
+      "reference": "docs/architecture/reports/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/css/settings-table.less": {
+      "status": "retired",
+      "reason": "The system settings table stylesheet is retired together with the removed system console views that imported it.",
+      "reference": "docs/architecture/reports/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/css/markdown.less": {
+      "status": "retired",
+      "reason": "The markdown stylesheet was imported only by the legacy doc-content preview, which is retired with the WeKnora knowledge-base UI.",
+      "reference": "docs/architecture/reports/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/config/settingsRoute.ts": {
+      "status": "retired",
+      "reason": "The legacy settings route table is retired with the removed system console views; live navigation is served by settingsAccess and toolbox.",
+      "reference": "docs/architecture/reports/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/components/icons/BrowserIcon.vue": {
+      "status": "retired",
+      "reason": "The browser feature icon was used only by the retired browser task preview components.",
+      "reference": "docs/architecture/reports/deepagents-contextdb-final-plan-20261117.md"
+    },
+    "src/views/chat/components/BrowserTaskPreview.vue": {
+      "status": "retired",
+      "reason": "The browser task PiP preview is retired with the browser runtime feature; native interactions no longer render browser tasks.",
+      "reference": "docs/architecture/reports/deepagents-contextdb-final-plan-20261117.md"
     }
   },
   "localSources": {

@@ -178,7 +178,7 @@ def test_tiantong_short_pages_continue_until_reported_total(tmp_path):
         {'code':200,'data':{'total':2,'list':[{'id':'2','title':'二'}]}},
     ]
     c = TiantongCrawler(str(tmp_path),page_size=50)
-    with patch('crawlers.tiantong.requests.get',side_effect=[SimpleNamespace(raise_for_status=lambda:None,json=lambda p=p:p) for p in responses]) as get:
+    with patch('crawlers.tiantong.requests.Session.get',side_effect=[SimpleNamespace(raise_for_status=lambda:None,json=lambda p=p:p) for p in responses]) as get:
         assert len(c.list_documents()) == 2
         assert get.call_count == 2
 
@@ -201,7 +201,7 @@ def test_tiantong_empty_list_row_fetches_detail_content(tmp_path):
             },
         },
     )
-    with patch("crawlers.tiantong.requests.get", return_value=response) as get:
+    with patch("crawlers.tiantong.requests.Session.get", return_value=response) as get:
         document = c.fetch_document(DocumentStub("empty-row", "详情正文", "教程"))
 
     assert get.call_count == 1
@@ -210,10 +210,25 @@ def test_tiantong_empty_list_row_fetches_detail_content(tmp_path):
     assert document.metadata["content_fetch_status"] == "ok"
 
 
+def test_tiantong_preview_can_fetch_detail_without_listing_entire_directory(tmp_path):
+    c = TiantongCrawler(str(tmp_path))
+    response = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {'code': 200, 'data': {
+            'id': 'direct', 'title': '直接预览', 'categoryName': '教程', 'content': '<p>正文</p>'}},
+    )
+    with patch('crawlers.tiantong.requests.Session.get', return_value=response) as get:
+        document = c.fetch_document(DocumentStub('direct', '占位', '未分类'))
+
+    assert get.call_count == 1
+    assert document.title == '直接预览' and document.category == '教程'
+    assert document.content == '<p>正文</p>'
+
+
 def test_tiantong_duplicate_page_stops_with_explicit_failure(tmp_path):
     payload = {'code':200,'data':{'total':2,'list':[{'id':'1','title':'一'}]}}
     c = TiantongCrawler(str(tmp_path))
-    with patch('crawlers.tiantong.requests.get',return_value=SimpleNamespace(raise_for_status=lambda:None,json=lambda:payload)):
+    with patch('crawlers.tiantong.requests.Session.get',return_value=SimpleNamespace(raise_for_status=lambda:None,json=lambda:payload)):
         with pytest.raises(RuntimeError,match='分页重复'):
             c.list_documents()
 

@@ -13,6 +13,7 @@ class ShowDocProjectManager:
         self.base_url = base_url
         self.projects_cache = []
         self.cache_timestamp = None
+        self.cache_identity = None
         self.cache_duration = 300  # 缓存有效期5分钟
     
     def get_project_list(self, user_token, group_id=0):
@@ -65,7 +66,7 @@ class ShowDocProjectManager:
             print(f"✅ 成功获取 {len(projects)} 个项目")
             
             # 更新缓存
-            self.cache_projects(projects)
+            self.cache_projects(projects, user_token, group_id)
             
             return projects
             
@@ -116,24 +117,20 @@ class ShowDocProjectManager:
             print(f"❌ 获取项目详情异常: {str(e)}")
             return None
     
-    def cache_projects(self, projects):
-        """缓存项目数据
-        
-        Args:
-            projects: 项目列表
-        """
+    def cache_projects(self, projects, user_token, group_id=0):
+        """缓存项目数据"""
         self.projects_cache = projects
         self.cache_timestamp = time.time()
+        self.cache_identity = (user_token, str(group_id))
         print(f"💾 项目列表已缓存 ({len(projects)} 个项目)")
-    
-    def get_cached_projects(self):
-        """获取缓存的项目列表
-        
-        Returns:
-            list: 缓存的项目列表,如果缓存过期或为空返回None
-        """
+
+    def get_cached_projects(self, user_token, group_id=0):
+        """返回同账号、同分组且未过期的项目缓存。"""
         if not self.projects_cache:
             print("⚠️ 项目缓存为空")
+            return None
+        if self.cache_identity != (user_token, str(group_id)):
+            print("⚠️ 项目缓存账号或分组不匹配")
             return None
         
         # 检查缓存是否过期
@@ -194,6 +191,7 @@ class ShowDocProjectManager:
         """清除项目缓存"""
         self.projects_cache = []
         self.cache_timestamp = None
+        self.cache_identity = None
         print("🗑️ 项目缓存已清除")
 
 

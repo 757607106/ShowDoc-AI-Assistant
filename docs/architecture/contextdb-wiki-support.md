@@ -18,7 +18,7 @@ ContextDB 保存来源、正式正文、修订和处理状态，并负责 Wiki �
 | 编译进度与控制 | `GET .../compile-runs`、`POST .../compile-runs/actions` | 展示来源状态和全库计数，提供暂停、恢复、来源重编和失败重试 |
 | 内容问题处理 | `GET .../issues`、`GET .../issues/detail`、`POST .../issues/actions`、`POST .../issues/tasks`、`GET .../issue-tasks/detail` | 查看证据、忽略/重开、提交处理决定与逐项查询任务结果 |
 
-前端契约见 [contextdbWiki.ts](../../frontend/src/api/contextdbWiki.ts)，后端在 [contextdb.py](../../webapi/contextdb.py)按 **17 个精确路径及各自 HTTP 方法**放行，并使用当前登录用户的 ContextDB 成员凭据转发。只读账号可以读取索引、搜索和编译进度，不能写入。未知路径、错误方法和虚构审批/回滚接口不会转发到云端。Agent 的知识访问继续使用官方 MCP；这里的 DATA API 界面接入不增加或替换 Agent 工具。
+前端契约见 [contextdbWiki.ts](../../frontend/src/api/contextdbWiki.ts)，后端在 [contextdb 包](../../webapi/contextdb/__init__.py)按 **17 个精确路径及各自 HTTP 方法**放行，并使用当前登录用户的 ContextDB 成员凭据转发。只读账号可以读取索引、搜索和编译进度，不能写入。未知路径、错误方法和虚构审批/回滚接口不会转发到云端。Agent 的知识访问继续使用官方 MCP；这里的 DATA API 界面接入不增加或替换 Agent 工具。
 
 ## 必须保留的状态与并发语义
 

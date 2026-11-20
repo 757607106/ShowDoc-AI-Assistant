@@ -1,6 +1,6 @@
 # ContextDB + WeKnora 平台当前架构
 
-Agent 配置、模型与交互的修复见 [2026-11-17 对齐记录](reports/agent-repair-alignment-20261117.md)。本文异步部署状态更新至 2026-11-17，详见[运行服务说明](../guides/async-agent-runtime.md)；其余知识治理内容保留原核对日期，历史审计不追改。
+Agent 配置、模型与交互的修复见 [2026-11-17 对齐记录](reports/agent-repair-alignment-20261117.md)。本文异步部署状态更新至 2026-11-17，详见[运行服务说明](../guides/async-agent-runtime.md)；其余知识治理内容保留原核对日期，历史审计不追改。原《Agent 运行组件》《已停用的浏览器运行时》《采集治理运行》三篇已并入本文。
 
 核对日期：2026-11-14。前端来自 Tencent/WeKnora 固定提交 `cbdcebabf48c5ee2d6868b370326aa8341703f62`，依赖锁及 MIT/第三方声明随源码保留。新页面使用上游壳、表单、列表、抽屉与现有组件扩展。
 
@@ -12,6 +12,29 @@ Agent 配置、模型与交互的修复见 [2026-11-17 对齐记录](reports/age
 - 原件、源快照和发布 ZIP 保存在 `downloads/`；版本记录在 PostgreSQL 中只保留来源与文件指针。平台 Worker 的采集模式不运行 Docling 或本地切片；原独立爬虫 CLI 的离线导出行为保留。
 - Agent 直接使用官方开源免费的 `create_deep_agent`、StateBackend、SkillsMiddleware、task/Todo、HITL 与 PostgreSQL checkpointer。ASGI 的 API Adapter 对接 WeKnora 原 HTTP/SSE、历史和逐卡审批协议，前端沿用 WeKnora 原流处理器。显式异步子代理经官方 `AsyncSubAgent`/LangGraph SDK 连接本机 Docker 的第三方 Aegra `0.11.0`；独立受限 PostgreSQL 库保存远端线程、运行和 checkpoint，Valkey 提供队列、worker lease 与 reaper。该实现使用固定源码 SHA 门禁的兼容补丁，不是 LangChain 官方服务器原样兼容。未新增 LangSmith 或其他收费服务；原模型与 ContextDB 账号及费用规则保留。
 - Agent 保留官方文件记忆与受 owner/Agent 命名空间约束的 StoreBackend；结构化记忆、整理和晋升服务未接入。聊天记录和会话 checkpoint 保留；历史晋升形成的知识文档继续按普通知识文档读取和编辑，不删除云端已有数据。
+
+## 运行组件
+
+| 能力 | 实际组件 |
+| --- | --- |
+| 主代理、工具调度、专业及可信编译子代理 | `deepagents==0.7.39` 的 `create_deep_agent`、`SubAgent`、`CompiledSubAgent` |
+| 后台异步子代理 | SDK `AsyncSubAgent` / Agent Protocol → Aegra `0.11.0`，使用固定源码 SHA 门禁的兼容补丁 |
+| 后台队列与持久化 | Valkey `9.0.7` AOF、Aegra PostgreSQL 线程/run/checkpoint，复用 worker、lease 和 reaper |
+| 会话文件及执行环境 | 官方 `StateBackend` 或经本项目适配的 OpenSandbox；实际环境由部署配置决定 |
+| Skills 指令与执行副本 | `SkillsMiddleware` 发现授权目录；需要执行时将脚本副本准备到真实沙箱，不建立安装任务 |
+| 文件记忆 | 官方 `memory=['/AGENTS.md']`；owner + Agent 范围的 PostgreSQL Store 文件与线程文件分别处理 |
+| 计划与模型回合预算 | 官方 Todo 与 ModelCallLimit middleware |
+| 提问、人工确认与恢复 | 官方 `interrupt`、HITL、`Command(resume=...)` |
+| 主会话持久化与历史 | `langgraph==1.2.20`、官方 PostgreSQL checkpointer / Store |
+| 前端流和状态 | WeKnora 聊天组件、应用 SSE / HTTP API；应用投影展示原生 checkpoint 与 interrupt |
+
+聊天页面通过 `POST /api/v1/agent-chat/{id}` 或 `/api/v1/knowledge-chat/{id}` 获取适配后的 SSE。原生 `POST /api/v1/harness/sessions/{id}/stream` 和 `GET /api/v1/harness/sessions/{id}/state` 保留供直接 SDK 契约及验收消费者使用，后者读取官方 `aget_state`。这些入口复用同一 graph 与 checkpoint，不建立第二套 Agent 工具循环。
+
+OpenSandbox 的交付文件统一保存到 `/workspace/`。主代理的文件、编辑、命令工具及已返回的同步委派在原生工具节点中归档本轮内容变化，原始字节写入现有 checkpoint `files`，聊天、产物库和下载继续使用原接口；单次工具归档总量上限为 25 MiB，失败在原工具结果中显示，不自动重执行。Skill 副本和内部工具结果不作为交付产物。
+
+浏览器运行时已退役：`webapi/browser.py` 的旧 HTTP 控制接口返回 410，现有配对记录、偏好、容器与用户文件保留，不在部署或打开历史页面时撤销、清理或重新连接。项目的独立网页采集业务不受该停用影响。
+
+主应用启动使用 `.venv/bin/python app.py`，默认入口为 Uvicorn ASGI；也可运行 `.venv/bin/uvicorn asgi:create_app --factory --host 127.0.0.1 --port 8000`。仅启动 Flask WSGI 无法提供原生 Harness 流。异步服务的 Docker Compose 启停与维护命令见[部署指南](../guides/async-agent-runtime.md)。
 
 ## 页面与官方契约
 
@@ -36,11 +59,11 @@ Agent 配置、模型与交互的修复见 [2026-11-17 对齐记录](reports/age
 
 ## 同步与运行恢复
 
-前台统一为“知识库”入口，以业务卡片聚合一个 Wiki 库与可选图谱库。内部空间配置与资源映射仍保存在 Docker PostgreSQL 的既有平台运行记录中，不保存替代知识资产。`/platform/knowledge-bases` 展示业务卡片，旧 `/platform/knowledge-spaces` 列表重定向；scope 详情、原官方库 ID 和引用深链保留。未绑定官方库通过“关联已有库”查看或关联。新范围默认只提交 Wiki；已有范围保留双库行为与资源 ID。关闭图谱不删除资料，也不取消已经受理的批次。两边官方模式互斥，因此仍分别记录目标、文档 ID 和处理状态。
+前台统一为“知识库”入口，每个业务范围（scope）绑定一个官方知识库和一种模式（Wiki 或图谱），旧双库字段归一化后保留兼容读取；内部空间配置与资源映射保存在 Docker PostgreSQL 的既有平台运行记录中，不保存替代知识资产。`/platform/knowledge-bases` 展示业务卡片，旧 `/platform/knowledge-spaces` 列表重定向；scope 详情、原官方库 ID 和引用深链保留。未绑定官方库通过“关联已有库”查看或关联。模式由官方库的 `wiki_enabled/graph_enabled` 决定；同库数据不因模式字段变化复制，历史双库 ID 可继续解析到业务空间。
 
 官方目标库被外部删除时，只有明确不存在响应才标为 `missing`，401/403 或网络故障不作删除处理。空间和进度保留历史投递回执与旧库 ID，跳过已缺失目标的逐文档读取；页面访问不自动建库。恢复需明确重新关联或提交，受在途同步保护；新旧库记录不互相覆盖，历史 ID 可继续解析到业务空间。当前默认 Wiki 已由用户或并行任务恢复为新目标，既有图谱库不变。
 
-采集与文件上传都经 `/platform/collect?space=<scope>` 接入，后端校验当前账号的范围归属。文件原件保留在受控目录，格式处理能力由 ContextDB 判定；平台入口仍有一次 50 个文件、请求总计 100 MB 的传输限制。新来源身份包含业务范围，同源导入不同空间不会互相覆盖；同范围已有来源 ID 保持不变。
+采集与文件上传从任务页的采集引导进入（旧 `/platform/collect` 地址重定向到 `/platform/tasks` 并自动打开上传引导），后端校验当前账号的范围归属。文件原件保留在受控目录，格式处理能力由 ContextDB 判定；平台入口仍有一次 50 个文件、请求总计 100 MB 的传输限制。新来源身份包含业务范围，同源导入不同空间不会互相覆盖；同范围已有来源 ID 保持不变。
 
 任务页的“提交治理”调用 `/tasks/<id>/submit`，旧 `/publish` 路径作为兼容别名保留。每次提交固定目标清单，同范围当前资料形成来源快照。官方模式不匹配时阻止投递，不悄悄换库。相同已受理哈希在待评审期间也不重复提交；只对明确的重复创建冲突进行定位更新。上传与更新结果未知时先读回官方记录，不能补造成功或盲目重写。
 
@@ -62,7 +85,7 @@ Agent 配置、模型与交互的修复见 [2026-11-17 对齐记录](reports/age
 
 知识访问仍使用 ContextDB 官方工具名称、参数 Schema 和结果。模型依据本轮原生 ToolMessage 结果给出出处；保留真实库、文档与切片 ID。不把图谱合成内容当原文，也不宣称程序已验证自然语言结论的语义支持。
 
-原生提问、HITL、计划、子代理与虚拟文件工具保留。Skills 上传和查看不运行脚本，不自动安装依赖。当前提供官方 StateBackend 与隔离 OpenSandbox；应用层 fork/rewind 使用原生 checkpoint。浏览器、steering 和自动安装仍未接入。异步子代理配置与后台结果、更新、取消、真实中断恢复已接入；部署能力 `agents.async` 必须明确开启，缺失或失败按不可用处理，历史已选配置保留供显式修正。当前运行服务已部署健康，并发策略及最终镜像复验均已通过，主应用开关已设为 `ASYNC_AGENT_RUNTIME_ENABLED=1`；浏览器确认后台异步可选、真实审批后显示完成结果，无需用户重新部署。
+原生提问、HITL、计划、子代理与虚拟文件工具保留。Skills 上传和查看不运行脚本，不自动安装依赖。当前提供官方 StateBackend 与隔离 OpenSandbox；应用层 fork/rewind 使用原生 checkpoint。浏览器运行时已退役（旧控制接口返回 410），steering 和自动安装仍未接入。异步子代理配置与后台结果、更新、取消、真实中断恢复已接入；部署能力 `agents.async` 必须明确开启，缺失或失败按不可用处理，历史已选配置保留供显式修正。当前运行服务已部署健康，并发策略及最终镜像复验均已通过，主应用开关已设为 `ASYNC_AGENT_RUNTIME_ENABLED=1`；浏览器确认后台异步可选、真实审批后显示完成结果，无需用户重新部署。
 
 Wiki 编译器准入尚未通过，当前仅由 **ContextDB 官方编译**。独立库已有 13/13 切片分页读取及页面 CAS 实测；0.0.9 新增完整索引/目录分页和人工整理契约，但增量受影响主题与来源映射、完整编译元数据写入及可靠隔离仍未验证。pause 只阻止新编译，不能隔离在途任务。未创建编译器空壳、未增加 Worker 等待/编译阶段、未迁移或重编译业务库。编辑受理返回新版本也不代表正文已发布，必须回读核对。详见[准入证据与清理记录](contextdb-wiki-compiler-readiness.md)。
 
@@ -96,8 +119,8 @@ flowchart TD
 - 官方 MCP/deepagents：真实只读问答完成，返回2条官方文档/切片出处；没有 REST 检索回退。
 - 迁移：旧 `_governance` 27条记录只读备份；任务3、来源/版本/批次等映射5、会话1、checkpoint5、待写记录6导入 PostgreSQL。旧本地评审判断、锁和心跳只保留备份。重复导入核对完成。快照、SHA256与报告位于 `downloads/migrations/`。
 - 自动检查：默认 pytest 禁止 ContextDB 云请求，平台测试使用 Docker 独立测试库/schema。覆盖跨用户隔离、密钥绑定、权限撤销、真实 PostgreSQL checkpoint 重开、增量消息恢复、版本冲突、重复提交、人工恢复、部分失败与源数据不经本地解析。
-- 后端129项通过、1项跳过；前端相关测试167项通过，Vue 类型检查和生产构建通过。浏览器完成8个页面巡检、新建/继续对话、官方工具过程与引用原文定位检查；详见 [验证记录](../guides/governance-validation.md)。
-- 上述数字和云端实测属于此前治理平台基线。本次免费 Harness 改造使用真实官方 SDK、隔离 PostgreSQL 与受控模型/MCP fixture 验证；浏览器连接实际 Harness 与生产前端构建，不代表真实云端模型或生产部署验收。当前结果见 [Agent 验证边界](../guides/agent-interaction-validation.md)。
+- 后端129项通过、1项跳过；前端相关测试167项通过，Vue 类型检查和生产构建通过。浏览器完成8个页面巡检、新建/继续对话、官方工具过程与引用原文定位检查；详见 [验证记录（历史归档）](../archive/governance-validation.md)。
+- 上述数字和云端实测属于此前治理平台基线。本次免费 Harness 改造使用真实官方 SDK、隔离 PostgreSQL 与受控模型/MCP fixture 验证；浏览器连接实际 Harness 与生产前端构建，不代表真实云端模型或生产部署验收。当前结果见 [Agent 验证边界（历史归档）](../archive/agent-interaction-validation.md)。
 
 ## 官方能力阻塞与本期限制
 

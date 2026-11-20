@@ -5,7 +5,6 @@ import { readFileSync } from 'node:fs'
 const dialog = readFileSync(new URL('./UploadConfirmDialog.vue', import.meta.url), 'utf8')
 const editor = readFileSync(new URL('../KnowledgeBaseEditorModal.vue', import.meta.url), 'utf8')
 const host = readFileSync(new URL('../../../components/UploadConfirmHost.vue', import.meta.url), 'utf8')
-const knowledgeBase = readFileSync(new URL('../KnowledgeBase.vue', import.meta.url), 'utf8')
 const platform = readFileSync(new URL('../../platform/index.vue', import.meta.url), 'utf8')
 
 test('selects multiple document tags and returns them with the confirmation result', () => {
@@ -14,16 +13,6 @@ test('selects multiple document tags and returns them with the confirmation resu
   assert.match(dialog, /multiple/)
   assert.match(dialog, /listKnowledgeTags\(kbId, \{ page: 1, page_size: 1000 \}\)/)
   assert.match(dialog, /tagIds: \[\.\.\.selectedTagIds\.value\]/)
-})
-
-test('uses confirmed tags for file and URL imports instead of reading the list filter at upload time', () => {
-  assert.match(knowledgeBase, /const tagIds = result\.tagIds \|\| \[\]/)
-  assert.match(knowledgeBase, /enqueueUploads\(files, \{[\s\S]*?\btagIds,[\s\S]*?\}\)/)
-  assert.match(knowledgeBase, /executeUrlImport\(url, processConfig, tagIds\)/)
-  assert.doesNotMatch(
-    knowledgeBase,
-    /const tagIdsToUpload = selectedTagIds\.value\.length > 0 \? \[\.\.\.selectedTagIds\.value\] : undefined/,
-  )
 })
 
 // Browsing a folder pre-fills the upload destination, so the dialog must show it
@@ -38,9 +27,6 @@ test('takes the upload destination folder from the confirmation result', () => {
   assert.match(dialog, /FolderPickerMenu/)
   assert.match(dialog, /onDestinationPicked/)
   assert.match(dialog, /targetFolder: localTargetFolder\.value/)
-  assert.match(knowledgeBase, /targetFolder: result\.targetFolder \|\| ROOT_FOLDER_PATH/)
-  assert.match(knowledgeBase, /targetFolder: selectedFolderPath\.value/)
-  assert.match(knowledgeBase, /folderOptions: folderOptions\.value/)
 })
 
 test('creates sub-folders from per-row actions without changing the selected destination', () => {
@@ -62,10 +48,8 @@ test('calls out directory uploads via relative paths in the file list', () => {
   assert.doesNotMatch(dialog, /folder-upload-banner/)
 })
 
-test('routes global knowledge file drops through the upload confirmation flow', () => {
-  assert.match(platform, /weknora:knowledge-file-drop/)
-  assert.match(knowledgeBase, /handleKnowledgeFileDrop/)
-  assert.match(knowledgeBase, /handleUploadSourceFiles\(files\)/)
+test('routes global chat file drops through the chat drop event', () => {
+  assert.match(platform, /weknora:chat-file-drop/)
 })
 
 test('uses section navigation with inline chunking controls and advanced options grouped', () => {

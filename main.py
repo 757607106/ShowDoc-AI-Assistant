@@ -21,6 +21,9 @@ import tempfile
 from pathlib import Path
 from collections import Counter
 
+from common.env_sanitize import sanitize_no_proxy
+sanitize_no_proxy()
+
 from registry import ENTRIES, create_crawler, get_entry
 
 

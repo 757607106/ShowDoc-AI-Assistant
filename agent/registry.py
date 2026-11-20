@@ -617,14 +617,6 @@ async def mcp_tools(owner_id, config):
     return result
 
 
-def skill_targets(value):
-    return value.get('targets', ['state-backend'])
-
-
-def skill_enabled(value, target):
-    return target in skill_targets(value) and value.get('target_enabled', {}).get(target, value.get('enabled', True))
-
-
 def save_skill(name, files, owner_id, skill_id=None):
     if not isinstance(name, str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,100}', name):
         raise StoreError('Skill 名称只能含字母、数字、点、下划线和连字符', 400)

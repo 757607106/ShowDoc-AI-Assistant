@@ -244,14 +244,17 @@ class BaseCrawler:
             path = (Path(self.save_dir) / doc.source_path).resolve()
             if not path.is_relative_to(Path(self.save_dir).resolve()):
                 raise ValueError("源文件不在当前任务目录中")
-            source = path.read_bytes()
+            digest = hashlib.sha256()
+            with path.open('rb') as source_file:
+                for chunk in iter(lambda: source_file.read(1024 * 1024), b''):
+                    digest.update(chunk)
         else:
-            source = content.encode("utf-8")
+            digest = hashlib.sha256(content.encode("utf-8"))
         return {
             "id": doc.id, "title": doc.title, "category": doc.category,
             "content": content, "source_format": doc.source_format, "source_path": doc.source_path,
             "updated_at": doc.updated_at, "metadata": doc.metadata, "resources": doc.resources,
-            "source_sha256": hashlib.sha256(source).hexdigest(),
+            "source_sha256": digest.hexdigest(),
             "captured_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -295,7 +298,7 @@ class BaseCrawler:
                 resources=record.get("resources", {"images": [], "links": []}),
             ))
         failed = [DocumentStub(doc.id, doc.title, doc.category, doc.metadata.get("url", ""))
-                  for doc in documents if doc.metadata.get("fetch_error") or
+                  for doc in documents if doc.metadata.get("fetch_error") or doc.metadata.get("resource_errors") or
                   (not doc.source_path and not self._source_record(doc)['content'].strip())]
         if resume_collection or failed:
             self.authenticate()
@@ -307,9 +310,15 @@ class BaseCrawler:
             failed.extend(stub for stub in stubs if stub.id not in existing)
         if failed:
             replaced = {stub.id for stub in failed}
+            replaced.update(
+                doc.id for doc in documents
+                if str(doc.metadata.get("parent_document_id") or "") in replaced
+            )
             documents = [doc for doc in documents if doc.id not in replaced] + self._fetch_all(failed)
         if resume_collection:
             self._mark_collection_complete(documents)
+        if failed or resume_collection:
+            write_jsonl(source_file, (self._source_record(doc) for doc in documents))
         self._convert_all(documents)
         return self._save(documents)
 
@@ -382,8 +391,15 @@ class BaseCrawler:
         records, failed = [], []
         for doc in documents:
             record = self._source_record(doc)
-            if doc.metadata.get('fetch_error') or (not record['content'].strip() and not doc.source_path):
-                failed.append({**record, 'error': doc.metadata.get('fetch_error') or '源正文为空'})
+            resource_errors = doc.metadata.get('resource_errors') or []
+            error = doc.metadata.get('fetch_error') or '; '.join(
+                str(item.get('error') or item) if isinstance(item, dict) else str(item)
+                for item in resource_errors
+            )
+            if not error and not record['content'].strip() and not doc.source_path:
+                error = '源正文为空'
+            if error:
+                failed.append({**record, 'error': error})
             else:
                 records.append(record)
         root = Path(self.save_dir)
@@ -418,7 +434,8 @@ class BaseCrawler:
             sources[doc.id] = self._source_record(doc)
         write_jsonl(source_documents_file, sources.values())
         valid = [doc for doc in all_documents if doc.docling_path
-                 and not doc.metadata.get("conversion_error") and not doc.metadata.get("fetch_error")]
+                 and not doc.metadata.get("conversion_error") and not doc.metadata.get("fetch_error")
+                 and not doc.metadata.get("resource_errors")]
         quality_report = assess_documents(all_documents)
         failed_documents = len(all_documents) - len(valid)
         valid_ids = {id(doc) for doc in valid}
@@ -428,8 +445,11 @@ class BaseCrawler:
             (
                 {
                     **self._source_record(doc),
-                    "phase": "fetch" if doc.metadata.get("fetch_error") else "conversion",
-                    "error": doc.metadata.get("fetch_error") or doc.metadata.get("conversion_error"),
+                    "phase": ("fetch" if doc.metadata.get("fetch_error") else
+                              "resource" if doc.metadata.get("resource_errors") else "conversion"),
+                    "error": (doc.metadata.get("fetch_error") or doc.metadata.get("conversion_error") or
+                              '; '.join(str(item.get('error') or item) if isinstance(item, dict) else str(item)
+                                        for item in doc.metadata.get("resource_errors") or [])),
                 }
                 for doc in all_documents
                 if id(doc) not in valid_ids

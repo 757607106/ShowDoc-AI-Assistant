@@ -92,7 +92,7 @@ integrations/
 registry.py       入口注册表：分类键 → 爬虫类（新增平台只改这里）
 main.py           CLI 入口：--entry 选择平台
 app.py            Web 端（第 4 阶段改走 registry）
-cyb_rag_md.py     历史启动入口（薄委托，等价 python main.py --entry cyb）
+cyb_rag_md.py     历史启动入口（薄委托，已删除；等价命令 python main.py --entry cyb）
 ```
 
 ### 4.2 核心抽象（crawlers/base.py）
@@ -177,7 +177,7 @@ python main.py --list-entries                      # 列出全部可用入口
 python main.py --entry tiantong --list-documents   # 查看分类与数量（不落盘）
 python main.py --entry tiantong                    # 全量爬取
 python main.py --entry tiantong --limit 5          # 小样本试跑
-python main.py --entry tiantong --page-size 100 --pipeline builtin
+python main.py --entry tiantong --page-size 100
 ```
 
 注册表条目：`key / crawler_class / display_name / entry_url / requires_auth / description`。Web 端（第 4 阶段）与 CLI 共用同一注册表。

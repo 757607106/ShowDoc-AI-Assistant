@@ -253,6 +253,16 @@ def paginate_plan(session, plan, max_records=0, max_api_pages=200, timeout=25):
     """重放已验证的只读分页请求，并按记录身份去重。"""
     records = []
     seen = set()
+    request_count = 0
+    captured_pending = True
+    start_page = 1
+    source = plan.body if plan.method == "POST" else dict(
+        urllib.parse.parse_qsl(urllib.parse.urlsplit(plan.url).query, keep_blank_values=True)
+    )
+    try:
+        start_page = max(1, int(source.get(plan.page_key, 1)))
+    except (TypeError, ValueError):
+        pass
 
     def append_records(items):
         added = 0
@@ -269,63 +279,59 @@ def paginate_plan(session, plan, max_records=0, max_api_pages=200, timeout=25):
                 break
         return added
 
-    append_records(plan.first_records)
-    if max_records and len(records) >= max_records:
-        return PaginationResult(plan, records[:max_records], 0, False, "record_limit")
-    if plan.total is not None and len(records) >= plan.total:
-        return PaginationResult(plan, records, 0, True, "total_reached")
+    def finish(complete, stop_reason):
+        if captured_pending:
+            append_records(plan.first_records)
+        return PaginationResult(
+            plan,
+            records[:max_records] if max_records else records,
+            request_count,
+            complete,
+            stop_reason,
+        )
 
-    request_count = 0
-    start_page = 1
-    source = plan.body if plan.method == "POST" else dict(
-        urllib.parse.parse_qsl(urllib.parse.urlsplit(plan.url).query, keep_blank_values=True)
-    )
-    try:
-        start_page = int(source.get(plan.page_key, 1))
-    except (TypeError, ValueError):
-        start_page = 1
-
-    for page_number in range(start_page + 1, start_page + max_api_pages):
-        if max_records and len(records) >= max_records:
-            return PaginationResult(plan, records[:max_records], request_count, False, "record_limit")
-        if plan.total is not None and len(records) >= plan.total:
-            return PaginationResult(plan, records, request_count, True, "total_reached")
-
-        request_count += 1
-        if plan.method == "POST":
-            payload = copy.deepcopy(plan.body)
-            payload[plan.page_key] = page_number
-            response = session.post(
-                plan.url,
-                json=payload,
-                headers=plan.headers,
-                timeout=timeout,
-            )
+    for page_number in range(1, max_api_pages + 1):
+        if page_number == start_page:
+            items = plan.first_records
+            captured_pending = False
         else:
-            parsed = urllib.parse.urlsplit(plan.url)
-            params = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
-            params[plan.page_key] = page_number
-            request_url = urllib.parse.urlunsplit(
-                (parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(params), "")
-            )
-            response = session.get(request_url, headers=plan.headers, timeout=timeout)
-        response.raise_for_status()
-        payload = response.json()
-        items = value_at_path(payload, plan.list_path)
-        if not isinstance(items, list):
-            return PaginationResult(plan, records, request_count, False, "invalid_response")
-        if not items:
-            complete = plan.total is None or len(records) >= plan.total
-            return PaginationResult(plan, records, request_count, complete,
-                                    "empty_page" if complete else "total_mismatch")
-        if append_records(items) == 0:
-            return PaginationResult(plan, records, request_count, False, "duplicate_page")
+            request_count += 1
+            if plan.method == "POST":
+                payload = copy.deepcopy(plan.body)
+                payload[plan.page_key] = page_number
+                response = session.post(
+                    plan.url,
+                    json=payload,
+                    headers=plan.headers,
+                    timeout=timeout,
+                )
+            else:
+                parsed = urllib.parse.urlsplit(plan.url)
+                params = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+                params[plan.page_key] = page_number
+                request_url = urllib.parse.urlunsplit(
+                    (parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(params), "")
+                )
+                response = session.get(request_url, headers=plan.headers, timeout=timeout)
+            response.raise_for_status()
+            payload = response.json()
+            items = value_at_path(payload, plan.list_path)
+            if not isinstance(items, list):
+                return finish(False, "invalid_response")
 
-    complete = plan.total is not None and len(records) >= plan.total
-    return PaginationResult(
-        plan,
-        records[:max_records] if max_records else records,
-        request_count,
-        complete,
-        "total_reached" if complete else "page_limit",
-    )
+        if not items:
+            if captured_pending:
+                return finish(False, "missing_previous_page")
+            complete = plan.total is None or len(records) >= plan.total
+            return finish(complete, "empty_page" if complete else "total_mismatch")
+
+        added = append_records(items)
+        if added == 0:
+            return finish(False, "duplicate_page")
+        if not captured_pending and plan.total is not None and len(records) >= plan.total:
+            return finish(True, "total_reached")
+        if max_records and len(records) >= max_records:
+            return finish(False, "record_limit")
+
+    complete = not captured_pending and plan.total is not None and len(records) >= plan.total
+    return finish(complete, "total_reached" if complete else "page_limit")

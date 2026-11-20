@@ -8,7 +8,7 @@
 
 此前核查下载的是 [ContextDB 0.0.8 官方文档](https://g.alicdn.com/rdsai/contextdb-doc/0.0.8/contextdb-documentation.html#/api-overview)，HTML SHA256 为 `beb049f44247f13b5980987f51c73259dc64bdf981a2a32c0e1d86dcdff6d34f`；其中没有 Wiki API 专章属于旧版材料事实。当前 Wiki 契约以 [0.0.9 阅读与导航](https://g.alicdn.com/rdsai/contextdb-doc/0.0.9/contextdb-documentation.html#/api-kb-wiki-read)及 [Wiki 专项说明](contextdb-wiki-support.md)为准，不能沿用“未公开 Wiki API”的旧结论。其他领域的旧版核查与实测范围不因此扩大。
 
-分析阶段使用官方文档与代码静态对照；随后本轮实施已恢复真实云端联调，用独立临时资源验证平台文件上传、单 Wiki 投递、官方人工修订、修订正文检索、Wiki 编译及版本冲突，结果与清理记录见 [本轮验证记录](../guides/governance-validation.md)。此前报告曾保留为历史证据，不能替代本轮结果；API 契约与双库链路的机器快照已删除，[Wiki 边界核查](contextdb-wiki-support.md)仍在本仓库。
+分析阶段使用官方文档与代码静态对照；随后本轮实施已恢复真实云端联调，用独立临时资源验证平台文件上传、单 Wiki 投递、官方人工修订、修订正文检索、Wiki 编译及版本冲突，结果与清理记录见 [本轮验证记录（历史归档）](../archive/governance-validation.md)。此前报告曾保留为历史证据，不能替代本轮结果；API 契约与双库链路的机器快照已删除，[Wiki 边界核查](contextdb-wiki-support.md)仍在本仓库。
 
 本轮 0.0.9 Wiki 及云端目标删除/恢复相关后端回归 **161 项通过**。独立临时库的官方 API 写入和真实浏览器阅读/编辑/差异/编译控制已分别验收并清理，现有图谱库保留；用户删除的原默认 Wiki 后续已恢复新目标，旧库 ID 及投递回执作为历史保留。当前读取不自动建库或逐篇访问已删除库，真实内容问题写入仍无冲突案例，详见 [Wiki 支持说明](contextdb-wiki-support.md)。
 
@@ -20,8 +20,8 @@
 | 爬取已有文档系统 | 官方云端 Connector 支持指定平台；未覆盖的系统继续用本项目采集器 | [ShowDoc](../../crawlers/showdoc.py)、[CYB](../../crawlers/cyb.py)、[天瞳](../../crawlers/tiantong.py)、[通用 Web](../../crawlers/web.py)负责登录与取得原资料，平台链路不再本地重新解析和语义分块 |
 | 检测质量、矛盾及知识冲突 | 官方 `knowledge/reviews`、`reviews/detail`、`reviews/action`、`reviews/resolve-conflicts` 和 `review_settings` | [知识 API](../../webapi/knowledge.py)与 [治理界面](../../frontend/src/views/KnowledgeView.vue)展示官方诊断、重写稿、冲突及人工决策，不自行计算治理结论 |
 | 在线修订并继续入库 | 官方评审动作 `accept_rewrite` 接受 `edited_content`；文本和文件分别有官方 PUT 更新通道 | 编辑器提交完整正文，保留官方文档 ID 和状态；文件不能用文本接口替换，二进制原件不能按 UTF-8 当作评审正文 |
-| Wiki 浏览与编辑 | 0.0.9 公开索引、树、详情、带版本编辑、修订差异及整理接口 | [原生 Wiki API](../../frontend/src/api/contextdbWiki.ts)、[官方转发](../../webapi/contextdb.py)、[ContextDBWiki](../../frontend/src/views/knowledge/wiki/ContextDBWiki.vue)读取真实版本、使用官方游标并保留冲突草稿；旧 WeKnora Wiki API 与组件已移除 |
-| 基于知识库问答与来源定位 | 官方 MCP `knowledge.search`、`knowledge.get_document`、图谱和来源切片工具；`knowledge.wiki_search` 导航 Wiki | [deepagents 构建](../../agent/graph.py)、[MCP 装载](../../agent/tools.py)、[执行服务](../../agent/service.py)、[Agent API](../../webapi/agent.py)及 WeKnora 对话组件负责交互、流式事件和出处展示 |
+| Wiki 浏览与编辑 | 0.0.9 公开索引、树、详情、带版本编辑、修订差异及整理接口 | [原生 Wiki API](../../frontend/src/api/contextdbWiki.ts)、[官方转发](../../webapi/contextdb/__init__.py)、[ContextDBWiki](../../frontend/src/views/knowledge/wiki/ContextDBWiki.vue)读取真实版本、使用官方游标并保留冲突草稿；旧 WeKnora Wiki API 与组件已移除 |
+| 基于知识库问答与来源定位 | 官方 MCP `knowledge.search`、`knowledge.get_document`、图谱和来源切片工具；`knowledge.wiki_search` 导航 Wiki | [deepagents 构建](../../agent/graph.py)、[MCP 装载](../../agent/tools.py)、[异步执行服务](../../agent/async_service.py)、[Agent API](../../webapi/agent.py)及 WeKnora 对话组件负责交互、流式事件和出处展示 |
 
 公开接口依据：[上传文件](https://g.alicdn.com/rdsai/contextdb-doc/0.0.8/contextdb-documentation.html#/api-uploadKnowledgeFile)、[分片上传](https://g.alicdn.com/rdsai/contextdb-doc/0.0.8/contextdb-documentation.html#/api-initializeKnowledgeFileUpload)、[评审详情](https://g.alicdn.com/rdsai/contextdb-doc/0.0.8/contextdb-documentation.html#/api-getKnowledgeReview)、[评审动作](https://g.alicdn.com/rdsai/contextdb-doc/0.0.8/contextdb-documentation.html#/api-performKnowledgeReviewAction)、[冲突处理](https://g.alicdn.com/rdsai/contextdb-doc/0.0.8/contextdb-documentation.html#/api-resolveKnowledgeReviewConflicts)、[评审设置](https://g.alicdn.com/rdsai/contextdb-doc/0.0.8/contextdb-documentation.html#/api-updateKnowledgeBaseReviewSettings)、[MCP 接入](https://g.alicdn.com/rdsai/contextdb-doc/0.0.8/contextdb-documentation.html#/integrate-mcp)。
 
@@ -45,7 +45,7 @@ ShowDoc、CYB、天瞳及任意登录网站未出现在该支持表中，保留�
 
 | 能力 | 证据等级 | 实施结论 |
 | --- | --- | --- |
-| Wiki 模式、自动编译、页面阅读维护 | 官方产品说明；当前页读写另有项目既有实测 | 复用官方服务。Wiki 与 graph 互斥，现有业务空间通过 Wiki 库及可选图谱库聚合，不在本地重建 |
+| Wiki 模式、自动编译、页面阅读维护 | 官方产品说明；当前页读写另有项目既有实测 | 复用官方服务。Wiki 与 graph 互斥，每个业务空间绑定一个官方库与一种模式（Wiki 或图谱），不在本地重建 |
 | Wiki 索引、目录树、详情、人工创建和编辑 | 0.0.9 公开 DATA API；项目有真实读取及既有独立写入实测 | 原生前端与精确方法代理；目录分页不依赖搜索上限，编辑保留 CAS 和正文回读 |
 | 修订历史、正文差异 | 0.0.9 公开 `revisions`、`revisions/diff`；真实修订差异 GET 已验证 | 修订 ID 比较及 800 行截断提示，不当作原生回滚或全库审批队列 |
 | 目录/页面整理、编译控制、内容问题处置 | 0.0.9 公开 actions、tasks、事件/任务读取接口 | 接入官方参数、版本与幂等键；pause 只阻止新编译，不证明在途任务已隔离 |

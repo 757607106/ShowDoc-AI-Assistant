@@ -20,11 +20,11 @@
 | [ContextDBPolicies.vue](../../frontend/src/views/knowledge/ContextDBPolicies.vue) | 策略与模板整页、知识库选择与管理权限传递 |
 | [ContextDBReviewSettings.vue](../../frontend/src/views/knowledge/ContextDBReviewSettings.vue) | 官方四项评审策略配置、仅提交改动字段与保存后回读 |
 | [ContextDBTemplates.vue](../../frontend/src/views/knowledge/ContextDBTemplates.vue) | 官方重写模板列表、详情、章节编辑与 Markdown 预览 |
-| [contextdb.py](../../webapi/contextdb.py) | 当前成员鉴权后的官方端点转发、知识库生命周期门禁及同库写锁 |
+| [contextdb 包](../../webapi/contextdb/__init__.py) | 当前成员鉴权后的官方端点转发、知识库生命周期门禁及同库写锁 |
 
-`ContextDBKnowledge.vue` 与 [KnowledgeBase.vue](../../frontend/src/views/knowledge/KnowledgeBase.vue)装配原生 Wiki 组件。Wiki 内部的“Wiki 阅读”和“Wiki 编译记录”共用知识库上下文，编译区域复用现有编译组件；正文阅读与模板预览复用已有 `DocMarkdown`。页面 ID、版本、游标和状态均使用 ContextDB 的真实值。
+`ContextDBKnowledge.vue` 装配原生 Wiki 组件（旧 WeKnora `KnowledgeBase.vue` 已随旧知识库 UI 退役）。Wiki 内部的“Wiki 阅读”和“Wiki 编译记录”共用知识库上下文，编译区域复用现有编译组件；正文阅读与模板预览复用已有 `DocMarkdown`。页面 ID、版本、游标和状态均使用 ContextDB 的真实值。
 
-旧 `WikiBrowser.vue`、`WikiFolderActions.vue`、`WikiRevisionDrawer.vue`、`api/wiki/index.ts` 及其专用目录/反链兼容逻辑和测试已清理。旧 `WikiView.vue`、`api/backend.ts` 中的 `/api/wiki/...` 调用、后端 `webapi/wiki.py` 以及 `/api/contextdb/wiki-search` 桥接一并移除。平台 Wiki 不再请求上游 `/api/v1/knowledgebase/{kbId}/wiki/...`，也不再使用最多 50 条搜索结果代替完整目录。
+旧 `WikiBrowser.vue`、`WikiFolderActions.vue`、`WikiRevisionDrawer.vue` 及其专用目录/反链兼容逻辑和测试已清理；`api/wiki/index.ts` 仍被 Agent 流展示与数据源编辑引用。旧 `WikiView.vue`、`api/backend.ts` 中的 `/api/wiki/...` 调用、后端 `webapi/wiki.py` 以及 `/api/contextdb/wiki-search` 桥接一并移除。平台 Wiki 不再请求上游 `/api/v1/knowledgebase/{kbId}/wiki/...`，也不再使用最多 50 条搜索结果代替完整目录。
 
 Agent 保留官方 MCP `knowledge.wiki_search`。前端迁移为 REST 搜索并不删除或重新包装 Agent 的官方知识工具；旧引用中的 slug 通过新接口在当前知识库中定位，不能据此跳过成员权限或转向 WeKnora 后端。
 
@@ -74,4 +74,4 @@ ContextDB 的 Wiki 与 graph 不能在同一库同时开启。创建弹窗默认
 
 截图位于 [output/verification/contextdb-official-ui-20261116](../../output/verification/contextdb-official-ui-20261116/)，包含 `files.jpg`、`graph.jpg`、`review.jpg`、`wiki-read.jpg`、`wiki-compile.jpg`、`wiki-edit.jpg`、`wiki-history.jpg`、`review-settings.jpg`、`rewrite-template.jpg`、`create-knowledge-base.jpg`、`upload.jpg`、`metadata.jpg`。本轮没有提交云端写操作，也没有执行自动像素差异全通过的验证；上述结果不代表真实保存、删除、异步编译或邀测能力的写入验收。
 
-未在本轮真实业务数据上生成或处置 Wiki 内容冲突，也未执行邀测本体 API、生产切换或并发负载验收；替身测试不替代这些边界。完整当前对齐与数据流记录见 [知识库与知识评审对齐记录](../guides/contextdb-knowledge-alignment-20261116.md)。
+未在本轮真实业务数据上生成或处置 Wiki 内容冲突，也未执行邀测本体 API、生产切换或并发负载验收；替身测试不替代这些边界。完整当前对齐与数据流记录见 [知识库与知识评审对齐记录](reports/contextdb-knowledge-alignment-20261116.md)。

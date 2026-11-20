@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { currentTask, taskFilter, taskStatusLabel, type MaterialTask } from './materialTasks.ts'
+import { currentTask, materialErrorLabel, taskFilter, taskSourceName, taskStatusLabel, type MaterialTask } from './materialTasks.ts'
 
 const capture: MaterialTask = {task_id:'capture', scope:'a', kind:'crawl', entry:'showdoc', status:'completed', phase:'submitted', submission_id:'snapshot', sync_task_id:'latest'}
 const submission: MaterialTask = {task_id:'latest', scope:'a', kind:'ctxdb_sync', status:'running', phase:'syncing', release_id:'snapshot', source_task_id:'capture', progress:50}
@@ -24,4 +24,13 @@ test('captured, queued, submission failures, and cloud completion remain differe
   assert.equal(taskFilter({...capture, submission_task:{...submission, status:'partial'}}), 'action')
   assert.equal(taskFilter({...capture, status:'partial', submission_task:submission}), 'action')
   assert.equal(taskFilter({...capture, status:'cancelled', submission_task:submission}), 'done')
+})
+
+test('material labels use business names and never echo unrecognized diagnostics', () => {
+  assert.equal(taskSourceName({...capture, entry:'old_internal_crawler', entry_name:'old_internal_crawler'}), '资料采集')
+  assert.equal(taskSourceName({...capture, entry_name:'ShowDoc'}), 'ShowDoc')
+  assert.equal(materialErrorLabel('wiki/internal-id: COMMON_BAD_REQUEST: node not found (errorCode=1001)'), '找不到对应的资料')
+  assert.equal(materialErrorLabel('源正文为空'), '原文为空')
+  assert.equal(materialErrorLabel('读取超时'), '处理超时')
+  assert.equal(materialErrorLabel('EIO at /runtime/jobs/internal-id'), '')
 })

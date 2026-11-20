@@ -3,7 +3,6 @@ import base64
 import time
 import re
 from jsonpath_ng import parse
-import tempfile
 import os
 from common.model_api import chat_completion
 

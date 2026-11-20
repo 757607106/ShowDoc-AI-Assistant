@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
 import time
@@ -119,8 +120,10 @@ class ClubCmgraspAdapter(WebSourceAdapter):
         self, endpoint, category, record_type, remaining=0, metadata_only=False
     ):
         records = []
+        seen = set()
         total = None
         page_number = 1
+        stop_reason = "page_limit"
         max_api_pages = max(1, int(os.getenv("WEB_CRAWLER_MAX_API_PAGES", "200")))
         while page_number <= max_api_pages:
             result = self._post(endpoint, {"pn": page_number, "ps": self.page_size})
@@ -130,12 +133,19 @@ class ClubCmgraspAdapter(WebSourceAdapter):
             except (TypeError, ValueError):
                 total = None
             if metadata_only:
+                stop_reason = "metadata_only"
                 break
             if not items:
+                stop_reason = "empty_page"
                 break
+            added = 0
             for item in items:
                 if not isinstance(item, dict) or not item.get("id"):
                     continue
+                record_id = str(item["id"])
+                if record_id in seen:
+                    continue
+                seen.add(record_id)
                 records.append(
                     {
                         "stub_id": f"{record_type}:{item['id']}",
@@ -145,22 +155,33 @@ class ClubCmgraspAdapter(WebSourceAdapter):
                         "data": item,
                     }
                 )
+                added += 1
                 if remaining and len(records) >= remaining:
                     break
+            if added == 0:
+                stop_reason = "duplicate_page"
+                break
             if remaining and len(records) >= remaining:
+                stop_reason = "record_limit"
                 break
             if total is not None and len(records) >= total:
+                stop_reason = "total_reached"
                 break
             page_number += 1
             delay = float(os.getenv("WEB_CRAWLER_API_DELAY", "0.03"))
             if delay > 0:
                 time.sleep(delay)
+        complete = not metadata_only and stop_reason != "duplicate_page" and (
+            (total is not None and len(records) >= total)
+            or (total is None and stop_reason == "empty_page")
+        )
         self.stats[record_type] = {
             "endpoint": endpoint,
             "reported_total": total,
             "fetched": len(records),
             "pages": page_number,
-            "complete": (total is not None and len(records) >= total) or (total is None and not items and not metadata_only),
+            "complete": complete,
+            "stop_reason": stop_reason,
         }
         return records
 
@@ -216,8 +237,12 @@ class ClubCmgraspAdapter(WebSourceAdapter):
         }.get(record_type, "")
         return f"http://club.cmgrasp.com/{route}?id={urllib.parse.quote(str(record_id))}"
 
-    def _fetch_answers(self, question_id):
+    def _fetch_answers(self, question_id, expected_count=0):
         answers = []
+        seen = set()
+        total = None
+        complete = False
+        stop_reason = "page_limit"
         page_number = 1
         while page_number <= 100:
             result = self._post(
@@ -225,20 +250,38 @@ class ClubCmgraspAdapter(WebSourceAdapter):
                 {"pn": page_number, "ps": 20, "questionId": question_id},
             )
             items = result.get("data") or []
-            if not items:
-                break
-            answers.extend(item for item in items if isinstance(item, dict))
             try:
                 total = int(result.get("total"))
             except (TypeError, ValueError):
-                total = len(answers)
-            if len(answers) >= total:
+                pass
+            if not items:
+                expected = total if total is not None else expected_count
+                complete = not expected or len(answers) >= expected
+                stop_reason = "empty_page" if complete else "total_mismatch"
+                break
+            added = 0
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                identity = str(item.get("id") or json.dumps(item, ensure_ascii=False, sort_keys=True, default=str))
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                answers.append(item)
+                added += 1
+            if added == 0:
+                stop_reason = "duplicate_page"
+                break
+            expected = total if total is not None else expected_count
+            if expected and len(answers) >= expected:
+                complete = True
+                stop_reason = "total_reached"
                 break
             page_number += 1
             delay = float(os.getenv("WEB_CRAWLER_API_DELAY", "0.03"))
             if delay > 0:
                 time.sleep(delay)
-        return answers
+        return answers, complete, stop_reason
 
     @staticmethod
     def _course_html(data):
@@ -274,8 +317,19 @@ class ClubCmgraspAdapter(WebSourceAdapter):
         html_content = str(data.get("content") or "")
         metadata = dict(data)
         if record_type == "question":
-            answers = self._fetch_answers(data["id"]) if int(data.get("answerCount") or 0) else []
+            expected_answers = int(data.get("answerCount") or 0)
+            answers, answers_complete, answer_stop_reason = (
+                self._fetch_answers(data["id"], expected_answers) if expected_answers else ([], True, "no_answers")
+            )
             metadata["answers"] = answers
+            metadata["answer_count_expected"] = expected_answers
+            metadata["answer_count_fetched"] = len(answers)
+            metadata["answers_complete"] = answers_complete
+            if not answers_complete:
+                metadata["resource_errors"] = [{
+                    "kind": "answers",
+                    "error": f"回答分页不完整: {answer_stop_reason}，预期 {expected_answers} 条，实际 {len(answers)} 条",
+                }]
             answer_html = "".join(
                 "<section><h3>回答</h3>"
                 f"<p><strong>回答者：</strong>{html.escape(str(answer.get('authorName') or '匿名'))}</p>"

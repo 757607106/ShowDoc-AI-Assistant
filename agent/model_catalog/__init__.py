@@ -5,8 +5,6 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote, urlencode, urlsplit
 
-from governance.store import StoreError
-
 _ROOT = Path(__file__).parent
 PROVIDERS = json.loads((_ROOT / 'providers.json').read_text())
 _MODELS = json.loads((_ROOT / 'models.json').read_text())

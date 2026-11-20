@@ -19,7 +19,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import httpx
 import requests
+from openai import APIConnectionError
 from common.model_api import chat_completion
 
 from html import escape
@@ -58,9 +60,10 @@ class LoginRejectedError(RuntimeError):
 class CYBAuthenticator:
     """通过验证码和手机号登录云创业版并获取访问 token。"""
 
-    def __init__(self, phone=None, password=None, ctx=None):
+    def __init__(self, phone=None, password=None, ctx=None, base_url=None):
         self.phone = phone or os.getenv("CYB_PHONE", "")
         self.password = password or os.getenv("CYB_PASSWORD", "")
+        self.base_url = (base_url or CYB_API_BASE_URL).rstrip("/")
         self.qwen_api_key = (
             os.getenv("DASHSCOPE_API_KEY", "")
             or os.getenv("QWEN_API_KEY", "")
@@ -75,7 +78,7 @@ class CYBAuthenticator:
     @property
     def cache_key(self):
         """同一账号复用登录态，避免预览、列表和任务各自重复登录。"""
-        return self.phone or "__default_cyb_account__"
+        return self.base_url, self.phone or "__default_cyb_account__"
 
     @classmethod
     def clear_token_cache(cls):
@@ -119,7 +122,7 @@ class CYBAuthenticator:
 
     def get_captcha(self):
         """获取同一次登录必须配套使用的 captchaKey 和 captchaImage。"""
-        result = self._request_json(f"{CYB_API_BASE_URL}/auth/captcha")
+        result = self._request_json(f"{self.base_url}/auth/captcha")
         if result.get("code") != "A00000":
             raise RuntimeError(
                 f"获取验证码失败[{result.get('code')}]: {result.get('message')}"
@@ -254,7 +257,7 @@ class CYBAuthenticator:
                 captcha_key, captcha_image = self.get_captcha()
                 captcha_code = self.recognize_captcha(captcha_image)
                 result = self._request_json(
-                    f"{CYB_API_BASE_URL}/auth/phone/login",
+                    f"{self.base_url}/auth/phone/login",
                     method="POST",
                     payload={
                         "phone": self.phone,
@@ -286,7 +289,7 @@ class CYBAuthenticator:
                     print(f"⚠️ {message}，正在刷新验证码后重试")
             except LoginRejectedError:
                 raise
-            except (OSError, ValueError, RuntimeError) as exc:
+            except (OSError, ValueError, RuntimeError, httpx.HTTPError, APIConnectionError) as exc:
                 last_error = exc
                 if attempt < max_retries:
                     print(f"⚠️ {exc}，正在刷新验证码后重试")
@@ -315,9 +318,10 @@ class CYBCrawler(BaseCrawler):
         self.site_base_url = f"{parts.scheme}://{parts.netloc}"
         self.entry_url = self.site_base_url
         self.timeout = timeout
-        self.authenticator = CYBAuthenticator(phone=phone, password=password)
+        self.authenticator = CYBAuthenticator(phone=phone, password=password, base_url=self.api_base_url)
         self._headers = {}
         self._items = {}
+        self.session = requests.Session()
         super().__init__(
             save_dir,
             progress_callback=progress_callback,
@@ -443,7 +447,7 @@ class CYBCrawler(BaseCrawler):
         return records
 
     def _fetch_list(self, path):
-        response = requests.get(
+        response = self.session.get(
             f"{self.api_base_url}{path}",
             headers=self._headers,
             timeout=self.timeout,
@@ -456,7 +460,7 @@ class CYBCrawler(BaseCrawler):
                 "Accept": "application/json",
                 "Authorization": f"Bearer {token}",
             }
-            response = requests.get(
+            response = self.session.get(
                 f"{self.api_base_url}{path}",
                 headers=self._headers,
                 timeout=self.timeout,

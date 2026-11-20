@@ -23,6 +23,16 @@ class CYBAuthTests(unittest.TestCase):
 
         login.assert_called_once_with(max_retries=3)
 
+    def test_token_cache_is_isolated_by_site(self):
+        first = CYBAuthenticator(phone="13800000000", password="secret", base_url="https://a.example/api")
+        second = CYBAuthenticator(phone="13800000000", password="secret", base_url="https://b.example/api")
+
+        with patch.object(CYBAuthenticator, "_login_uncached", side_effect=["token-a", "token-b"]) as login:
+            self.assertEqual(first.login(), "token-a")
+            self.assertEqual(second.login(), "token-b")
+
+        self.assertEqual(login.call_count, 2)
+
     def test_force_login_replaces_cached_token(self):
         authenticator = CYBAuthenticator(phone="13800000000", password="secret")
 
@@ -71,6 +81,30 @@ class CYBAuthTests(unittest.TestCase):
             with self.assertRaises(httpx.ConnectError):
                 authenticator.recognize_captcha('aW1hZ2U=')
         completion.assert_called_once()
+
+    def test_login_retries_model_network_failure(self):
+        authenticator = CYBAuthenticator(phone="13800000000", password="secret")
+        with patch.object(authenticator, "get_captcha", return_value=("key", "image")), \
+                patch.object(authenticator, "recognize_captcha", side_effect=[httpx.ConnectError("down"), "a1B2"]) as recognize, \
+                patch.object(authenticator, "_request_json", return_value={
+                    "code": "A00000", "data": {"loginResult": {"token": "token-1"}}
+                }):
+            self.assertEqual(authenticator.login(max_retries=2), "token-1")
+
+        self.assertEqual(recognize.call_count, 2)
+
+    def test_custom_site_is_used_for_captcha_and_login(self):
+        authenticator = CYBAuthenticator(
+            phone="13800000000", password="secret", base_url="https://custom.example/api"
+        )
+        with patch.object(authenticator, "get_captcha", return_value=("key", "image")), \
+                patch.object(authenticator, "recognize_captcha", return_value="a1B2"), \
+                patch.object(authenticator, "_request_json", return_value={
+                    "code": "A00000", "data": {"loginResult": {"token": "token-1"}}
+                }) as request_json:
+            authenticator.login()
+
+        self.assertEqual(request_json.call_args.args[0], "https://custom.example/api/auth/phone/login")
 
 
 if __name__ == "__main__":

@@ -26,13 +26,6 @@ MAX_TOTAL = 512 * 1024 * 1024
 MAX_FILE = 32 * 1024 * 1024
 MAX_FILES = 20_000
 MAX_ENTRIES = 100_000
-RESERVED_ENVS = {'PATH', 'HOME', 'USER', 'SHELL', 'LD_PRELOAD', 'LD_LIBRARY_PATH',
-                 'PYTHONPATH', 'PYTHONHOME', 'NODE_OPTIONS', 'WEKNORA_SESSION_ID',
-                 'WEKNORA_BROWSER_ROOT', 'WEKNORA_SESSION_INPUT_DIR'}
-
-
-def env_name(name):
-    return isinstance(name, str) and re.fullmatch(r'[A-Z_][A-Z0-9_]{0,127}', name) and name not in RESERVED_ENVS and not name.startswith('WEKNORA_SKILL_')
 
 
 def metadata(content):

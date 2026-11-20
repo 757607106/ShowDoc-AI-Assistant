@@ -71,6 +71,43 @@ class ClubAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '采集范围不完整'):
             adapter.crawl_documents(selected_ids=['question:10', 'question:missing'])
 
+    def test_repeated_list_page_is_incomplete_instead_of_reaching_total(self):
+        adapter = self.make_adapter()
+        adapter.page_size = 1
+        adapter._post = lambda *args: {"data": [{"id": 10}], "total": 2}
+
+        records = adapter._load_endpoint("question/list", "社区问答", "question")
+
+        self.assertEqual(len(records), 1)
+        self.assertFalse(adapter.stats["question"]["complete"])
+        self.assertEqual(adapter.stats["question"]["stop_reason"], "duplicate_page")
+
+    def test_answers_without_total_continue_beyond_first_page(self):
+        adapter = self.make_adapter()
+        pages = {
+            1: {"data": [{"id": 20}, {"id": 21}]},
+            2: {"data": [{"id": 22}]},
+            3: {"data": []},
+        }
+        adapter._post = lambda endpoint, payload: pages[payload["pn"]]
+
+        answers, complete, stop_reason = adapter._fetch_answers(10, expected_count=3)
+
+        self.assertEqual([item["id"] for item in answers], [20, 21, 22])
+        self.assertTrue(complete)
+        self.assertEqual(stop_reason, "total_reached")
+
+    def test_missing_answers_mark_the_question_as_incomplete(self):
+        adapter = self.make_adapter()
+        stub = adapter.list_documents()[0]
+        adapter._post = lambda *args: {"data": []}
+
+        document = adapter.fetch_document(stub)
+
+        self.assertFalse(document.metadata["answers_complete"])
+        self.assertIn("预期 1 条，实际 0 条", document.metadata["resource_errors"][0]["error"])
+        self.assertEqual(document.metadata["resource_errors"][0]["kind"], "answers")
+
 
 if __name__ == "__main__":
     unittest.main()

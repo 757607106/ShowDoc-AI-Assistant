@@ -84,6 +84,23 @@ def test_new_root_label_renames_mapped_directory_without_changing_identity(envir
     assert client.get_document(kb, doc['id']) == before
 
 
+def test_deleted_source_directory_is_recreated_with_a_new_node(environment):
+    store, client, kb = environment
+    parent, _ = ImportDirectories(store, kb).target(capture())
+    client.nodes.pop(parent)  # ContextDB 侧目录节点被删除，平台映射未同步清除
+    with pytest.raises(ContextDBError):
+        client.list_nodes(kb, parent_node_id=parent)
+    rebuilt, root = ImportDirectories(store, kb).target(capture())
+    assert rebuilt != parent and root[1]['node_id'] == rebuilt
+    assert len(client.list_nodes(kb)['items']) == 1
+    assert client.list_nodes(kb, parent_node_id=rebuilt)['parent_node']['display_name'] == '云辉煌知识库'
+    assert imported_locations(store, kb, 'showdoc:399') == []
+    ImportDirectories(store, kb).populated(root)
+    assert imported_locations(store, kb, 'showdoc:399') == [
+        {'knowledge_base_id': kb, 'node_id': rebuilt, 'root_name': '云辉煌知识库'}]
+    assert ImportDirectories(store, kb).target(capture())[0] == rebuilt
+
+
 def test_existing_child_directories_are_read_across_pages_before_creation(environment, monkeypatch):
     store, client, kb = environment
     parent, _ = ImportDirectories(store, kb).target(capture())

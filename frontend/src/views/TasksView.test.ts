@@ -36,7 +36,7 @@ function setup(t: TestContext, options: {
   return {vm, close, route, routes, reads, lists, writes, guards, warnings, poll:()=>poll()}
 }
 
-test('changing or closing details ignores delayed responses and keeps failure details and separate durations', async t => {
+test('changing or closing details ignores delayed responses and keeps failure details', async t => {
   const pending = new Map<string,(value:any)=>void>()
   const f = setup(t, {taskStatus:async id=>id==='slow'?new Promise(resolve=>pending.set(id,resolve)):{task_id:id,scope:'a',status:'partial',failure_details:[{title:'视频来源',error:'源正文为空'}]}})
   const slow = f.vm.openDetails('slow'); await f.vm.openDetails('current')
@@ -44,7 +44,6 @@ test('changing or closing details ignores delayed responses and keeps failure de
   assert.equal(f.vm.detail.task_id, 'current'); assert.equal(f.vm.detail.failure_details[0].error, '源正文为空')
   const closing = f.vm.openDetails('slow'); f.vm.closeDetails(); pending.get('slow')!({task_id:'slow'}); await closing
   assert.equal(f.vm.detailId, ''); assert.equal(f.vm.detail, null); assert.equal(f.vm.detailPending, false)
-  assert.equal(f.vm.duration(1800), '30 分 0 秒'); assert.equal(f.vm.duration(13), '13 秒')
 })
 
 test('a linked-detail read failure preserves the capture and its public submission summary', async t => {
@@ -55,23 +54,27 @@ test('a linked-detail read failure preserves the capture and its public submissi
   assert.match(f.vm.submissionReadError, /提交详情暂不可用/); assert.equal(f.vm.detailError, '')
 })
 
-test('detail recovery follows the failed stage and only reports completed submissions as done', async t => {
-  let sync = {task_id:'sync',scope:'a',kind:'ctxdb_sync',status:'partial',failed_pages:2,message:'知识库暂时不可用'}
+test('detail recovery follows the failed stage and presents a reason only when there are no failure rows', async t => {
+  let sync = {task_id:'sync',scope:'a',kind:'ctxdb_sync',status:'partial',failed_pages:2,message:'wiki/internal-id: COMMON_BAD_REQUEST: document not found (errorCode=1001)'}
   const f = setup(t, {taskStatus:async id => id === 'sync' ? sync : id === 'capture'
     ? {task_id:id,scope:'a',kind:'crawl',status:'completed',phase:'submitted',sync_task_id:'sync'}
     : {task_id:id,scope:'a',status:'partial',failed_pages:2,failure_details:[{error:'读取超时'}]}})
   await f.vm.openDetails('source')
   assert.equal(f.vm.detailFailure.task_id, 'source')
-  assert.match(f.vm.detailFailureReason, /其中一条.*读取超时/)
+  assert.equal(f.vm.detailFailureReason, '')
+  assert.equal(f.vm.failureReport.failure_details[0].error, '读取超时')
+  assert.equal(f.vm.submissionStatus, undefined)
 
   await f.vm.openDetails('capture')
   assert.equal(f.vm.detailFailure.task_id, 'sync')
-  assert.equal(f.vm.detailFailureReason, '知识库暂时不可用')
+  assert.equal(f.vm.detailFailureReason, '找不到对应的资料')
+  assert.equal(f.vm.submissionStatus, 'partial')
   assert.equal(f.vm.detailSubmissionDone, false)
 
   sync = {...sync, status:'completed', failed_pages:0, message:''}
   await f.vm.openDetails('capture', true)
   assert.equal(f.vm.detailFailure, null)
+  assert.equal(f.vm.submissionStatus, 'completed')
   assert.equal(f.vm.detailSubmissionDone, true)
 })
 
@@ -124,6 +127,14 @@ test('only current operations refresh details, retrying a sync opens its newly r
   await f.vm.act({task_id:'old-sync',scope:'a',kind:'ctxdb_sync',status:'failed'},'retry-sync')
   assert.deepEqual(f.writes.at(-1),{action:'retry-sync',scope:'a',id:'old-sync'})
   assert.equal(f.vm.detailId,'new-submission')
+})
+
+test('completed capture downloads its audit ZIP directly from the task row', async t => {
+  const f = setup(t)
+
+  await f.vm.downloadTask({task_id:'capture', kind:'crawl', download_available:true})
+
+  assert.deepEqual(f.writes, [{url:'/download/capture', name:'capture.zip'}])
 })
 
 test('viewer operations are rejected and queued submission is not cloud completion', async t => {

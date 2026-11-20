@@ -85,6 +85,25 @@ def test_run_sync_republish_updates_existing_documents(environment):
     assert result['uploaded'] == 0 and result['skipped'] == 2 and len(docs) == 2, '重复发布不重复上传'
 
 
+def test_deleted_target_is_redelivered_fresh_instead_of_failing_the_batch(environment):
+    store, client, release_id = environment
+    kb_id = get_space(store, 'default')['knowledge_base_id']
+    run_sync(store, enqueue_sync(store, release_id, 'default'))
+    deleted = next(doc['id'] for doc in client.documents.values()
+                   if doc['metadata']['platform_source_id'] == 'doc-1')
+    client.delete_documents(kb_id, [deleted])
+    result = run_sync(store, enqueue_sync(store, release_id, 'default'))
+    assert result['errors'] == [] and result['uploaded'] == 1 and result['skipped'] == 1
+    replacement = next(doc for doc in client.documents.values()
+                       if doc['metadata']['platform_source_id'] == 'doc-1')
+    assert replacement['id'] != deleted and replacement['name'] == '标题A.md'
+    assert len(client.documents) == 2
+    from governance.database import connection
+    with connection() as conn:
+        receipt = conn.execute("SELECT document_id FROM knowledge_sync WHERE source_id='doc-1'").fetchone()
+    assert receipt['document_id'] == replacement['id']
+
+
 def test_run_sync_preserves_original_filename_without_changing_document_identity(environment, tmp_path):
     store, client, _ = environment
     release_path = make_release_zip(tmp_path / 'named.zip', [{

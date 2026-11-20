@@ -18,7 +18,6 @@ async function setup(t: TestContext, accepted = true) {
     'tdesign-vue-next': { MessagePlugin: { error: (value: string) => errors.push(value), success() {} } },
     '@/composables/useRoleLabel': { useRoleLabel: () => ({ formatRole() {}, roleIcon() {} }) },
     '@/utils/loginNotify': { notifyLoginSuccess() {} }, '@/utils/passwordPolicy': passwordPolicy,
-    'swiper/vue': {}, 'swiper/modules': {}, 'swiper/css': {}, 'swiper/css/effect-fade': {}, 'swiper/css/pagination': {},
     '@/api/auth': {
       login: async (value: any) => { calls.push(value); return accepted
         ? { success: true, user: { id: 'admin-id', account: 'admin', username: '管理员', tenant_id: 1 }, token: 'session', tenant: { id: 1 } }
@@ -30,7 +29,6 @@ async function setup(t: TestContext, accepted = true) {
     '@/stores/auth': { useAuthStore: () => auth },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key, tm: () => [] }) },
     '@/utils/api-base': { getApiBaseUrl: () => '' },
-    ...Object.fromEntries([1, 2, 3, 4].map(n => [`@/assets/img/screenshot-${n}.svg`, 'image.svg'])),
   })
   await flush()
   vm.formRef = { validate: async () => {

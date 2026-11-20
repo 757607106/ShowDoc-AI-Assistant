@@ -56,31 +56,31 @@ const RULES = [
     name: 'motion-literal',
     why: '过渡时长请用 var(--app-motion-instant|fast|base|slow)（120/150/200/300ms）',
     pattern: /transition[^;{]*?(?<![\d.])(?:0?\.\d+s|\d+ms)/g,
-    baseline: 64,
+    baseline: 40,
   },
   {
     name: 'transition-all',
     why: 'transition: all 会让无关属性也参与动画（含 layout 属性），请列出具体属性',
     pattern: /transition\s*:\s*all\b/g,
-    baseline: 59,
+    baseline: 26,
   },
   {
     name: 'important',
     why: '!important 通常意味着在和 TDesign 或自己的样式打架；全局意图的覆盖放 tdesign-overrides.less',
     pattern: /!important/g,
-    baseline: 414,
+    baseline: 184,
   },
   {
     name: 'z-index-important',
     why: 'z-index 不应靠 !important 取胜，改用 t-popup attach="body" 或 --z-* 层级令牌',
     pattern: /z-index\s*:\s*-?\d+\s*!important/g,
-    baseline: 23,
+    baseline: 11,
   },
   {
     name: 'raster-icon',
     why: 'more.png / circle.png 位图图标请换成 t-icon',
     pattern: /(more|circle)\.png/g,
-    baseline: 8,
+    baseline: 0,
   },
 ]
 

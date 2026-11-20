@@ -2,7 +2,7 @@ import asyncio
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from crawlers.base import CrawledDocument
 from crawlers.web import WebCrawler
@@ -136,6 +136,79 @@ class WebCrawlerTests(unittest.TestCase):
         self.assertEqual(context.pattern, "**/*")
         self.assertEqual(data_route.action, "continue")
         self.assertEqual(file_route.action, "abort")
+
+    def test_sitemap_discovery_stops_after_explicit_page_limit(self):
+        crawler = self.make_crawler(crawl_mode="site", max_pages=1)
+
+        class Response:
+            def __init__(self, content=b"", ok=True):
+                self.content = content
+                self.ok = ok
+
+            def raise_for_status(self):
+                return None
+
+        class Session:
+            def __init__(self):
+                self.calls = []
+
+            def get(self, url, timeout):
+                self.calls.append(url)
+                if url.endswith("/robots.txt"):
+                    return Response(ok=False)
+                return Response(b"<urlset><url><loc>https://docs.example.test/a</loc></url><url><loc>https://docs.example.test/b</loc></url></urlset>")
+
+            def close(self):
+                return None
+
+        session = Session()
+        with patch.object(crawler, "_http_session", return_value=session):
+            crawler._discover_sitemap_urls()
+
+        self.assertEqual(session.calls, [
+            "https://docs.example.test/robots.txt",
+            "https://docs.example.test/sitemap.xml",
+        ])
+
+    def test_redirected_page_keeps_requested_depth(self):
+        import json
+        from pathlib import Path
+
+        crawler = self.make_crawler(crawl_mode="site", max_depth=1)
+        output = Path(crawler.save_dir)
+        output.mkdir(parents=True, exist_ok=True)
+        requested = "https://docs.example.test/requested"
+        (output / "crawl_results.jsonl").write_text("")
+        (output / "crawl_state.json").write_text(json.dumps({
+            "pending": [[requested, 1]], "queued": [requested], "count": 0,
+        }))
+        redirected = SimpleNamespace(
+            url="https://docs.example.test/final", success=True, html="<p>正文</p>",
+            metadata={}, status_code=200,
+            links={"internal": [{"href": "https://docs.example.test/too-deep"}]},
+        )
+
+        class Browser:
+            def __init__(self, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def arun_many(self, *, urls, config):
+                return [redirected]
+
+        crawler._guard_browser = AsyncMock()
+        crawler._discover_sitemap_urls = lambda: []
+        crawler._discover_api_documents = lambda *args: []
+        with patch("crawl4ai.AsyncWebCrawler", Browser):
+            asyncio.run(crawler._crawl_site())
+
+        state = json.loads((output / "crawl_state.json").read_text())
+        self.assertEqual(state["pending"], [])
 
     def test_structured_api_html_uses_markdown_tables_and_code_blocks(self):
         crawler = self.make_crawler()

@@ -9,17 +9,19 @@ from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
+from zipfile import ZipFile
 
 from dotenv import load_dotenv
 from flask import Blueprint, g, jsonify, request, send_file
 from requests import RequestException, Timeout
 
 from registry import ENTRIES, create_crawler, get_entry
+from crawlers.base import DocumentStub
 from integrations.showdoc import ShowDocAuthenticator, ShowDocProjectManager
 from integrations.contextdb import ContextDBError
 from governance.store import Store, StoreError, data_dir
 from governance.database import connection
-from governance.worker import publish
+from governance.worker import create_zip_file, publish
 from webapi.auth import client_for_user, user_id
 
 # 单例在导入期创建，需先完成 .env 装配（幂等，不覆盖已有环境变量）
@@ -356,7 +358,10 @@ def entry_preview(key):
     try:
         crawler = create_crawler(entry.key, save_dir=LISTING_SAVE_DIR, **params)
         crawler.authenticate()
-        stub = next((item for item in crawler.list_documents() if str(item.id) == doc_id), None)
+        if entry.key == 'tiantong':
+            stub = DocumentStub(doc_id, f'文档 {doc_id}', '未分类')
+        else:
+            stub = next((item for item in crawler.list_documents() if str(item.id) == doc_id), None)
         if stub is None:
             raise ApiError('当前来源的目录中没有这篇文档，请重新读取目录', 404)
         doc = crawler.fetch_document(stub)
@@ -488,6 +493,13 @@ def download_result(task_id):
     path = job.get('zip_file')
     if not path or not Path(path).is_file():
         raise ApiError('审计包尚未生成', 404)
+    output = Path(job['output_dir']) if job.get('output_dir') else None
+    if output and output.is_dir():
+        with ZipFile(path) as archive:
+            markdown_included = any(name.startswith('markdown/') and name.endswith('.md')
+                                    for name in archive.namelist())
+        if not markdown_included:
+            create_zip_file(output, path, include_markdown=True)
     return send_file(path, as_attachment=True, download_name=f'audit-{task_id}.zip')
 
 
@@ -671,12 +683,9 @@ def showdoc_get_projects():
                 'message': '未登录或登录失败'
             }), 401
 
-        # 先尝试从缓存获取
-        projects = showdoc_project_manager.get_cached_projects()
-
-        # 如果缓存为空或过期,重新获取
+        group_id = request.args.get('group_id', 0)
+        projects = showdoc_project_manager.get_cached_projects(token, group_id)
         if not projects:
-            group_id = request.args.get('group_id', 0)
             projects = showdoc_project_manager.get_project_list(token, group_id)
 
         return jsonify({

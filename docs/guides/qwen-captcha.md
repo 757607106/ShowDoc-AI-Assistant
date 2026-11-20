@@ -2,7 +2,7 @@
 
 ## 一、功能说明
 
-ShowDoc API文档爬取系统已升级为使用**阿里云千问大模型(Qwen-VL-Max)**进行验证码识别,替代了原来的PaddleOCR服务。
+ShowDoc API文档爬取系统已升级为使用**阿里云千问视觉大模型**进行验证码识别（默认 `qwen3-vl-plus`，可用 `SHOWDOC_VL_MODEL` 或 `QWEN_VL_MODEL` 覆盖）,替代了原来的PaddleOCR服务。
 
 ### 优势对比
 
@@ -52,14 +52,14 @@ ShowDoc API文档爬取系统已升级为使用**阿里云千问大模型(Qwen-V
 
 ```bash
 # 临时设置(当前会话有效)
-export QWEN_API_KEY='sk-your-actual-api-key-here'
+export DASHSCOPE_API_KEY='sk-your-actual-api-key-here'
 
 # 永久设置(添加到 ~/.bashrc 或 ~/.zshrc)
-echo "export QWEN_API_KEY='sk-your-actual-api-key-here'" >> ~/.bashrc
+echo "export DASHSCOPE_API_KEY='sk-your-actual-api-key-here'" >> ~/.bashrc
 source ~/.bashrc
 
 # 或者对于zsh
-echo "export QWEN_API_KEY='sk-your-actual-api-key-here'" >> ~/.zshrc
+echo "export DASHSCOPE_API_KEY='sk-your-actual-api-key-here'" >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -100,7 +100,7 @@ setx QWEN_API_KEY "sk-your-actual-api-key-here"
    pip install python-dotenv
    ```
 
-4. 在app.py开头添加:
+4. 环境加载已内置于 `app.py`（`load_dotenv` 无需手动添加）:
    ```python
    from dotenv import load_dotenv
    load_dotenv()
@@ -108,7 +108,7 @@ setx QWEN_API_KEY "sk-your-actual-api-key-here"
 
 ### 方法3: 直接传参(不推荐)
 
-修改 `app.py` 中的初始化代码:
+修改 `webapi/material.py` 中创建 `ShowDocAuthenticator` 的初始化代码:
 
 ```python
 # 不推荐:直接硬编码API Key
@@ -299,7 +299,7 @@ content = result["choices"][0]["message"]["content"]
 
 已完成的修改:
 1. ✅ `integrations/showdoc/auth.py`: 更新 `recognize_captcha` 方法
-2. ✅ `app.py`: 添加API Key配置
+2. ✅ `webapi/material.py`: 装配验证码识别登录
 3. ✅ 文档更新: README和设计文档
 
 无需修改的部分:
@@ -311,7 +311,7 @@ content = result["choices"][0]["message"]["content"]
 
 如需回退到PaddleOCR:
 1. 恢复 `integrations/showdoc/auth.py` 中的旧代码
-2. 恢复 `app.py` 中的初始化逻辑
+2. 恢复 `webapi/material.py` 中的初始化逻辑
 3. 无需API Key配置
 
 ## 九、相关链接

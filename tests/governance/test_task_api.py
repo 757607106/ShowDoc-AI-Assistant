@@ -4,6 +4,7 @@ import io
 import os
 import sys
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
 
@@ -47,6 +48,81 @@ def test_task_start_status_and_cancel(client):
     assert resp.get_json()['status'] == 'cancelled'
     resp = client.get('/api/tasks')
     assert any(task['task_id'] == task_id for task in resp.get_json()['tasks'])
+
+
+@pytest.mark.parametrize('status', ['completed', 'partial'])
+def test_completed_capture_downloads_actual_audit_zip(client, tmp_path, status):
+    store = material_module.get_store()
+    task_id = store.create_job('file', {'file_paths': ['a.md']})['task_id']
+    archive = tmp_path / 'audit.zip'
+    with ZipFile(archive, 'w') as bundle:
+        bundle.writestr('source_documents.jsonl', '{"id":"one"}\n')
+        bundle.writestr('rag_documents.jsonl', '{"id":"one"}\n')
+        bundle.writestr('failed_documents.jsonl', '')
+    store.update_job(task_id, status=status, phase='completed', zip_file=str(archive))
+
+    status_response = client.get(f'/task_status/{task_id}')
+    assert status_response.get_json()['download_available'] is True
+    response = client.get(f'/download/{task_id}')
+
+    assert response.status_code == 200
+    assert f'audit-{task_id}.zip' in response.headers['Content-Disposition']
+    with ZipFile(io.BytesIO(response.data)) as bundle:
+        assert bundle.read('source_documents.jsonl') == b'{"id":"one"}\n'
+        assert bundle.read('rag_documents.jsonl') == b'{"id":"one"}\n'
+        assert bundle.read('failed_documents.jsonl') == b''
+
+
+def test_missing_capture_archive_is_not_downloadable(client, tmp_path):
+    store = material_module.get_store()
+    task_id = store.create_job('file', {'file_paths': ['a.md']})['task_id']
+    store.update_job(task_id, status='completed', zip_file=str(tmp_path / 'missing.zip'))
+
+    assert client.get(f'/task_status/{task_id}').get_json()['download_available'] is False
+    assert client.get(f'/download/{task_id}').status_code == 404
+
+
+def test_legacy_download_is_rebuilt_with_readable_markdown(client, tmp_path):
+    store = material_module.get_store()
+    task_id = store.create_job('file', {'file_paths': ['a.md']})['task_id']
+    output = tmp_path / 'job'
+    output.mkdir()
+    documents = [
+        {'id':'md','title':'安装说明','category':'指南','source_format':'markdown',
+         'content':'# 安装\n\n先阅读安装步骤。','updated_at':'2026-01-01','metadata':{'url':'https://example.test/install'}},
+        {'id':'html','title':'采购操作','category':'指南','source_format':'html',
+         'content':'<h1>采购</h1><p>先保存后审核。</p>','updated_at':'','metadata':{}},
+        {'id':'file','title':'数据原件','category':'附件','source_format':'file','source_path':'files/data.unknown',
+         'content':'','updated_at':'','metadata':{}},
+    ]
+    (output / 'files').mkdir()
+    (output / 'files' / 'data.unknown').write_bytes(b'original')
+    for name in ('source_documents.jsonl', 'rag_documents.jsonl'):
+        (output / name).write_text(''.join(json.dumps(row, ensure_ascii=False) + '\n' for row in documents))
+    (output / 'rag_chunks.jsonl').write_text('')
+    (output / 'failed_documents.jsonl').write_text('')
+    (output / 'summary.json').write_text('{}')
+    archive = tmp_path / 'audit.zip'
+    with ZipFile(archive, 'w') as bundle:
+        bundle.writestr('summary.json', '{}')
+    store.update_job(task_id, status='completed', output_dir=str(output), zip_file=str(archive))
+
+    response = client.get(f'/download/{task_id}')
+
+    assert response.status_code == 200
+    with ZipFile(io.BytesIO(response.data)) as bundle:
+        names = bundle.namelist()
+        markdown_names = [name for name in names if name.startswith('markdown/') and name.endswith('.md')]
+        assert len(markdown_names) == 4
+        assert 'markdown/全部资料.md' in names
+        merged = bundle.read('markdown/全部资料.md').decode()
+        assert '先阅读安装步骤' in merged and '先保存后审核' in merged
+        fallback = next(name for name in markdown_names if '数据原件' in name)
+        assert '../../files/data.unknown' in bundle.read(fallback).decode()
+        assert bundle.read('files/data.unknown') == b'original'
+        failures = bundle.read('markdown/conversion_failures.jsonl').decode()
+        assert '未提取到 Markdown 正文' in failures or 'unknown' in failures
+        assert bundle.read('rag_documents.jsonl') == (output / 'rag_documents.jsonl').read_bytes()
 
 
 def test_task_retry_requires_terminal_state(client):

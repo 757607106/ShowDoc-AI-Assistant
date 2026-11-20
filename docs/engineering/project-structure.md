@@ -8,14 +8,13 @@
 
 ```text
 .
-├── app.py                         # Flask 入口：应用工厂 + 静态托管，路由全部由 webapi/ 提供
-├── asgi.py                        # ASGI 入口
+├── app.py                         # 应用工厂 + 静态托管；__main__ 启动 Uvicorn ASGI，路由全部由 webapi/ 提供
+├── asgi.py                        # ASGI 入口（create_app 工厂，供 uvicorn --factory）
 ├── main.py                        # 统一 CLI 入口
-├── cyb_rag_md.py                  # 云创业版历史启动入口，功能委托给统一 CLI
 ├── registry.py                    # 平台注册与爬虫工厂
-├── requirements.txt               # 运行时依赖
+├── requirements.txt / requirements-dev.txt / pytest.ini   # 运行时依赖、开发依赖与 pytest 配置
 ├── .env.example                   # 环境变量模板
-├── agent/                         # DeepAgents 运行时：图、会话、模型传输、MCP、技能打包（内部结构由 deploy/async-agent/aegra.json 的 graph 文件路径钉死，不重组）
+├── agent/                         # DeepAgents 运行时：图、会话、模型传输、MCP、技能打包、model_catalog 目录数据（内部结构由 deploy/async-agent/aegra.json 的 graph 文件路径钉死，不重组）
 ├── webapi/                        # 全部 HTTP 路由（Blueprint 按域拆分）
 │   ├── contextdb/                 # ContextDB 官方 API 转发域（__init__ 转发核心 + files / preview / source_images）
 │   ├── weknora/                   # WeKnora 协议兼容层（adapter / agents / artifacts / async_views / prompts / sandbox_terminal / terminal / traces），命名保留协议语义
@@ -27,16 +26,17 @@
 ├── governance/                    # ContextDB 治理存储、任务 worker、发布与知识库同步
 ├── integrations/                  # 外部平台认证、项目管理等集成（showdoc / contextdb）
 ├── frontend/                      # Vue 3 + TDesign 前端源码，构建产物 dist 由 Flask 托管
-│   └── src/                       # npm run build 生成 dist/，git 忽略
+│   ├── src/                       # 应用源码；npm run build 生成 dist/（git 忽略）
+│   ├── e2e / scripts / tests      # 端到端用例、构建辅助脚本与前端自测
 ├── scripts/
-│   ├── ops/                       # 运维与迁移脚本（migrate / isolate / repair / configure）
+│   ├── ops/                       # 运维与迁移脚本（migrate / isolate / repair / configure_contextdb_dev）
 │   ├── smoke/                     # 冒烟与探针（会被测试 import 的脚本）
-│   └── verify_*.py 等             # 一次性手动验证套件（acceptance_real_* / dev_api.sh）
+│   └── verify_*.py / acceptance_real_*.py 等   # 手动验证与真实环境验收套件（dev_api.sh 开发启动）
 ├── tests/                         # 自动化测试，按域分子包
 │   ├── conftest.py                # 共享 fixture，仅保留根级一个
-│   ├── fakes/                     # 测试替身（aegra_fake / contextdb_fake / harness_fakes）
+│   ├── fakes/                     # 测试替身（aegra_fake / contextdb_fake）
 │   ├── agent/                     # agent 域
-│   ├── platform/                  # 平台集成域：同一 ASGI 面的集成测试（45 个），经 test_platform_harness 夹具集线，刻意保持单层不二次分层；非集成性质的域测试已按域归入对应子包
+│   ├── platform/                  # 平台集成域：同一 ASGI 面的集成测试（43 个），经 test_platform_harness 夹具集线，刻意保持单层不二次分层；非集成性质的域测试已按域归入对应子包
 │   ├── contextdb/                 # ContextDB 与知识库域
 │   ├── crawlers/                  # 爬虫域
 │   ├── governance/                # 治理存储域
@@ -45,14 +45,13 @@
 │   ├── compose/                   # postgres / opensandbox / agent-runtime 三个 compose 文件
 │   ├── async-agent/               # Aegra 异步 Agent 镜像构建上下文（Dockerfile 全套）
 │   ├── attachment-parser/         # 附件解析镜像
-│   └── opensandbox.local.toml 等  # 沙箱本地配置与说明
-└── docs/                          # 工程、架构、操作和需求文档
+│   └── opensandbox.local.toml / sandbox-pty-prompt.sh / opensandbox*.md  # 沙箱本地配置、PTY 提示与说明
+└── docs/                          # 工程、架构、操作与归档文档
     ├── architecture/              # 架构决策与能力边界
     │   └── reports/               # 日期后缀的验证报告（审计机器快照 JSON 已清理，仅存 md 报告）
     ├── engineering/              # 结构与命名规范
-    ├── guides/                    # 操作指南与验证记录
-    ├── requirements/             # 需求文档
-    └── archive/                  # 已退役文档
+    ├── guides/                    # 操作指南
+    └── archive/                  # 已退役文档与历史验证日志
 ```
 
 运行时产物不属于源代码结构：`downloads/`（运行时数据根，由 `GOVERNANCE_DATA_DIR` 重定向）、`output/`（验证报告根）、`logs/`、`.runtime/`（运行时凭据与探活状态）统一由 `.gitignore` 排除，不得纳入源码清理或迁移范围。
@@ -68,7 +67,7 @@
 | 类 | `PascalCase` | `WebCrawler`、`ShowDocAuthenticator` |
 | 函数和变量 | 小写 `snake_case` | `infer_pagination_plans` |
 | 常量 | `UPPER_SNAKE_CASE` | `DEFAULT_BASE_URL` |
-| 测试文件 | `test_<module>.py`，按域放对应子包 | `tests/platform/test_web_crawler.py` |
+| 测试文件 | `test_<module>.py`，按域放对应子包 | `tests/crawlers/test_web_crawler.py` |
 | 文档目录 | 小写英文目录名，按用途分类 | `docs/architecture/` |
 | Markdown 文档 | 小写英文 `kebab-case` | `multi-platform-crawler-refactor.md` |
 | 前端文件 | 小写英文，Vue 组件 `PascalCase.vue`，按视图/组件分目录 | `KnowledgeView.vue`、`backend.ts` |
@@ -82,10 +81,23 @@
 python app.py
 python main.py --list-entries
 python main.py --entry cyb
-python cyb_rag_md.py
 ```
 
+云创业版旧入口 `cyb_rag_md.py` 已删除，等价命令为 `python main.py --entry cyb`。
+
 `showdoc_auth.py` 和 `showdoc_project.py` 已不再作为根目录模块保留；它们的正式实现分别位于 `integrations/showdoc/auth.py` 和 `integrations/showdoc/project.py`。业务代码必须从规范路径导入，不再新增根目录兼容文件。
+
+## 手动验证脚本登记
+
+`scripts/` 根下的手动验证与真实环境验收脚本没有自动化调用方，用途登记如下：
+
+| 脚本 | 用途 |
+|---|---|
+| `acceptance_real_agent.py` / `acceptance_real_http.py` / `acceptance_real_isolation.py` | 真实 provider/HTTP 的验收与授权检查（按需手动执行） |
+| `verify_async_agent_runtime.py` / `verify_async_multitask.py` | 异步运行服务健康与并发策略核验（容器名对齐 compose 项目名） |
+| `verify_async_scope.py` | 异步服务 HTTP 授权范围实时核验 |
+| `verify_crawler_names.py` / `verify_knowledge_names.py` | 知识/爬虫命名核对（测试在用） |
+| `dev_api.sh` | 开发 API 启动（watchfiles 热重载） |
 
 ## 新增文件放置原则
 

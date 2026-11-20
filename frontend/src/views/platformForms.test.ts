@@ -84,23 +84,6 @@ test('read-only operation fields distinguish processing stages and message roles
   assert.equal(original.role,'user')
 })
 
-test('the original document selection retains range and loaded-item behavior',t=>{
-  const source=readFileSync(new URL('./knowledge/KnowledgeBase.vue',import.meta.url),'utf8')
-  const start=source.indexOf('const toggleSelectRow =')
-  const end=source.indexOf('// Batch (multi-select)',start)
-  assert.ok(start>=0&&end>start)
-  const state=fixture(t).evaluate(`const cardList={value:[{id:'a'},{id:'b'},{id:'c'}]};
-    const selectedIds={value:new Set<string>()};let lastSelectedIndex=-1;
-    ${source.slice(start,end)}
-    export {toggleSelectRow,toggleSelectAll,clearSelection,selectedIds}`,{})
-  state.toggleSelectRow('a',true);state.toggleSelectRow('c',true,true)
-  assert.deepEqual([...state.selectedIds.value],['a','b','c'])
-  state.toggleSelectRow('b',false);assert.deepEqual([...state.selectedIds.value],['a','c'])
-  state.clearSelection();assert.equal(state.selectedIds.value.size,0)
-  state.toggleSelectAll(true);assert.deepEqual([...state.selectedIds.value],['a','b','c'])
-  state.toggleSelectAll(false);assert.equal(state.selectedIds.value.size,0)
-})
-
 test('permission selectors use member/group identifiers and reset incompatible selections',async t=>{
   const writes:any[]=[]
   const {vm}=fixture(t).component(new URL('./settings/ContextDBPermissions.vue',import.meta.url),{

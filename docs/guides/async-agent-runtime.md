@@ -8,17 +8,17 @@
 
 - Aegra `0.11.0`，Apache-2.0，[源码 commit `46055c0b9adffe51fb168974f79dfadaa6edd612`](https://github.com/aegra/aegra/tree/46055c0b9adffe51fb168974f79dfadaa6edd612)，[许可原文](https://github.com/aegra/aegra/blob/46055c0b9adffe51fb168974f79dfadaa6edd612/LICENSE)。使用 Aegra 项目发布的 PyPI wheel，SHA256 为 `6d49695aecd4133289b9b0e84d39eb67f1fb7581cedcb1554405d93b580648d3`；应用本项目兼容补丁前，已与该源码的 102 个 Python 文件逐字比对一致。
 - Valkey `9.0.7-alpine`，BSD-3-Clause，镜像固定为 `sha256:2d04268dfa26ab31cfa3fdc538866e76438b2d00e41db41b8cb86d780ac5a416`。版本来自 [Valkey 官方下载页](https://valkey.io/download/)，镜像由 [官方容器项目](https://github.com/valkey-io/valkey-container)维护。
-- Deep Agents `0.7.35`、LangChain `1.5.0`、LangGraph `1.2.20` 与当前应用一致。完整依赖固定在 `deploy/async-agent/requirements.txt`。
+- Deep Agents `0.7.39`、LangChain `1.5.0`、LangGraph `1.2.20` 与当前应用一致。完整依赖固定在 `deploy/async-agent/requirements.txt`。
 
 这些组件均可免费自托管，未新增 LangSmith 或其他收费服务。Compose 明确关闭 LangSmith 和 OpenTelemetry 导出；原模型供应商与 ContextDB 仍使用已有账号，原有调用费用规则不变。
 
 ## 固定版本兼容层
 
-镜像构建会执行 `deployment/async-agent/compat.py`，先核对固定 Aegra 源文件的 SHA256，再作以下定点适配；源码不匹配时构建失败，升级版本必须重新审查：
+镜像构建会执行 `deploy/async-agent/compat.py`（容器内路径为 `/app/deployment/async-agent/`），先核对固定 Aegra 源文件的 SHA256，再作以下定点适配；源码不匹配时构建失败，升级版本必须重新审查：
 
-- Aegra `0.11.0` 原 HITL 暂停写成 `run=interrupted`、`thread=interrupted`。Deep Agents `0.7.35` 用 `run=interrupted` 表示真实取消，而 waiting 要求 `run=success`、`thread=interrupted`。补丁只修改 HITL 完结状态和对应结束信号，真实取消路径保留 `interrupted`。实测直接调用 SDK `_aobserve`/`_task_status` 得到 waiting，`_pending_interrupts` 能读取真实审批 ID。
+- Aegra `0.11.0` 原 HITL 暂停写成 `run=interrupted`、`thread=interrupted`。Deep Agents `0.7.39` 用 `run=interrupted` 表示真实取消，而 waiting 要求 `run=success`、`thread=interrupted`。补丁只修改 HITL 完结状态和对应结束信号，真实取消路径保留 `interrupted`。实测直接调用 SDK `_aobserve`/`_task_status` 得到 waiting，`_pending_interrupts` 能读取真实审批 ID。
 - 补充 Thread 模型与 `GET /threads/{id}` 的 `values`、`interrupts`，使 SDK 可读取完成结果及待响应内容；可信 factory 从数据库校验授权，避免在 Thread GET 查询 graph 状态时递归调用自身。
-- `deployment/async-agent/multitask_compat.py` 补齐 `interrupt`、`enqueue`、`reject` 策略，复用 Aegra 既有 PostgreSQL 运行记录与官方 worker/lease 执行路径。独立 admission 锁串行接收，同线程 execution 锁覆盖原 worker 生命周期；等待任务返回原 Valkey 队列。已实测同线程串行、异线程并行、忙时拒绝和真实中断；没有另建执行器或运行状态库。
+- `deploy/async-agent/multitask_compat.py`（容器内 `/app/deployment/async-agent/`）补齐 `interrupt`、`enqueue`、`reject` 策略，复用 Aegra 既有 PostgreSQL 运行记录与官方 worker/lease 执行路径。独立 admission 锁串行接收，同线程 execution 锁覆盖原 worker 生命周期；等待任务返回原 Valkey 队列。已实测同线程串行、异线程并行、忙时拒绝和真实中断；没有另建执行器或运行状态库。
 
 平台还在实际资源入口校验 owner、父会话、子代理及原始 delegation 绑定，不把上游返回的授权 filter 当作所有 endpoint 已完成过滤的保证。
 

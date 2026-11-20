@@ -149,7 +149,13 @@ def _deliver(store, record, archive, mode, kb, scope, pipeline, directories):
         raise StoreError('目标知识库映射已改变，需要独立迁移后重试', 409)
     doc = None
     if row and row['document_id']:
-        doc = store.client.get_document(kb['id'], row['document_id'])
+        try:
+            doc = store.client.get_document(kb['id'], row['document_id'])
+        except ContextDBError as exc:
+            # errorCode 1001：回执指向的官方文档已被删除。批次仍携带原件，按全新目标重新投递，
+            # 而不是让整批提交停在旧回执上（软删除态 deleted/deleting 仍走下方 409 防护）。
+            if exc.error_code != 1001:
+                raise
     same_capture = bool(doc and row['source_hash'] == digest and row['source_version'] == str(record.get('version_id', '')))
     if same_capture:
         # Policy changes do not replace a previously accepted capture or its human rewrite.

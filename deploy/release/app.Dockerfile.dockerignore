@@ -1,0 +1,12 @@
+**
+!requirements.txt
+!app.py
+!asgi.py
+!registry.py
+!agent/
+!common/
+!crawlers/
+!governance/
+!integrations/
+!webapi/
+**/__pycache__/

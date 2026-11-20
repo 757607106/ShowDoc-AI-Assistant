@@ -100,7 +100,8 @@ class FakeContextDBClient:
         self._root_node(kb_id)
         node = self.nodes.get(node_id)
         if node is None or node['knowledge_base_id'] != kb_id:
-            raise ContextDBError('node not found', status_code=404)
+            raise ContextDBError('COMMON_BAD_REQUEST: node not found (errorCode=1001)',
+                                  status_code=400, error_code=1001)
         return node
 
     def _node_view(self, node):
@@ -288,7 +289,8 @@ class FakeContextDBClient:
     def get_document(self, knowledge_base_id, document_id, *, with_download_url=False):
         doc = self.documents.get(document_id)
         if doc is None or (knowledge_base_id is not None and doc['knowledge_base_id'] != knowledge_base_id):
-            raise ContextDBError('document not found')
+            raise ContextDBError('COMMON_BAD_REQUEST: document not found (errorCode=1001)',
+                                  status_code=400, error_code=1001)
         view = dict(doc)
         if not with_download_url:
             view.pop('download_url', None)

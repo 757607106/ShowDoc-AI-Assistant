@@ -116,7 +116,7 @@ test('large files go directly to the chosen cloud library without a false local 
  const f=await setup(t),large=new File(['x'],'large.pdf');Object.defineProperty(large,'size',{value:101*1024*1024})
  f.vm.selectFiles([large]);await f.vm.launch()
  assert.equal(f.calls[1].direct,'a');assert.equal(f.calls.some(call=>call.files),false)
- assert.equal(f.vm.files.length,0);assert.equal(f.vm.taskId,'');assert.match(f.vm.uploadNotice,/ContextDB/)
+ assert.equal(f.vm.files.length,0);assert.equal(f.vm.taskId,'');assert.equal(f.vm.uploadNotice,'1 个文件已提交到知识库。')
  assert.equal(f.vm.showFileReceipt,true);assert.equal(f.vm.fileReceipt.taskFiles,0)
  f.vm.openReceiptLibrary();assert.equal(f.routes.at(-1).name,'knowledgeBaseDetail');assert.equal(f.routes.at(-1).params.kbId,'a')
 })

@@ -1,7 +1,5 @@
 """Flask blueprints；Wiki 通过 ContextDB 原生接口转发。"""
 
-from flask import Blueprint
-
 from webapi.agent import agent_bp
 from webapi.knowledge import knowledge_bp
 from webapi.auth import auth_bp

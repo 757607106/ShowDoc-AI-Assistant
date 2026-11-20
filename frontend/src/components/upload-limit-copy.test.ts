@@ -33,19 +33,17 @@ test('knowledge upload hints interpolate the configured limit in every locale', 
 })
 
 test('empty state and drag overlay pass the runtime limit to both upload hints', () => {
-  for (const name of ['empty-knowledge.vue', 'upload-mask.vue']) {
-    const source = readFileSync(new URL(`./${name}`, import.meta.url), 'utf8')
+  const source = readFileSync(new URL('./upload-mask.vue', import.meta.url), 'utf8')
 
-    assert.match(source, /import \{ MAX_FILE_SIZE_MB \} from '@\/utils'/)
-    assert.match(
-      source,
-      /\$t\('knowledgeBase\.pdfDocFormat', \{ size: MAX_FILE_SIZE_MB \}\)/,
-      `${name}: pdf/doc hint`,
-    )
-    assert.match(
-      source,
-      /\$t\('knowledgeBase\.textMarkdownFormat', \{ size: MAX_FILE_SIZE_MB \}\)/,
-      `${name}: text/markdown hint`,
-    )
-  }
+  assert.match(source, /import \{ MAX_FILE_SIZE_MB \} from '@\/utils'/)
+  assert.match(
+    source,
+    /\$t\('knowledgeBase\.pdfDocFormat', \{ size: MAX_FILE_SIZE_MB \}\)/,
+    'upload-mask: pdf/doc hint',
+  )
+  assert.match(
+    source,
+    /\$t\('knowledgeBase\.textMarkdownFormat', \{ size: MAX_FILE_SIZE_MB \}\)/,
+    'upload-mask: text/markdown hint',
+  )
 })

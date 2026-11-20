@@ -1,7 +1,7 @@
 """Source capture keeps media references without pretending to transcribe them."""
 import json
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -116,3 +116,81 @@ def test_tiantong_attachment_keeps_original_name_and_exact_stored_identity(tmp_p
     assert child['metadata']['parent_document_id'] == 'parent'
     assert attachment.read_bytes() == original
     c.pipeline.convert.assert_not_called()
+
+
+def test_tiantong_attachment_failure_is_partial_and_retry_replaces_old_children(tmp_path):
+    c = TiantongCrawler(str(tmp_path))
+    c.source_only = True
+    c._items = {'parent': {'title': '带附件正文', 'content': '<p>正文</p>', 'attachments': [
+        {'fileId': 'a', 'name': 'a.sql'}, {'fileId': 'b', 'name': 'b.sql'}]}}
+    c.list_documents = lambda: [DocumentStub('parent', '带附件正文', '常见提示')]
+    stored = {key: f'assets/attachments/{key}_{key}.sql' for key in ('a', 'b')}
+    for relative in stored.values():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('SELECT 1;')
+    attempts = iter([stored['a'], None, stored['a'], stored['b']])
+    c._download_attachment = Mock(side_effect=lambda attachment: next(attempts))
+
+    first = c.crawl()
+    assert first.total_documents == 1 and first.failed_documents == 1
+    assert '附件下载失败' in records(first.failed_documents_file)[0]['error']
+
+    second = c.reprocess_sources(first.source_documents_file)
+    captured = records(second.rag_documents_file)
+    assert second.failed_documents == 0 and second.total_documents == 3
+    assert len({row['id'] for row in captured}) == 3
+    assert sum(row['id'] == 'parent:attachment:a_a.sql' for row in captured) == 1
+    assert c._download_attachment.call_count == 4
+
+
+def test_tiantong_malformed_attachment_metadata_is_not_silently_ignored(tmp_path):
+    c = TiantongCrawler(str(tmp_path))
+    c.source_only = True
+    c._items = {'parent': {'title': '正文', 'content': '<p>正文</p>', 'attachments': '{broken'}}
+    c.list_documents = lambda: [DocumentStub('parent', '正文', '未分类')]
+
+    summary = c.crawl()
+
+    assert summary.total_documents == 0 and summary.failed_documents == 1
+    assert '附件字段不是有效 JSON' in records(summary.failed_documents_file)[0]['error']
+
+
+def test_failed_attachment_retry_preserves_previous_valid_file(tmp_path):
+    c = TiantongCrawler(str(tmp_path))
+    existing = tmp_path / 'assets' / 'attachments' / 'a_a.sql'
+    existing.parent.mkdir(parents=True)
+    existing.write_text('previous-valid-content')
+    token = Mock(raise_for_status=Mock(), json=Mock(return_value={
+        'code': 200, 'data': {'downloadUrl': 'https://example.test/a.sql'}}))
+    download = MagicMock()
+    download.__enter__.return_value = Mock(
+        raise_for_status=Mock(side_effect=RuntimeError('network failed')), headers={})
+    c.session.get = Mock(side_effect=[token, download])
+
+    assert c._download_attachment({'fileId': 'a', 'name': 'a.sql'}) is None
+
+    assert existing.read_text() == 'previous-valid-content'
+    assert not Path(str(existing) + '.part').exists()
+
+
+def test_interrupted_attachment_stream_preserves_previous_valid_file(tmp_path):
+    c = TiantongCrawler(str(tmp_path))
+    existing = tmp_path / 'assets' / 'attachments' / 'a_a.sql'
+    existing.parent.mkdir(parents=True)
+    existing.write_text('previous-valid-content')
+    token = Mock(raise_for_status=Mock(), json=Mock(return_value={
+        'code': 200, 'data': {'downloadUrl': 'https://example.test/a.sql'}}))
+    response = MagicMock(headers={}, raise_for_status=Mock())
+    def chunks():
+        yield b'new-partial-content'
+        raise RuntimeError('stream interrupted')
+    response.iter_content = Mock(side_effect=lambda _size: chunks())
+    download = MagicMock()
+    download.__enter__.return_value = response
+    c.session.get = Mock(side_effect=[token, download])
+
+    assert c._download_attachment({'fileId': 'a', 'name': 'a.sql'}) is None
+
+    assert existing.read_text() == 'previous-valid-content'
+    assert not Path(str(existing) + '.part').exists()

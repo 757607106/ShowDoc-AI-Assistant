@@ -3,6 +3,7 @@ from urllib.parse import urlsplit
 
 from common.source_directories import import_directory
 from governance.store import StoreError, data_dir, digest
+from integrations.contextdb import ContextDBError
 
 
 class ImportDirectories:
@@ -71,7 +72,18 @@ class ImportDirectories:
             value = self.store._body(record['id'])
             if not value.get('node_id'):
                 raise StoreError('上次来源目录创建结果未确认，请先核对目录，避免重复创建', 409)
-            parent = self.store.client.list_nodes(self.kb_id, parent_node_id=value['node_id'], page_size=1)['parent_node']
+            try:
+                parent = self.store.client.list_nodes(self.kb_id, parent_node_id=value['node_id'], page_size=1)['parent_node']
+            except ContextDBError as exc:
+                # 映射指向的官方目录节点已被删除（errorCode 1001）：按当前来源名重建目录，
+                # 让后续文档重新归位，而不是让整批投递停在旧映射上。
+                if exc.error_code != 1001:
+                    raise
+                node = self.store.client.create_directory(self.kb_id, value.get('display_name') or value['root_name'])['node']
+                value = {**value, 'node_id': node['node_id'], 'populated': False}
+                self._save_root(record, value)
+                self.roots[key] = record, value
+                return record, value
             if parent['node_type'] != 'folder':
                 raise StoreError('来源目录映射已失效，请先核对目录', 409)
             # An explicit new capture label renames the mapped folder, never creates a duplicate.

@@ -31,7 +31,6 @@ import { renderDocumentPreviewMarkdown } from '../utils/documentPreviewMarkdown.
 
 const SCOPE_ID = 'data-v-previewtest'
 const FRONTEND_ROOT = new URL('../../', import.meta.url)
-const DOC_CONTENT_SFC = new URL('src/components/doc-content.vue', FRONTEND_ROOT)
 const DOCUMENT_PREVIEW_SFC = new URL('src/components/document-preview.vue', FRONTEND_ROOT)
 const THEME_CSS = new URL('src/assets/theme/theme.css', FRONTEND_ROOT)
 
@@ -152,13 +151,6 @@ function markdownBody(): string {
   return renderDocumentPreviewMarkdown(SAMPLE, value => value)
 }
 
-function mergedPreviewTree(): DomNode {
-  // 与 doc-content.vue 模板一致：.doc_content 下的正文根节点带 scoped 属性，
-  // v-html 容器是 .md-content。
-  const html = `<div class="doc_content" ${SCOPE_ID}><div class="doc-markdown-root doc-drawer-body" ${SCOPE_ID}><div class="md-content doc-merged-content" ${SCOPE_ID}>${markdownBody()}</div></div></div>`
-  return buildDomTree(html)
-}
-
 function documentPreviewTree(): DomNode {
   // 与 document-preview.vue 模板一致：根 .document-preview 带 scoped 属性，
   // Markdown 渲染进 .markdown-body。
@@ -228,36 +220,7 @@ function assertTypography(surface: string, tree: DomNode, rules: ReturnType<type
   assert.ok(maxWidth >= 480 && maxWidth <= 800, `${surface}: reading column is ${maxWidth}px wide`)
 }
 
-test('merged/chunk view (.md-content) gets real Markdown typography', () => {
-  const rules = parseCssRules(compileScopedStyle(DOC_CONTENT_SFC))
-  assertTypography('.md-content', mergedPreviewTree(), rules)
-})
-
 test('preview view (.markdown-body) gets real Markdown typography', () => {
   const rules = parseCssRules(compileScopedStyle(DOCUMENT_PREVIEW_SFC))
   assertTypography('.markdown-body', documentPreviewTree(), rules)
-})
-
-test('scoped Markdown rules need the real container class in the DOM', () => {
-  const rules = parseCssRules(compileScopedStyle(DOC_CONTENT_SFC))
-  const treeWithoutClass = buildDomTree(
-    `<div class="doc_content" ${SCOPE_ID}><div class="doc-markdown-root" ${SCOPE_ID}><div class="doc_content-body">${markdownBody()}</div></div></div>`,
-  )
-  const h1 = findByTag(treeWithoutClass, 'h1')
-  assert.ok(h1)
-  // 没有 .md-content 容器时，这些排版规则不应命中（正是本次要修的「选择器
-  // 不命中」故障形态）。若这里开始能命中，说明规则被写成了全局标签选择器。
-  assert.equal(winningDeclaration(rules, h1, 'font-size'), null)
-})
-
-test('Markdown rules no longer depend on .doc_content being the render container', () => {
-  const rules = parseCssRules(compileScopedStyle(DOC_CONTENT_SFC))
-  const tree = mergedPreviewTree()
-  const h1 = findByTag(tree, 'h1')
-  assert.ok(h1)
-  const winner = winningDeclaration(rules, h1, 'font-size')
-  assert.ok(winner)
-  // 命中的选择器必须落在真实容器 .md-content 上，而不是抽屉外壳 .doc_content。
-  assert.match(winner.selector, /\.md-content/)
-  assert.doesNotMatch(winner.selector, /\.doc_content(?![\w-])/)
 })

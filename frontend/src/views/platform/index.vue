@@ -59,7 +59,6 @@ import NewUserGuide from '@/components/NewUserGuide.vue'
 import { useCommandPaletteStore } from '@/stores/commandPalette'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { useUIStore } from '@/stores/ui'
-import { getKnowledgeBaseById } from '@/api/knowledge-base/index'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { collectDroppedFiles } from './collectDroppedFiles'
@@ -128,45 +127,10 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
 // 用于跟踪拖拽进入/离开的计数器，解决子元素触发 dragleave 的问题
 let dragCounter = 0;
 
-// 获取当前知识库ID
-const getCurrentKbId = (): string | null => {
-    return (route.params as any)?.kbId as string || null
-}
-
 const CHAT_DROP_ROUTE_NAMES = new Set(['chat', 'globalCreateChat', 'kbCreateChat']);
 
 const isChatDropRoute = () => {
     return CHAT_DROP_ROUTE_NAMES.has(String(route.name || ''));
-}
-
-// 检查知识库初始化状态
-const checkKnowledgeBaseInitialization = async (): Promise<boolean> => {
-    const currentKbId = getCurrentKbId();
-    
-    if (!currentKbId) {
-        MessagePlugin.error(t('knowledgeBase.missingId'));
-        return false;
-    }
-    
-    try {
-        const kbResponse = await getKnowledgeBaseById(currentKbId);
-        const kb = kbResponse.data;
-        
-        if (!kb.summary_model_id) {
-            MessagePlugin.warning(t('knowledgeBase.notInitialized'));
-            return false;
-        }
-        const strategy = kb.indexing_strategy;
-        const needsEmbedding = !strategy || strategy.vector_enabled || strategy.keyword_enabled;
-        if (needsEmbedding && !kb.embedding_model_id) {
-            MessagePlugin.warning(t('knowledgeBase.notInitialized'));
-            return false;
-        }
-        return true;
-    } catch (error) {
-        MessagePlugin.error(t('knowledgeBase.getInfoFailed'));
-        return false;
-    }
 }
 
 
@@ -186,9 +150,7 @@ const shouldHandleGlobalFileDrag = (event: DragEvent): boolean => {
     event.preventDefault();
     // Settings and its teleported skill drawers own their uploads. This runs
     // in document capture, before a local drop handler can stop propagation.
-    const enabled = !uiStore.showSettingsModal && (
-        isChatDropRoute() || (!IS_CONTEXTDB && route.name === 'knowledgeBaseDetail' && !!getCurrentKbId())
-    );
+    const enabled = !uiStore.showSettingsModal && isChatDropRoute();
     if (!enabled) {
         dragCounter = 0;
         ismask.value = false;
@@ -239,15 +201,6 @@ const handleGlobalDrop = async (event: DragEvent) => {
         }));
         return;
     }
-    
-    const isInitialized = await checkKnowledgeBaseInitialization();
-    if (!isInitialized) {
-        return;
-    }
-
-    window.dispatchEvent(new CustomEvent('weknora:knowledge-file-drop', {
-        detail: { kbId: getCurrentKbId(), files: droppedFiles }
-    }));
 }
 
 // 组件挂载时添加全局事件监听器

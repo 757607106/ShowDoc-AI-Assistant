@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from integrations.showdoc.auth import ShowDocAuthenticator
+from integrations.showdoc.project import ShowDocProjectManager
 
 
 @pytest.mark.parametrize('content', ['a1B2', [{'type': 'text', 'text': 'a1'}, {'type': 'text', 'text': 'B2'}]])
@@ -30,3 +31,13 @@ def test_captcha_sdk_failure_keeps_existing_none_contract_without_fallback(monke
     monkeypatch.setattr('integrations.showdoc.auth.chat_completion', completion)
     assert ShowDocAuthenticator().recognize_captcha(b'image') is None
     completion.assert_called_once()
+
+
+def test_project_cache_is_scoped_to_token_and_group():
+    manager = ShowDocProjectManager()
+    projects = [{'item_id': '1', 'item_name': '项目一'}]
+    manager.cache_projects(projects, 'token-a', 0)
+
+    assert manager.get_cached_projects('token-a', 0) == projects
+    assert manager.get_cached_projects('token-a', 1) is None
+    assert manager.get_cached_projects('token-b', 0) is None

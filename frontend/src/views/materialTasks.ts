@@ -50,5 +50,16 @@ export function taskStatusLabel(task: MaterialTask): string {
 }
 
 export function taskSourceName(task: MaterialTask): string {
-  return task.source_name || (task.kind === 'ctxdb_sync' ? '知识库资料提交' : task.entry_name || '资料采集')
+  return task.source_name || (task.kind === 'ctxdb_sync' ? '知识库资料提交' : (task.entry_name !== task.entry && task.entry_name) || '资料采集')
+}
+
+export function materialErrorLabel(error: unknown): string {
+  if (typeof error !== 'string') return ''
+  if (/正文为空/.test(error)) return '原文为空'
+  if (/\b(?:node|document) not found\b/i.test(error)) return '找不到对应的资料'
+  if (/超时|timed out|timeout/i.test(error)) return '处理超时'
+  if (/知识库暂时不可用|知识库已不存在/.test(error)) return '知识库不可用'
+  if (/已被更新批次取代/.test(error)) return '已有更新的提交'
+  if (/没有权限|权限不足|无权(?:限|访|操)|forbidden/i.test(error)) return '没有操作权限'
+  return ''
 }

@@ -1,11 +1,13 @@
 """在独立子进程中执行平台采集与官方同步任务，PostgreSQL 锁防双跑。"""
 import argparse
+import hashlib
 import json
 import os
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from dataclasses import asdict
@@ -28,7 +30,8 @@ def write_json(path, value):
 
 
 def read_jsonl(path):
-    return [json.loads(line) for line in Path(path).read_text(encoding='utf-8').splitlines() if line.strip()]
+    with Path(path).open(encoding='utf-8') as stream:
+        return [json.loads(line) for line in stream if line.strip()]
 
 
 def restore_retry_artifacts(previous_dir, output):
@@ -41,8 +44,77 @@ def restore_retry_artifacts(previous_dir, output):
     temporary.replace(output)
 
 
-def create_zip_file(source_dir, zip_filename, cancel_check=None):
-    partial = Path(str(zip_filename) + '.part')
+def write_markdown_export(archive, source_dir, cancel_check=None):
+    records_path = Path(source_dir) / 'rag_documents.jsonl'
+    if not records_path.is_file():
+        return
+    from common.converter import RAGContentPipeline, clean_filename
+
+    records = read_jsonl(records_path)
+    failures = []
+    with tempfile.TemporaryDirectory(prefix='audit-markdown-') as directory:
+        pipeline = RAGContentPipeline(Path(directory) / 'assets')
+        merged_path = Path(directory) / '全部资料.md'
+        with merged_path.open('w', encoding='utf-8') as merged:
+            merged.write('# 采集资料\n')
+            current_category = None
+            for record in records:
+                if cancel_check:
+                    cancel_check()
+                body = record.get('content') or ''
+                error = None
+                if record.get('source_format') not in ('markdown', 'md', 'text'):
+                    try:
+                        source_path = ''
+                        if record.get('source_path'):
+                            path = (Path(source_dir) / record['source_path']).resolve()
+                            if not path.is_relative_to(Path(source_dir).resolve()) or not path.is_file():
+                                raise ValueError('源文件缺失或不在采集目录内')
+                            source_path = str(path)
+                        metadata = record.get('metadata') or {}
+                        conversion = pipeline.convert_record({
+                            'id': record['id'], 'title': record.get('title') or record['id'],
+                            'content': body, 'source_format': record.get('source_format'),
+                            'source_path': source_path,
+                            'base_url': metadata.get('resource_base_url') or metadata.get('url') or '',
+                        }, chunk=False)
+                        if not conversion.markdown.strip():
+                            raise ValueError('未提取到 Markdown 正文')
+                        body = conversion.markdown
+                    except Exception as exc:
+                        error = f'{type(exc).__name__}: {exc}'
+                if error:
+                    failures.append({'id': record['id'], 'title': record.get('title'), 'error': error})
+                    notice = '> Markdown 转换未完成，以下保留原始内容；结构化来源仍见包内 JSONL。'
+                    if body.strip():
+                        body = f'{notice}\n\n{body}'
+                    else:
+                        original = record.get('source_path')
+                        link = f'[下载原件](<../../{original}>)' if original else '请查看包内原始 JSONL。'
+                        body = f'{notice}\n\n{link}'
+                title = str(record.get('title') or record['id'])
+                category = str(record.get('category') or '未分类')
+                metadata = record.get('metadata') or {}
+                source = metadata.get('url') or ''
+                header = (f'# {title}\n\n- **分类**: {category}\n'
+                          f'- **更新时间**: {record.get("updated_at") or "未知"}\n'
+                          f'- **来源**: {source}\n\n---\n\n')
+                document = f'{header}{body}\n'
+                suffix = hashlib.sha256(str(record['id']).encode()).hexdigest()[:12]
+                filename = f'{clean_filename(title)}-{suffix}.md'
+                archive.writestr(f'markdown/{clean_filename(category)}/{filename}', document)
+                if category != current_category:
+                    merged.write(f'\n## {category}\n')
+                    current_category = category
+                merged.write(f'\n### {title}\n\n**更新时间：**{record.get("updated_at") or "未知"}\n\n{body}\n')
+        archive.write(merged_path, 'markdown/全部资料.md')
+    if failures:
+        archive.writestr('markdown/conversion_failures.jsonl', ''.join(
+            json.dumps(item, ensure_ascii=False) + '\n' for item in failures))
+
+
+def create_zip_file(source_dir, zip_filename, cancel_check=None, include_markdown=False):
+    partial = Path(f'{zip_filename}.{uuid.uuid4().hex}.part')
     try:
         with ZipFile(partial, 'w', ZIP_DEFLATED) as archive:
             for path in sorted(Path(source_dir).rglob('*')):
@@ -50,6 +122,8 @@ def create_zip_file(source_dir, zip_filename, cancel_check=None):
                     cancel_check()
                 if path.is_file() and not path.name.endswith('.part'):
                     archive.write(path, path.relative_to(source_dir))
+            if include_markdown:
+                write_markdown_export(archive, source_dir, cancel_check)
         partial.replace(zip_filename)
     except BaseException:
         partial.unlink(missing_ok=True)

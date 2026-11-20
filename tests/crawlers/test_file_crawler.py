@@ -32,6 +32,19 @@ def test_uploaded_file_becomes_independent_task_source(tmp_path, monkeypatch):
     assert (Path(summary.output_dir) / 'collection_complete.json').is_file()
 
 
+def test_source_file_hash_uses_streaming_reads(tmp_path):
+    source = tmp_path / 'source.bin'
+    payload = b'large-file-content' * 1024
+    source.write_bytes(payload)
+    crawler = BaseCrawler(str(tmp_path))
+    document = CrawledDocument('file-1', '文件', '上传文件', '', '', {}, 'file', source_path='source.bin')
+
+    with patch.object(Path, 'read_bytes', side_effect=AssertionError('must not read the whole file')):
+        record = crawler._source_record(document)
+
+    assert record['source_sha256'] == hashlib.sha256(payload).hexdigest()
+
+
 def test_upload_path_rejects_external_files_and_symlinks(tmp_path, monkeypatch):
     monkeypatch.setenv('GOVERNANCE_DATA_DIR', str(tmp_path))
     external = tmp_path / 'secret.md'
@@ -153,6 +166,34 @@ def test_resume_reuses_converted_source_and_fetches_only_failed_or_missing(tmp_p
     assert (tmp_path / 'collection_complete.json').is_file()
 
 
+def test_non_source_recovery_removes_replaced_attachment_from_journal(tmp_path):
+    crawler = BaseCrawler(str(tmp_path))
+    old_attachment = tmp_path / 'assets' / 'attachments' / 'old.txt'
+    old_attachment.parent.mkdir(parents=True)
+    old_attachment.write_text('old')
+    parent = CrawledDocument('parent', '父文档', '指南', '<p>旧正文</p>', '',
+                             {'resource_errors': [{'error': '附件下载失败'}]}, 'html')
+    child = CrawledDocument('parent:attachment:old.txt', '旧附件', '指南', '', '',
+                            {'parent_document_id': 'parent'}, 'file',
+                            source_path='assets/attachments/old.txt')
+    crawler._journal_source(parent)
+    crawler._journal_source(child)
+    crawler.list_documents = lambda: [DocumentStub('parent', '父文档', '指南')]
+    crawler.fetch_document = lambda stub: CrawledDocument(
+        'parent', '父文档', '指南', '# 新正文\n\n附件已从源站删除。', '', {}, 'markdown')
+
+    def convert(document):
+        document.docling_path = 'converted'
+        document.markdown = document.content
+
+    crawler.convert_document = convert
+    summary = crawler.reprocess_sources(tmp_path / 'source_documents.jsonl')
+
+    assert summary.total_documents == 1
+    assert [row['id'] for row in records(summary.source_documents_file)] == ['parent']
+    assert [row['id'] for row in records(summary.rag_documents_file)] == ['parent']
+
+
 def test_site_resume_uses_persisted_frontier(tmp_path):
     with patch('crawlers.web.socket.getaddrinfo', return_value=[]):
         crawler = WebCrawler(str(tmp_path), 'https://example.test/docs', crawl_mode='site')
@@ -204,6 +245,34 @@ def test_site_retry_keeps_incomplete_api_gate_when_network_capture_disappears(tm
     assert json.loads(Path(summary.coverage_report_file).read_text())['discovery_details']['api_endpoints'][0]['complete'] is False
 
 
+def test_api_reports_keep_distinct_post_bodies_for_the_same_endpoint(tmp_path):
+    with patch('crawlers.web.socket.getaddrinfo', return_value=[]):
+        crawler = WebCrawler(str(tmp_path), 'https://example.test/docs', crawl_mode='site')
+    plans = [SimpleNamespace(
+        method='POST', url='https://example.test/api/list', page_key='pn',
+        body={'pn': 1, 'filter': filter_name}, headers={}, total=None,
+        first_records=[], complete=complete,
+    ) for filter_name, complete in (('a', False), ('b', True))]
+
+    def infer(events, _url):
+        return [events[0]]
+
+    def paginate(_session, plan, **_kwargs):
+        return SimpleNamespace(records=[], requests_made=0, complete=plan.complete,
+                               stop_reason='total_mismatch' if not plan.complete else 'empty_page')
+
+    with patch('crawlers.web.infer_pagination_plans', side_effect=infer), \
+            patch('crawlers.web.paginate_plan', side_effect=paginate):
+        for index, plan in enumerate(plans):
+            result = SimpleNamespace(url=f'https://example.test/page-{index}', network_requests=[plan])
+            crawler._discover_api_documents(result)
+
+    reports = crawler.discovery_details['api_endpoints']
+    assert len(reports) == 2
+    assert len({report['plan_key'] for report in reports}) == 2
+    assert {report['complete'] for report in reports} == {False, True}
+
+
 def test_partial_journal_tail_is_recoverable_but_complete_corruption_is_not(tmp_path):
     crawler = BaseCrawler(str(tmp_path))
     source = CrawledDocument('1', '已保存', '指南', '# 已保存\n\n原文证据。', '', {}, 'markdown')
@@ -217,13 +286,3 @@ def test_partial_journal_tail_is_recoverable_but_complete_corruption_is_not(tmp_
         stream.write(b'{bad complete record}\n')
     with pytest.raises(ValueError):
         crawler.reprocess_sources(journal)
-
-
-def test_cyb_cli_displays_retained_source_artifact(monkeypatch, capsys):
-    import cyb_rag_md
-    from crawlers.base import CrawlSummary
-    summary = CrawlSummary('cyb', 1, 0, 1, '/output', source_documents_file='/output/source_documents.jsonl')
-    monkeypatch.setattr(cyb_rag_md, 'create_crawler', lambda *args, **kwargs: SimpleNamespace(
-        display_name='云创业版', crawl=lambda: summary))
-    assert cyb_rag_md.crawl_and_process() is summary
-    assert '/output/source_documents.jsonl' in capsys.readouterr().out

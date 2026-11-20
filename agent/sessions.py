@@ -3,7 +3,6 @@ import uuid
 from contextlib import contextmanager, nullcontext
 
 import psycopg
-from psycopg.types.json import Jsonb
 
 from governance.database import connection
 from governance.store import StoreError
